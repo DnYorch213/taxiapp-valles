@@ -1,0 +1,11 @@
+.hud-container {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  background: rgba(0,0,0,0.8);
+  color: #fff;
+  padding: 12px;
+  border-radius: 8px;
+  font-family: monospace;
+  z-index: 9999;
+}

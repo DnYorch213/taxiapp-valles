@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",                // Versión moderna de JS
+    "module": "commonjs",              // Para Node.js
+    "outDir": "dist",                  // Carpeta de salida al compilar
+    "rootDir": "src",                  // Carpeta donde está tu código fuente
+    "strict": true,                    // Activa todas las comprobaciones estrictas
+    "esModuleInterop": true,           // Permite usar import con librerías comunes
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true               // Evita errores en tipos de dependencias
+  },
+  "include": ["src/**/*"],             // Incluye todos los archivos TS en src
+  "exclude": ["node_modules", "dist"]  // Excluye dependencias y compilados
+}

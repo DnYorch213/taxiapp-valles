@@ -1,0 +1,55 @@
+# ==========================================
+# Dependencias y Compilación (Recursivo)
+# ==========================================
+**/node_modules/
+**/dist/
+**/dist-ssr/
+**/build/
+**/out/
+**/.pnpm-store/
+
+# ==========================================
+# Variables de Entorno (Seguridad Crítica)
+# ==========================================
+# Bloquea todos los archivos .env en cualquier carpeta
+**/.env
+**/.env.local
+**/.env.development.local
+**/.env.test.local
+**/.env.production.local
+**/.env.*
+# Permite subir archivos de ejemplo si existen
+!.env.example
+
+# ==========================================
+# Logs y Temporales
+# ==========================================
+**/logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+**/tmp/
+**/coverage/
+
+# ==========================================
+# Editores y Sistema Operativo
+# ==========================================
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.code-workspace
+
+# ==========================================
+# Archivos de TypeScript (Opcional)
+# ==========================================
+# Evita subir el build info de TS
+*.tsbuildinfo
