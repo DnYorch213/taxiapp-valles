@@ -12,21 +12,27 @@ import { User } from "./models/User";
 
 const app = express();
 const server = http.createServer(app);
-// 💡 Mejora de seguridad para Sockets en producción
-const io = new Server(server, {
-  cors: {
-    origin: process.env.FRONTEND_URL || "*", // En el futuro pondrás aquí tu URL de Vercel
-    methods: ["GET", "POST"]
-  }
-});
 
-// Convertimos el puerto a número explícitamente usando Number()
-const PORT = Number(process.env.PORT) || 3001;
+// 1. Configuración de CORS unificada
+const corsOptions = {
+  origin: process.env.FRONTEND_URL || "*",
+  methods: ["GET", "POST"],
+  credentials: true
+};
 
-app.use(cors());
+app.use(cors(corsOptions)); // Aplicar a Express
 app.use(express.json());
 
+// 2. Configuración de Socket.io robusta
+const io = new Server(server, {
+  cors: corsOptions, // Usamos la misma config
+  transports: ['websocket', 'polling'], // Permitir polling mejora la conexión inicial en Render
+  allowEIO3: true // Compatibilidad adicional
+});
+
 connectDB();
+
+const PORT = Number(process.env.PORT) || 3001;
 
 // --- VARIABLES GLOBALES Y MAPAS ---
 let isAutoMode = true; // Modo de despacho automático por defecto
