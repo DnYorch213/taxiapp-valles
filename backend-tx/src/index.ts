@@ -20,8 +20,8 @@ const io = new Server(server, {
   }
 });
 
-const PORT = process.env.PORT || 3001;
-// En producción, el servidor te asignará un puerto aleatorio mediante process.env.PORT
+// Convertimos el puerto a número explícitamente usando Number()
+const PORT = Number(process.env.PORT) || 3001;
 
 app.use(cors());
 app.use(express.json());
@@ -428,11 +428,9 @@ io.on("connection", async (socket) => {
 });
 
 // 2. Escuchamos en el puerto dinámico
-// 💡 Agregamos '0.0.0.0' para asegurar que sea accesible externamente en ciertos hostings
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`---------------------------------------------------`);
   console.log(`🚀 SERVIDOR ACTIVO EN PUERTO: ${PORT}`);
   console.log(`📡 MODO: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🚖 Despacho en Cascada: Operacional`);
   console.log(`---------------------------------------------------`);
 });
