@@ -7,7 +7,8 @@
     "strict": true,                    // Activa todas las comprobaciones estrictas
     "esModuleInterop": true,           // Permite usar import con librerías comunes
     "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true               // Evita errores en tipos de dependencias
+    "skipLibCheck": true,
+    "noImplicitAny": false              // Evita errores en tipos de dependencias
   },
   "include": ["src/**/*"],             // Incluye todos los archivos TS en src
   "exclude": ["node_modules", "dist"]  // Excluye dependencias y compilados

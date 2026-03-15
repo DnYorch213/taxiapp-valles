@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import { Request, Response } from "express";
 import http from "http";
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
@@ -126,7 +127,7 @@ const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [
 };
 
 // --- RUTAS HTTP ---
-app.post("/register", async (req, res) => {
+app.post("/register", async (req: Request, res: Response) => {
   try {
     const { name, email, password, role, taxiNumber } = req.body;
 
@@ -160,7 +161,7 @@ app.post("/register", async (req, res) => {
   }
 });
 
-app.post("/login", async (req, res) => {
+app.post("/login", async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
 
