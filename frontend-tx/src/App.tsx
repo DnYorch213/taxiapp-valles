@@ -11,6 +11,10 @@ import { TravelProvider, useTravel } from "./context/TravelContext";
 import PanelSolicitudes from "./views/PanelSolicitudes";
 import { socket } from "./lib/socket";
 
+if (typeof window !== "undefined") {
+  (window as any).socket = socket;
+}
+
 const Navbar: React.FC = () => {
   const { userPosition, logout } = useTravel();
   const navigate = useNavigate();

@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import './lib/socket'; // 👈 AGREGA ESTA LÍNEA AQUÍ
 import App from './App';
 import 'leaflet/dist/leaflet.css';
 import './index.css';

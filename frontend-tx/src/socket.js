@@ -1,6 +1,5 @@
 import { io } from "socket.io-client";
 
-// Forzamos la URL de tu backend en Render directamente
 const URL = "https://taxiapp-valles.onrender.com";
 
 export const socket = io(URL, {
@@ -9,10 +8,15 @@ export const socket = io(URL, {
   autoConnect: true,
 });
 
-// Esto es para que puedas ver el estado en la consola (F12)
-// En JavaScript no necesitas el "as any"
+// --- ESTE BLOQUE ES EL QUE SOLUCIONA TU ERROR ---
 if (typeof window !== "undefined") {
+  // @ts-ignore (por si usas TypeScript)
   window.socket = socket;
+
+  // Si esto sale en tu consola, window.socket.id DEBE funcionar
+  console.log("🔌 Socket.js cargado. ID actual:", socket.id);
 }
 
-console.log("🚀 Socket intentando conectar a:", URL);
+socket.on("connect", () => {
+  console.log("✅ Conexión establecida con el servidor. ID:", socket.id);
+});
