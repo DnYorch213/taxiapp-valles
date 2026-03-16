@@ -419,6 +419,20 @@ io.on("connection", async (socket) => {
     io.emit("panel_update", buildPayload(tPos, tPos, "activo"));
   });
 
+  // --- EVENTO DE CHAT (Agrégalo aquí) ---
+  socket.on("send_message", (data) => {
+    const { toEmail, message, senderName } = data;
+
+    console.log(`📩 Reenviando mensaje de ${senderName} para ${toEmail}: ${message}`);
+
+    // IMPORTANTE: io.to(toEmail) envía el mensaje a la sala privada del destinatario
+    io.to(toEmail).emit("receive_message", {
+      senderName,
+      message,
+      timestamp: new Date().toISOString()
+    });
+  });
+
   socket.on("disconnect", async () => {
     const uEmail = socket.handshake.auth?.email;
     if (uEmail) {
