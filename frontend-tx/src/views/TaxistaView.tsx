@@ -1,21 +1,70 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import { toast, ToastContainer } from "react-toastify";
+import L from 'leaflet';
 import "react-toastify/dist/ReactToastify.css";
+import "leaflet/dist/leaflet.css";
+
 import { socket } from "../lib/socket";
 import { useTravel } from "../context/TravelContext";
 import { useGeolocation } from "../hooks/useGeolocation";
 import { Payload } from "../types/Payload";
 import { ChatBox } from "../components/ChatBox";
+import { RoutingMachine } from "../components/RoutingMachine";
+import { taxistaIcon, pasajeroIcon } from "../utils/icons";
+
+// --- SUB-COMPONENTE: BARRA DE TIEMPO ---
+const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ duration, onFinish }) => {
+  const [progress, setProgress] = useState(100);
+
+  useEffect(() => {
+    const startTime = Date.now();
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, 100 - (elapsed / duration) * 100);
+      setProgress(remaining);
+
+      if (remaining === 0) {
+        clearInterval(interval);
+        onFinish();
+      }
+    }, 50);
+
+    return () => clearInterval(interval);
+  }, [duration, onFinish]);
+
+  return (
+    <div className="w-full h-1.5 bg-slate-900/20 rounded-full overflow-hidden mt-3 border border-black/5">
+      <div 
+        className={`h-full transition-all duration-75 ease-linear ${
+          progress > 50 ? 'bg-green-600' : progress > 20 ? 'bg-orange-500' : 'bg-red-600'
+        }`}
+        style={{ width: `${progress}%` }}
+      />
+    </div>
+  );
+};
 
 const TaxistaView: React.FC = () => {
   const { userPosition, setUserPosition } = useTravel();
-  const [estado, setEstado] = useState<"Disponible" | "Asignado" | "EnCurso" | "EnCamino" | "ocupado">("Disponible");
+  const [estado, setEstado] = useState<"Disponible" | "Asignado" | "EnCurso" | "EnCamino">("Disponible");
   const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(null);
-  
-  // 🚀 NUEVO ESTADO: Para no perder la cadena de taxistas que rechazaron
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // 1. GPS: Sincronización constante
+  useEffect(() => {
+    audioRef.current = new Audio("/sounds/alerta_taxi.mp3");
+    if (audioRef.current) audioRef.current.loop = true;
+    return () => detenerSonido();
+  }, []);
+
+  const detenerSonido = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+  };
+
   useGeolocation(
     {
       email: userPosition?.email || localStorage.getItem("email") || "",
@@ -24,168 +73,145 @@ const TaxistaView: React.FC = () => {
       taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "",
     },
     (pos) => {
-      if (userPosition) {
-        setUserPosition({ 
-          ...userPosition, 
-          lat: pos.lat, 
-          lng: pos.lng 
-        });
-      }
+      if (userPosition) setUserPosition({ ...userPosition, lat: pos.lat, lng: pos.lng });
     }
   );
 
-  // 2. Gestión de Sockets
   useEffect(() => {
     if (!socket) return;
 
     socket.on("pasajero_asignado", (data: Payload & { excludedEmails?: string[] }) => {
       setPasajeroAsignado(data);
-      // 📥 Guardamos los correos que el servidor ya intentó contactar
       setExcludedEmails(data.excludedEmails || []);
       setEstado("Asignado");
-      toast.info(`¡Nuevo servicio: ${data.name}!`, { position: "top-center" });
-      if ("vibrate" in navigator) navigator.vibrate([200, 100, 200]);
-    });    
+      if (audioRef.current) audioRef.current.play().catch(() => {});
+      if ("vibrate" in navigator) navigator.vibrate([500, 200, 500]);
+      
+      toast.info(`¡SERVICIO ENTRANTE!`, { position: "top-center", autoClose: 14000 });
+    });
 
-    socket.on("trip_cancelled_by_passenger", (data: any) => {
+    socket.on("trip_cancelled_by_passenger", () => {
+      detenerSonido();
       setPasajeroAsignado(null);
       setEstado("Disponible");
       setExcludedEmails([]);
-      toast.error(data.message || "El pasajero ha cancelado el viaje", { position: "top-center" });
+      toast.error("El pasajero canceló el viaje");
     });
 
     return () => {
       socket.off("pasajero_asignado");
       socket.off("trip_cancelled_by_passenger");
     };
-  }, [socket]);
+  }, []);
 
-  // 3. ACCIONES REFACTORIZADAS
+  const puntosRuta = useMemo(() => {
+    if (pasajeroAsignado?.lat && userPosition?.lat && (estado === "EnCamino" || estado === "Asignado")) {
+      return [L.latLng(userPosition.lat!, userPosition.lng!), L.latLng(pasajeroAsignado.lat!, pasajeroAsignado.lng!)];
+    }
+    return [];
+  }, [pasajeroAsignado, userPosition, estado]);
 
   const aceptarViaje = () => {
-    if (!pasajeroAsignado || !userPosition?.lat) return;
-
-    socket.emit("taxi_response", { 
-      requestEmail: pasajeroAsignado.email, 
-      accepted: true,
-      excludedEmails: excludedEmails // Enviamos la lista actual
-    });
-
-    setEstado("EnCamino"); 
-    setExcludedEmails([]); // Limpiamos la lista local
-
-    const origin = `${userPosition.lat},${userPosition.lng}`;
-    const destination = `${pasajeroAsignado.lat},${pasajeroAsignado.lng}`;
-    const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
-    window.open(url, "_blank");
+    if (!pasajeroAsignado) return;
+    detenerSonido();
+    socket.emit("taxi_response", { requestEmail: pasajeroAsignado.email, accepted: true, excludedEmails });
+    setEstado("EnCamino");
   };
 
-  // 🚀 NUEVA FUNCIÓN: Rechazar activa la cascada en el servidor de inmediato
   const rechazarViaje = () => {
     if (!pasajeroAsignado) return;
-
-    socket.emit("taxi_response", { 
-      requestEmail: pasajeroAsignado.email, 
-      accepted: false,
-      excludedEmails: excludedEmails // Devolvemos la lista para que el server sume a este taxista
-    });
-
+    detenerSonido();
+    socket.emit("taxi_response", { requestEmail: pasajeroAsignado.email, accepted: false, excludedEmails });
     setPasajeroAsignado(null);
     setEstado("Disponible");
-    setExcludedEmails([]);
-    toast.warn("Servicio rechazado. Buscando otro para el pasajero...");
   };
 
   const confirmarAbordo = () => {
     if (!pasajeroAsignado) return;
-    socket.emit("passenger_on_board", {
-      taxistaEmail: userPosition?.email,
-      pasajeroEmail: pasajeroAsignado.email
-    });
+    socket.emit("passenger_on_board", { taxistaEmail: userPosition?.email, pasajeroEmail: pasajeroAsignado.email });
     setEstado("EnCurso");
   };
 
   const finalizarViaje = () => {
     if (!pasajeroAsignado) return;
-    socket.emit("end_trip", {
-      pasajeroEmail: pasajeroAsignado.email,
-      taxistaEmail: userPosition?.email
-    });
+    socket.emit("end_trip", { pasajeroEmail: pasajeroAsignado.email, taxistaEmail: userPosition?.email });
     setEstado("Disponible");
     setPasajeroAsignado(null);
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 p-4 flex flex-col font-sans">
+    <div className="h-screen bg-slate-900 flex flex-col overflow-hidden font-sans">
       <ToastContainer theme="dark" />
-      
-      {/* HEADER STATUS */}
-      <div className="flex justify-between items-center mb-6">
-        <span className="text-white font-black tracking-widest text-lg">
-          APP<span className="text-yellow-400">TAXISTA</span>
-        </span>
-        <div className="flex items-center gap-2">
-          <div className={`h-3 w-3 rounded-full ${userPosition?.lat ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-          <span className="text-[10px] text-slate-400 font-bold uppercase">
-            {userPosition?.lat ? 'GPS ONLINE' : 'BUSCANDO GPS...'}
-          </span>
+
+      {/* SECCIÓN MAPA */}
+      <div className="h-[40%] w-full relative">
+        {userPosition?.lat ? (
+          <MapContainer center={[userPosition.lat!, userPosition.lng!]} zoom={15} className="h-full w-full" zoomControl={false}>
+            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            {puntosRuta.length > 0 && <RoutingMachine waypoints={puntosRuta} />}
+            <Marker position={[userPosition.lat!, userPosition.lng!]} icon={taxistaIcon} />
+            {pasajeroAsignado?.lat && <Marker position={[pasajeroAsignado.lat!, pasajeroAsignado.lng!]} icon={pasajeroIcon} />}
+          </MapContainer>
+        ) : (
+          <div className="h-full w-full flex items-center justify-center bg-slate-800 text-slate-500 text-[10px] font-black uppercase">Buscando GPS...</div>
+        )}
+        <div className="absolute top-4 right-4 z-[1000] bg-slate-900/90 backdrop-blur px-4 py-1.5 rounded-full border border-white/10 flex items-center gap-2 shadow-2xl">
+          <div className={`h-2 w-2 rounded-full ${userPosition?.lat ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+          <span className="text-[10px] text-white font-black uppercase tracking-widest">{estado}</span>
         </div>
       </div>
 
-      {/* ÁREA CENTRAL */}
-      <div className="flex-1 flex flex-col justify-center">
+      {/* SECCIÓN INFORMACIÓN */}
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
         {pasajeroAsignado ? (
-          <div className={`rounded-3xl p-6 shadow-2xl transition-all duration-500 ${estado === "Asignado" ? "bg-yellow-400" : "bg-white"}`}>
-            <h3 className="font-black text-2xl mb-1 text-slate-900">
-              {estado === "Asignado" ? "¡NUEVA SOLICITUD!" : "VIAJE EN CURSO"}
-            </h3>
-            
-            <div className="bg-slate-900/10 p-4 rounded-2xl flex items-center gap-4 mt-4">
-              <div className="w-12 h-12 bg-slate-900 rounded-full flex items-center justify-center text-xl text-white">👤</div>
-              <div>
-                <p className="text-[10px] font-bold text-slate-500 uppercase">Pasajero</p>
-                <p className="text-lg font-black text-slate-900">{pasajeroAsignado.name}</p>
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className={`p-5 rounded-[2.5rem] shadow-2xl transition-all duration-500 ${estado === "Asignado" ? "bg-yellow-400 scale-105" : "bg-white"}`}>
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-slate-900 rounded-3xl flex items-center justify-center text-2xl">👤</div>
+                <div className="flex-1">
+                  <p className={`text-[10px] font-black uppercase tracking-tighter ${estado === "Asignado" ? "text-slate-800/60" : "text-slate-400"}`}>
+                    {estado === "Asignado" ? "Solicitud Expirable" : "Pasajero a bordo"}
+                  </p>
+                  <p className="text-2xl font-black text-slate-900 leading-none">{pasajeroAsignado.name}</p>
+                  
+                  {estado === "Asignado" && (
+                    <TimerBar duration={15000} onFinish={() => { toast.warn("Viaje expirado"); detenerSonido(); }} />
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="mt-6 border-t border-black/10 pt-4">
-               <ChatBox 
-                  toEmail={pasajeroAsignado.email} 
-                  userName={localStorage.getItem("userName") || userPosition?.name || "Taxista"} 
-                />
+            <div className="h-72 rounded-[2.5rem] overflow-hidden border border-slate-800 bg-slate-800/30 backdrop-blur-sm">
+                <ChatBox toEmail={pasajeroAsignado.email} userName={localStorage.getItem("userName") || "Taxista"} />
             </div>
           </div>
         ) : (
-          <div className="bg-slate-800 rounded-3xl p-10 text-center border border-slate-700 shadow-inner">
-            <div className="text-5xl mb-4">⌛</div>
-            <p className="text-white font-black text-xl mb-1 uppercase">Disponible</p>
-            <p className="text-slate-500 text-sm">Esperando reportes en tu zona...</p>
+          <div className="flex-1 flex flex-col items-center justify-center text-center">
+            <div className="w-24 h-24 bg-slate-800/40 rounded-full flex items-center justify-center text-5xl mb-4 animate-bounce">🚕</div>
+            <p className="text-white font-black text-xl uppercase italic tracking-tighter">Ciudad Valles</p>
+            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.2em]">Esperando nueva señal...</p>
           </div>
         )}
       </div>
 
-      {/* BOTONES ACCIONABLES */}
-      <div className="mt-8 space-y-3">
+      {/* BOTONERA FIJA */}
+      <div className="p-6 bg-slate-900/90 backdrop-blur-xl border-t border-white/5">
         {estado === "Asignado" && (
-          <div className="flex flex-col gap-3">
-            <button onClick={aceptarViaje} className="w-full py-6 bg-green-500 text-white rounded-[2rem] font-black text-2xl shadow-xl active:scale-95 transition-all">
-              ACEPTAR SERVICIO
-            </button>
-            <button onClick={rechazarViaje} className="w-full py-4 bg-slate-700 text-slate-300 rounded-[2rem] font-bold text-lg active:scale-95 transition-all">
-              RECHAZAR
-            </button>
+          <div className="grid grid-cols-2 gap-4">
+            <button onClick={aceptarViaje} className="py-6 bg-green-500 text-white rounded-[2rem] font-black text-sm uppercase shadow-lg shadow-green-500/20 active:scale-90 transition-all">Aceptar</button>
+            <button onClick={rechazarViaje} className="py-6 bg-slate-800 text-slate-400 rounded-[2rem] font-black text-sm uppercase active:scale-90 transition-all">Ignorar</button>
           </div>
         )}
         
         {estado === "EnCamino" && (
-          <button onClick={confirmarAbordo} className="w-full py-6 bg-yellow-400 text-slate-900 rounded-[2rem] font-black text-2xl shadow-xl active:scale-95 transition-all">
-            PASAJERO ABORDO 👤
+          <button onClick={confirmarAbordo} className="w-full py-6 bg-yellow-400 text-slate-900 rounded-[2rem] font-black text-xl uppercase shadow-xl shadow-yellow-400/20 active:scale-95 transition-all">
+            Llegué al punto 📍
           </button>
         )}
 
         {estado === "EnCurso" && (
-          <button onClick={finalizarViaje} className="w-full py-6 bg-white text-red-600 rounded-[2rem] font-black text-2xl shadow-xl active:scale-95 transition-all border-b-8 border-slate-200">
-            FINALIZAR VIAJE
+          <button onClick={finalizarViaje} className="w-full py-6 bg-red-600 text-white rounded-[2rem] font-black text-xl uppercase shadow-xl shadow-red-600/20 active:scale-95 transition-all">
+            Terminar Viaje ✅
           </button>
         )}
       </div>
