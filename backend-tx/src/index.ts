@@ -13,24 +13,26 @@ import { User } from "./models/User";
 const app = express();
 const server = http.createServer(app);
 
-// Definimos los orígenes permitidos
+const isDev = process.env.NODE_ENV === 'development';
+
 const allowedOrigins = [
-  process.env.FRONTEND_URL, // https://taxiapp-valles.vercel.app
-  "http://localhost:5173",  // Tu entorno local de Vite
+  "https://taxiapp-valles.vercel.app", // Producción
+  "http://localhost:5173",            // Tu Vite local
   "http://127.0.0.1:5173"
-].filter(Boolean) as string[]; // Filtra valores nulos si la env no existe
+];
 
 const corsOptions = {
-  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-    // Si no hay origin (como Postman) o está en la lista, permitimos
-    if (!origin || allowedOrigins.includes(origin)) {
+  origin: (origin: string | undefined, callback: any) => {
+    // En modo desarrollo (isDev), permitimos TODO lo que venga de localhost
+    // En producción, solo lo que esté en la lista blanca
+    if (!origin || allowedOrigins.includes(origin) || isDev) {
       callback(null, true);
     } else {
-      callback(new Error("No permitido por CORS - Red Taxi Valles"));
+      callback(new Error("🚫 Bloqueado por seguridad de Red Taxi"));
     }
   },
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  credentials: true
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 };
 
 app.use(cors(corsOptions));

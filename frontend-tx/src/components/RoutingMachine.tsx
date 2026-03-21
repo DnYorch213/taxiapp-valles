@@ -25,7 +25,7 @@ const CreateRoutingMachineLayer = (props: RoutingProps) => {
     draggableWaypoints: false,
     // Tip: Si quieres que NO aparezcan los marcadores feos de la librería (A y B)
     // descomenta la siguiente línea:
-    // createMarker: () => null, 
+     createMarker: () => null, 
   });
 
   return instance;
