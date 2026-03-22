@@ -22,12 +22,19 @@ export function useSocketPayload() {
         socket.on("panel_update", (data: Payload) => {
             setPanelUpdate(data);
             setPositions((prev) => {
+                // 🚀 MEJORA: Si viene desconectado, lo eliminamos del estado inmediatamente
+                if (data.estado?.toLowerCase() === "desconectado") {
+                    return prev.filter((u) => u.email !== data.email);
+                }
+
+                // Lógica normal para los que siguen activos
                 const exists = prev.some((u) => u.email === data.email);
                 const sanitized = {
                     ...data,
                     lat: data.lat ?? null,
                     lng: data.lng ?? null,
                 };
+
                 return exists
                     ? prev.map((u) => (u.email === data.email ? { ...u, ...sanitized } : u))
                     : [...prev, sanitized];

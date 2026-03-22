@@ -1,12 +1,13 @@
 import { useEffect, useRef } from "react";
 import { socket } from "../lib/socket";
-import { Position } from "../types/Positions";
+import { EstadoUsuario, Position } from "../types/Positions";
 
 interface UserData {
     email: string;
     name: string;
     role: "pasajero" | "taxista" | "admin";
     taxiNumber?: string;
+    estado?: string;
 }
 
 export const useGeolocation = (user: UserData, onRegistered?: (pos: Position) => void) => {
@@ -41,7 +42,7 @@ export const useGeolocation = (user: UserData, onRegistered?: (pos: Position) =>
                     taxiNumber: user.role === "taxista" ? user.taxiNumber : undefined,
                     lat,
                     lng,
-                    estado: "activo", // Puedes ajustar esto según tu lógica de negocio
+                    estado: user.estado as EstadoUsuario || "activo", // Puedes ajustar esto según tu lógica de negocio
                 };
 
                 // Solo emitimos si los datos son válidos

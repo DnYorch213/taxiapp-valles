@@ -46,78 +46,99 @@ const RegisterView: React.FC = () => {
     }
   };
 
-  return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md w-full max-w-sm">
-        <h2 className="text-xl font-bold mb-4 text-center">Crear Cuenta</h2>
-        
-        <input
-          type="text"
-          name="name"
-          placeholder="Nombre completo"
-          value={form.name}
-          onChange={handleChange}
-          required
-          className="w-full mb-3 p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none"
-        />
-        
-        <input
-          type="email"
-          name="email"
-          placeholder="Correo electrónico"
-          value={form.email}
-          onChange={handleChange}
-          required
-          className="w-full mb-3 p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none"
-        />
-        
-        <input
-          type="password"
-          name="password"
-          placeholder="Contraseña"
-          value={form.password}
-          onChange={handleChange}
-          required
-          className="w-full mb-3 p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none"
-        />
+ return (
+  <div className="min-h-screen bg-slate-50 flex flex-col justify-center p-6 relative overflow-hidden font-sans">
+    
+    {/* 🟢 Franja decorativa superior (Identidad del Taxi) */}
+    <div className="absolute top-0 left-0 w-full h-3 bg-[#22c55e]"></div>
 
-        <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de usuario</label>
-        <select
-          name="role"
-          value={form.role}
-          onChange={handleChange}
-          className="w-full mb-3 p-2 border rounded bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-        >
-          <option value="pasajero">Pasajero</option>
-          <option value="taxista">Taxista</option>
-          <option value="admin">Administrador</option>
-        </select>
+    <div className="max-w-md w-full mx-auto bg-white rounded-[2.5rem] shadow-2xl p-8 border border-slate-100 relative z-10">
+      
+      {/* HEADER DE REGISTRO */}
+      <div className="mb-8 text-center">
+        <div className="inline-block p-4 bg-white border-2 border-[#006341] rounded-3xl mb-4 shadow-sm transform -rotate-3">
+          <span className="text-3xl">🚖</span>
+        </div>
+        <h2 className="text-3xl font-black text-slate-800 tracking-tighter leading-none">
+          CREAR<span className="text-[#22c55e]">CUENTA</span>
+        </h2>
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Únete a la red de transporte de Valles</p>
+      </div>
 
-        {form.role === "taxista" && (
+      <form onSubmit={handleSubmit} className="space-y-4">
+        
+        {/* NOMBRE */}
+        <div>
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4 mb-1 block">Nombre completo</label>
           <input
-            type="text"
-            name="taxiNumber"
-            placeholder="Número de unidad (Ej: TX-123)"
-            value={form.taxiNumber}
-            onChange={handleChange}
-            required
-            className="w-full mb-3 p-2 border rounded border-blue-300 bg-blue-50 focus:ring-2 focus:ring-blue-500 outline-none"
+            type="text" name="name" value={form.name} onChange={handleChange} required
+            className="w-full p-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-[#22c55e] transition-all outline-none font-medium text-slate-700 placeholder:text-slate-300"
+            placeholder="Ej. Jorge Pérez"
           />
+        </div>
+
+        {/* CORREO */}
+        <div>
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4 mb-1 block">Correo electrónico</label>
+          <input
+            type="email" name="email" value={form.email} onChange={handleChange} required
+            className="w-full p-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-[#22c55e] transition-all outline-none font-medium text-slate-700 placeholder:text-slate-300"
+            placeholder="correo@ejemplo.com"
+          />
+        </div>
+
+        {/* CONTRASEÑA */}
+        <div>
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4 mb-1 block">Contraseña</label>
+          <input
+            type="password" name="password" value={form.password} onChange={handleChange} required
+            className="w-full p-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-[#22c55e] transition-all outline-none font-medium text-slate-700 placeholder:text-slate-300"
+            placeholder="••••••••"
+          />
+        </div>
+
+        {/* TIPO DE USUARIO */}
+        <div>
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4 mb-1 block">¿Quién eres?</label>
+          <select
+            name="role" value={form.role} onChange={handleChange}
+            className="w-full p-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-[#22c55e] transition-all outline-none font-bold text-[#22c55e] appearance-none"
+          >
+            <option value="pasajero">Soy Pasajero 🙋‍♂️</option>
+            <option value="taxista">Soy Taxista 🚖</option>
+            <option value="admin">Administrador 🛡️</option>
+          </select>
+        </div>
+
+        {/* NÚMERO DE UNIDAD (Solo Taxista) */}
+        {form.role === "taxista" && (
+          <div className="animate-in fade-in slide-in-from-top-2">
+            <label className="text-[10px] font-black text-[#22c55e] uppercase tracking-widest ml-4 mb-1 block">Número de Eco (Unidad)</label>
+            <input
+              type="text" name="taxiNumber" value={form.taxiNumber} onChange={handleChange} required
+              className="w-full p-4 bg-[#22c55e]/5 border-2 border-[#22c55e]/20 rounded-2xl focus:ring-2 focus:ring-[#22c55e] transition-all outline-none font-black text-[#22c55e] placeholder:text-[#22c55e]/30"
+              placeholder="Ej. TX-045"
+            />
+          </div>
         )}
 
         <button 
           type="submit" 
-          className="w-full bg-blue-600 text-white py-2 rounded font-semibold hover:bg-blue-700 transition-colors shadow-sm"
+          className="w-full bg-[#22c55e] text-white py-5 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-[#1a9a4a] transition-all shadow-xl shadow-green-900/20 active:scale-95 mt-4"
         >
           Finalizar Registro
         </button>
-        
-        <p className="mt-4 text-center text-sm text-gray-600">
-          ¿Ya tienes cuenta? <span onClick={() => navigate("/login")} className="text-blue-600 cursor-pointer hover:underline">Inicia sesión</span>
-        </p>
       </form>
+
+      <p className="mt-8 text-center text-xs font-bold text-slate-400 uppercase tracking-tighter">
+        ¿Ya tienes cuenta? <span onClick={() => navigate("/login")} className="text-[#22c55e] cursor-pointer hover:underline">Inicia sesión</span>
+      </p>
     </div>
-  );
+
+    {/* 🟢 Franja inferior sutil */}
+    <div className="absolute bottom-0 left-0 w-full h-1 bg-[#22c55e]/10"></div>
+  </div>
+);
 };
 
 export default RegisterView;

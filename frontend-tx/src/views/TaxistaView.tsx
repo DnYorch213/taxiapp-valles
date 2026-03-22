@@ -23,22 +23,18 @@ const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ durati
       const elapsed = Date.now() - startTime;
       const remaining = Math.max(0, 100 - (elapsed / duration) * 100);
       setProgress(remaining);
-
       if (remaining === 0) {
         clearInterval(interval);
         onFinish();
       }
     }, 50);
-
     return () => clearInterval(interval);
   }, [duration, onFinish]);
 
   return (
-    <div className="w-full h-1.5 bg-slate-900/20 rounded-full overflow-hidden mt-3 border border-black/5">
+    <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden mt-3 border border-white/10">
       <div 
-        className={`h-full transition-all duration-75 ease-linear ${
-          progress > 50 ? 'bg-green-600' : progress > 20 ? 'bg-orange-500' : 'bg-red-600'
-        }`}
+        className="h-full bg-white transition-all duration-75 ease-linear shadow-[0_0_8px_rgba(255,255,255,0.8)]"
         style={{ width: `${progress}%` }}
       />
     </div>
@@ -50,6 +46,7 @@ const TaxistaView: React.FC = () => {
   const [estado, setEstado] = useState<"Disponible" | "Asignado" | "EnCurso" | "EnCamino">("Disponible");
   const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(null);
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
+  const [chatAbierto, setChatAbierto] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -86,15 +83,14 @@ const TaxistaView: React.FC = () => {
       setEstado("Asignado");
       if (audioRef.current) audioRef.current.play().catch(() => {});
       if ("vibrate" in navigator) navigator.vibrate([500, 200, 500]);
-      
-      toast.info(`¡SERVICIO ENTRANTE!`, { position: "top-center", autoClose: 14000 });
+      toast.info(`¡NUEVO SERVICIO!`, { position: "top-center" });
     });
 
     socket.on("trip_cancelled_by_passenger", () => {
       detenerSonido();
       setPasajeroAsignado(null);
       setEstado("Disponible");
-      setExcludedEmails([]);
+      setChatAbierto(false);
       toast.error("El pasajero canceló el viaje");
     });
 
@@ -137,14 +133,15 @@ const TaxistaView: React.FC = () => {
     socket.emit("end_trip", { pasajeroEmail: pasajeroAsignado.email, taxistaEmail: userPosition?.email });
     setEstado("Disponible");
     setPasajeroAsignado(null);
+    setChatAbierto(false);
   };
 
   return (
-    <div className="h-screen bg-slate-900 flex flex-col overflow-hidden font-sans">
-      <ToastContainer theme="dark" />
+    <div className="h-screen bg-slate-50 flex flex-col overflow-hidden font-sans relative">
+      <ToastContainer theme="light" />
 
-      {/* SECCIÓN MAPA */}
-      <div className="h-[40%] w-full relative">
+      {/* 🗺️ MAPA (Ocupa la parte superior) */}
+      <div className="flex-1 w-full relative">
         {userPosition?.lat ? (
           <MapContainer center={[userPosition.lat!, userPosition.lng!]} zoom={15} className="h-full w-full" zoomControl={false}>
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
@@ -153,68 +150,150 @@ const TaxistaView: React.FC = () => {
             {pasajeroAsignado?.lat && <Marker position={[pasajeroAsignado.lat!, pasajeroAsignado.lng!]} icon={pasajeroIcon} />}
           </MapContainer>
         ) : (
-          <div className="h-full w-full flex items-center justify-center bg-slate-800 text-slate-500 text-[10px] font-black uppercase">Buscando GPS...</div>
+          <div className="h-full w-full flex items-center justify-center bg-slate-100 text-slate-400 text-[10px] font-black uppercase italic animate-pulse">
+            🛰️ Sincronizando GPS Valles...
+          </div>
         )}
-        <div className="absolute top-4 right-4 z-[1000] bg-slate-900/90 backdrop-blur px-4 py-1.5 rounded-full border border-white/10 flex items-center gap-2 shadow-2xl">
-          <div className={`h-2 w-2 rounded-full ${userPosition?.lat ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-          <span className="text-[10px] text-white font-black uppercase tracking-widest">{estado}</span>
+
+        {/* Status Badge Flotante */}
+        <div className="absolute top-6 left-6 z-[1000] bg-white px-4 py-2 rounded-2xl shadow-2xl border border-slate-100 flex items-center gap-3">
+          <div className={`h-2.5 w-2.5 rounded-full ${estado === "Disponible" ? "bg-[#22c55e]" : "bg-orange-500 animate-ping"}`}></div>
+          <span className="text-[11px] font-black text-slate-800 uppercase tracking-widest">{estado}</span>
         </div>
       </div>
 
-      {/* SECCIÓN INFORMACIÓN */}
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-        {pasajeroAsignado ? (
-          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className={`p-5 rounded-[2.5rem] shadow-2xl transition-all duration-500 ${estado === "Asignado" ? "bg-yellow-400 scale-105" : "bg-white"}`}>
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-slate-900 rounded-3xl flex items-center justify-center text-2xl">👤</div>
-                <div className="flex-1">
-                  <p className={`text-[10px] font-black uppercase tracking-tighter ${estado === "Asignado" ? "text-slate-800/60" : "text-slate-400"}`}>
-                    {estado === "Asignado" ? "Solicitud Expirable" : "Pasajero a bordo"}
-                  </p>
-                  <p className="text-2xl font-black text-slate-900 leading-none">{pasajeroAsignado.name}</p>
-                  
-                  {estado === "Asignado" && (
-                    <TimerBar duration={15000} onFinish={() => { toast.warn("Viaje expirado"); detenerSonido(); }} />
-                  )}
-                </div>
-              </div>
-            </div>
+     {/* 📋 SECCIÓN DE CONTROL MEJORADA */}
+<div className="bg-white rounded-t-[3.5rem] shadow-[0_-25px_60px_rgba(0,0,0,0.15)] p-8 z-[1001] relative border-t border-slate-50 transition-all duration-700">
+  {/* Handle superior más elegante */}
+  <div className="absolute top-4 left-1/2 -translate-x-1/2 w-16 h-1.5 bg-slate-200 rounded-full"></div>
 
-            <div className="h-72 rounded-[2.5rem] overflow-hidden border border-slate-800 bg-slate-800/30 backdrop-blur-sm">
-                <ChatBox toEmail={pasajeroAsignado.email} userName={localStorage.getItem("userName") || "Taxista"} />
-            </div>
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-center">
-            <div className="w-24 h-24 bg-slate-800/40 rounded-full flex items-center justify-center text-5xl mb-4 animate-bounce">🚕</div>
-            <p className="text-white font-black text-xl uppercase italic tracking-tighter">Ciudad Valles</p>
-            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.2em]">Esperando nueva señal...</p>
-          </div>
+  {pasajeroAsignado ? (
+    <div className="space-y-6 pt-4 animate-in slide-in-from-bottom-6 duration-500">
+      
+      {/* 👤 CARD DEL PASAJERO: Diseño de alto impacto */}
+      <div className={`relative p-6 rounded-[2.5rem] transition-all duration-500 overflow-hidden ${
+        estado === "Asignado" 
+          ? "bg-[#22c55e] shadow-2xl shadow-green-200 ring-4 ring-green-100" 
+          : "bg-slate-50 border-2 border-slate-100"
+      }`}>
+        
+        {/* Decoración sutil de fondo para el estado "Asignado" */}
+        {estado === "Asignado" && (
+          <div className="absolute -right-4 -top-4 text-8xl opacity-10 rotate-12 pointer-events-none">⚡</div>
         )}
+
+        <div className="flex items-center gap-6 relative z-10">
+          <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center text-4xl shadow-lg transform transition-transform ${
+            estado === "Asignado" ? "bg-white rotate-3" : "bg-white border border-slate-200"
+          }`}>
+            {estado === "EnCurso" ? "⭐" : "👤"}
+          </div>
+          
+          <div className="flex-1">
+            <span className={`text-[11px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-full ${
+              estado === "Asignado" ? "bg-white/20 text-white" : "bg-[#22c55e]/10 text-[#22c55e]"
+            }`}>
+              {estado === "Asignado" && "Nueva Solicitud"}
+              {estado === "EnCamino" && "En Ruta"}
+              {estado === "EnCurso" && "Viaje Iniciado"}
+            </span>
+            
+            <h3 className={`text-3xl font-black tracking-tighter mt-2 ${
+              estado === "Asignado" ? "text-white" : "text-slate-800"
+            }`}>
+              {pasajeroAsignado.name}
+            </h3>
+            
+            {estado === "Asignado" && (
+              <div className="mt-3">
+                <TimerBar duration={15000} onFinish={() => { rechazarViaje(); toast.warn("Servicio expirado"); }} />
+                <p className="text-[9px] text-white/70 font-bold uppercase mt-2 text-center tracking-widest">Responde rápido</p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* BOTONERA FIJA */}
-      <div className="p-6 bg-slate-900/90 backdrop-blur-xl border-t border-white/5">
+      {/* 🕹️ BOTONERA DE ACCIÓN: Botones más grandes y táctiles */}
+      <div className="flex flex-col gap-4">
         {estado === "Asignado" && (
-          <div className="grid grid-cols-2 gap-4">
-            <button onClick={aceptarViaje} className="py-6 bg-green-500 text-white rounded-[2rem] font-black text-sm uppercase shadow-lg shadow-green-500/20 active:scale-90 transition-all">Aceptar</button>
-            <button onClick={rechazarViaje} className="py-6 bg-slate-800 text-slate-400 rounded-[2rem] font-black text-sm uppercase active:scale-90 transition-all">Ignorar</button>
+          <div className="grid grid-cols-5 gap-3">
+            <button 
+              onClick={aceptarViaje} 
+              className="col-span-3 py-6 bg-[#22c55e] hover:bg-[#16a34a] text-white rounded-[2rem] font-black text-lg uppercase shadow-xl shadow-green-200 active:scale-95 transition-all tracking-widest"
+            >
+              ACEPTAR
+            </button>
+            <button 
+              onClick={rechazarViaje} 
+              className="col-span-2 py-6 bg-slate-100 text-slate-400 rounded-[2rem] font-black text-xs uppercase active:scale-95 transition-all border-2 border-slate-200/50"
+            >
+              IGNORAR
+            </button>
           </div>
         )}
-        
+
         {estado === "EnCamino" && (
-          <button onClick={confirmarAbordo} className="w-full py-6 bg-yellow-400 text-slate-900 rounded-[2rem] font-black text-xl uppercase shadow-xl shadow-yellow-400/20 active:scale-95 transition-all">
-            Llegué al punto 📍
+          <button 
+            onClick={confirmarAbordo} 
+            className="w-full py-7 bg-slate-900 text-white rounded-[2.5rem] font-black text-xl uppercase shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-3 border-b-8 border-slate-800"
+          >
+            <span className="text-2xl">📍</span> CONFIRMAR ABORDO
           </button>
         )}
 
         {estado === "EnCurso" && (
-          <button onClick={finalizarViaje} className="w-full py-6 bg-red-600 text-white rounded-[2rem] font-black text-xl uppercase shadow-xl shadow-red-600/20 active:scale-95 transition-all">
-            Terminar Viaje ✅
+          <button 
+            onClick={finalizarViaje} 
+            className="w-full py-7 bg-red-600 hover:bg-red-700 text-white rounded-[2.5rem] font-black text-xl uppercase shadow-xl shadow-red-200 active:scale-95 transition-all border-b-8 border-red-800"
+          >
+            🏁 FINALIZAR SERVICIO
           </button>
         )}
       </div>
+    </div>
+  ) : (
+    /* ESTADO DISPONIBLE: Más limpio y "Zen" */
+    <div className="py-16 flex flex-col items-center justify-center text-center animate-in fade-in zoom-in duration-700">
+      <div className="relative">
+        <div className="absolute inset-0 bg-[#22c55e]/20 blur-3xl rounded-full"></div>
+        <div className="relative w-24 h-24 bg-white border-4 border-[#22c55e] rounded-[2rem] flex items-center justify-center text-5xl shadow-2xl mb-6">
+          🚕
+        </div>
+      </div>
+      <h2 className="text-2xl font-black text-slate-800 tracking-tighter uppercase italic">
+        VALLES<span className="text-[#22c55e]">CONECTA</span>
+      </h2>
+      <p className="text-slate-400 text-xs font-bold uppercase tracking-[0.3em] mt-2">Buscando pasajeros...</p>
+    </div>
+  )}
+</div>
+
+      {/* 💬 CHAT COLAPSABLE (Solo si hay pasajero y NO ha finalizado) */}
+      {pasajeroAsignado && pasajeroAsignado.email && estado === "EnCamino" && (
+        <div className={`fixed bottom-0 left-0 w-full z-[2000] transition-all duration-500 ease-in-out ${chatAbierto ? "translate-y-0" : "translate-y-[calc(100%-70px)]"}`}>
+          <div className="max-w-md mx-auto bg-white rounded-t-[2.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.2)] border-x border-t border-slate-100 overflow-hidden">
+            <div 
+              onClick={() => setChatAbierto(!chatAbierto)}
+              className="h-[70px] flex items-center justify-between px-8 cursor-pointer border-b border-slate-50 active:bg-slate-50"
+            >
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 bg-green-500 rounded-2xl flex items-center justify-center text-xl shadow-lg shadow-green-100">💬</div>
+                <h3 className="text-[11px] font-black text-slate-800 uppercase tracking-widest">Chat con Pasajero</h3>
+              </div>
+              <div className={`transform transition-transform duration-500 ${chatAbierto ? "rotate-180" : "rotate-0"}`}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+              </div>
+            </div>
+            <div className="h-[400px] bg-white">
+              <ChatBox toEmail={pasajeroAsignado.email} userName={`Taxi ECO-${userPosition?.taxiNumber || 'Valles'}`} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Franja decorativa inferior */}
+      <div className="h-2 bg-[#22c55e] w-full"></div>
     </div>
   );
 };

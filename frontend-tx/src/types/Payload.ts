@@ -15,7 +15,7 @@ export interface Payload {
     // Estados posibles del flujo (Actualizado)
     estado:
     | "activo" | "pendiente" | "esperando" | "asignado" | "solicitando"
-    | "aceptado" | "rechazado" | "cancelado" | "terminado"
+    | "aceptado" | "rechazado" | "cancelado" | "terminado" | "Finalizado" | "en camino" | "en curso" | "buscando" | "desconectado" | "ocupado"
     | "desconectado" | "ocupado"
     | "Inactivo" | "Esperando Asignación" | "Asignado" | "En Camino" | "En Curso" // ✅ Agrégalos aquí tal cual los usas en la UI
     | string; // Para cualquier estado personalizado que quieras agregar dinámicamente

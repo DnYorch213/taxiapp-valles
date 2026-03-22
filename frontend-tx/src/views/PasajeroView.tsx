@@ -9,10 +9,12 @@ import { ChatBox } from "../components/ChatBox";
 
 const PasajeroView: React.FC = () => {
   const { userPosition, setUserPosition } = useTravel();
-// Esto permite los estados de Payload + tus nuevos estados
-const [estado, setEstado] = useState<Payload['estado'] | "En Camino" | "En Curso">("Inactivo");  const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
-
-  // 1. GPS
+  
+  // Estados extendidos para un flujo de viaje completo
+  const [estado, setEstado] = useState<Payload['estado'] | "EnCamino" | "EnCurso" | "Finalizado" | "Buscando">("Inactivo");
+  const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
+  const [chatAbierto, setChatAbierto] = useState(false);
+  // 1. GPS Hook
   useGeolocation(
     {
       email: userPosition?.email || "",
@@ -30,38 +32,31 @@ const [estado, setEstado] = useState<Payload['estado'] | "En Camino" | "En Curso
 
     socket.on("taxista_asignado", (data: any) => {
       setTaxistaAsignado(data);
-      setEstado("Asignado" as any);
-      toast.success(`Taxi ${data.taxiNumber || ''} en camino`);
+      setEstado("Asignado");
+      toast.success(`Taxi ${data.taxiNumber || ''} asignado`);
     });
 
     socket.on("response_from_taxi", ({ accepted }) => {
       if (accepted) {
-        setEstado("En Camino" as any);
-        toast.info("El taxista ha iniciado el trayecto");
+        setEstado("EnCamino");
+        toast.info("El taxista va hacia tu ubicación");
       } else {
         setEstado("Inactivo");
         setTaxistaAsignado(null);
-        toast.warn("Reasignando taxista...");
+        toast.warn("Buscando otro taxista...");
       }
     });
 
-    // Escuchar cuando el taxista presiona "Servicio Abordo"
-  socket.on("trip_status_update", (data: { status: string }) => {
-    if (data.status === "en curso") {
-      // Aquí actualizas tu estado local del pasajero
-      setEstado("En Curso"); 
-      toast.success("¡Viaje iniciado! Que tengas un buen trayecto.", {
-        position: "top-center",
-      });
-    }
-  });
+    socket.on("trip_status_update", (data: { status: string }) => {
+      if (data.status === "en curso") {
+        setEstado("EnCurso"); 
+        toast.success("¡Viaje iniciado! Que tengas un buen trayecto.", { position: "top-center" });
+      }
+    });
 
-    // ✅ Sincronización de finalización
     socket.on("trip_finished", (data: { pasajeroEmail: string }) => {
       if (data.pasajeroEmail === userPosition?.email) {
-        setTaxistaAsignado(null);
-        setEstado("Inactivo"); // Esto reactiva el botón
-        toast.success("¡Has llegado a tu destino!");
+        setEstado("Finalizado"); // Dispara la pantalla de agradecimiento
       }
     });
 
@@ -73,7 +68,7 @@ const [estado, setEstado] = useState<Payload['estado'] | "En Camino" | "En Curso
     };
   }, [socket, userPosition?.email]);
 
-  // 3. Heartbeat
+  // 3. Heartbeat (Sincronización con el mapa de Admin/Taxi)
   useEffect(() => {
     if (!userPosition?.email || !userPosition?.lat) return;
     const interval = setInterval(() => {
@@ -101,8 +96,8 @@ const [estado, setEstado] = useState<Payload['estado'] | "En Camino" | "En Curso
       timestamp: new Date().toISOString(),
     };
     socket.emit("request_taxi", payload);
-    setEstado("Buscando" as any);
-    toast.info("Solicitud enviada");
+    setEstado("Buscando");
+    toast.info("Buscando unidades cercanas...");
   };
 
   const cancelarSolicitud = () => {
@@ -114,73 +109,170 @@ const [estado, setEstado] = useState<Payload['estado'] | "En Camino" | "En Curso
     setTaxistaAsignado(null);
   };
 
+  const resetearApp = () => {
+    setEstado("Inactivo");
+    setTaxistaAsignado(null);
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4">
-      <ToastContainer />
-      <header className="w-full max-w-md flex justify-between items-center py-6">
-        <h1 className="text-2xl font-black text-slate-800 tracking-tighter">APP<span className="text-yellow-500">PASAJERO</span></h1>
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 font-sans relative overflow-hidden">
+      <ToastContainer theme="light" />
+      
+      {/* Franja decorativa superior */}
+      <div className="absolute top-0 left-0 w-full h-2 bg-[#22c55e]"></div>
+
+      <header className="w-full max-w-md flex justify-between items-center py-8">
+        <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase italic">
+          VALLES<span className="text-[#22c55e]">VIAJE</span>
+        </h1>
+        <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-slate-200 shadow-sm">
+          <div className={`h-2 w-2 rounded-full ${userPosition?.lat ? 'bg-[#22c55e]' : 'bg-red-500'}`}></div>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">GPS Activo</span>
+        </div>
       </header>
 
-      <main className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100">
-        <div className="h-40 bg-slate-100 flex items-center justify-center relative">
-          <div className="z-10 bg-white/90 px-4 py-2 rounded-full shadow-sm">
-            <span className="text-xs font-bold text-slate-500">📍 GPS ACTIVO</span>
-          </div>
+      <main className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-100 relative">
+        {/* ILUSTRACIÓN DINÁMICA */}
+        <div className="h-44 bg-[#22c55e]/5 flex items-center justify-center relative overflow-hidden">
+           <div className="text-6xl grayscale-[0.5] opacity-10 absolute -right-4 -bottom-4 rotate-12">🚕</div>
+           <div className={`z-10 bg-white border-2 p-4 rounded-3xl shadow-xl transform transition-transform duration-500 ${estado !== 'Inactivo' ? 'rotate-0 scale-110 border-[#22c55e]' : '-rotate-2 border-slate-100'}`}>
+              <span className="text-4xl">{estado === 'EnCurso' ? '⭐' : '📍'}</span>
+           </div>
         </div>
 
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-lg font-bold text-slate-700">Estado</h2>
-            <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${
-              estado === 'Inactivo' ? 'bg-slate-100 text-slate-400' : 'bg-green-100 text-green-600 animate-pulse'
+        {/* CONTENEDOR DE ESTADOS (REFRACTORIZADO) */}
+        <div className="p-8">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Servicio Valles</p>
+              <h2 className="text-2xl font-black text-slate-800 tracking-tighter leading-none transition-all duration-500">
+                {estado === 'Inactivo' && "¿A dónde vamos?"}
+                {estado === 'Buscando' && "Buscando unidad..."}
+                {estado === 'Asignado' && "¡Unidad confirmada!"}
+                {estado === 'EnCamino' && "Tu taxi viene en camino"}
+                {estado === 'EnCurso' && "¡Buen viaje por Valles!"}
+              </h2>
+            </div>
+
+            <div className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-colors ${
+              estado === 'Inactivo' ? 'bg-slate-100 text-slate-400 shadow-none' : 'bg-[#22c55e] text-white animate-pulse shadow-green-200'
             }`}>
-              {estado}
-            </span>
+              <div className={`h-1.5 w-1.5 rounded-full ${estado === 'Inactivo' ? 'bg-slate-300' : 'bg-white'}`}></div>
+              {estado === 'EnCurso' ? 'A BORDO' : estado}
+            </div>
           </div>
-          
+
+          {/* CARD DEL TAXISTA DINÁMICA */}
           {taxistaAsignado && (
-            <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 mb-6">
-              <div className="h-12 w-12 bg-yellow-300 rounded-xl flex items-center justify-center text-xl">🚖</div>
-              <div>
-                <p className="text-xs font-normal text-slate-700">Taxista Asignado</p>
-                <p className="text-sm font-bold text-slate-800">{taxistaAsignado.name}</p>
-                <p className="text-xl text-slate-500 font-bold">Taxi {taxistaAsignado.taxiNumber}</p>
+            <div className="p-5 bg-green-50 border-2 border-green-100 rounded-[2.5rem] flex items-center gap-4 animate-in slide-in-from-bottom-4 mb-8">
+              <div className="h-14 w-14 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm">
+                {estado === 'EnCurso' ? '⭐' : '🚖'}
               </div>
+              <div className="flex-1">
+                <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">
+                  {estado === 'EnCurso' ? 'Viaje Iniciado' : 'Datos del Taxista'}
+                </p>
+                <p className="text-lg font-black text-slate-800">Tx-{taxistaAsignado.taxiNumber}</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase truncate max-w-[120px]">{taxistaAsignado.name}</p>
+              </div>
+              {estado === 'EnCamino' && (
+                 <div className="bg-green-500 text-white text-[8px] font-black px-2 py-1 rounded-lg animate-bounce">Cerca</div>
+              )}
             </div>
           )}
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             <button
               onClick={solicitarTaxi}
-              // ✅ CORRECCIÓN: Usamos el estado real para deshabilitar
               disabled={estado !== "Inactivo"}
-              className={`w-full py-4 rounded-2xl font-bold transition-all transform active:scale-95 shadow-xl ${
+              className={`w-full py-5 rounded-[1.8rem] font-black transition-all transform active:scale-95 shadow-2xl tracking-widest text-sm ${
                 estado === "Inactivo" 
-                ? "bg-slate-900 text-white" 
-                : "bg-slate-200 text-slate-400 cursor-not-allowed opacity-70 shadow-none"
+                ? "bg-[#22c55e] text-white hover:bg-[#16a34a] shadow-green-900/20" 
+                : "bg-slate-100 text-slate-300 cursor-not-allowed shadow-none"
               }`}
             >
-              {estado === "Inactivo" ? "SOLICITAR TAXI AHORA" : "VIAJE EN CURSO"}
+              {estado === "Inactivo" ? "SOLICITAR TRANSPORTE" : "VIAJE ACTIVO"}
             </button>
             
-            {estado !== "Inactivo" && (
-              <button onClick={cancelarSolicitud} className="w-full py-3 text-slate-400 hover:text-red-500 text-sm">
-                Cancelar solicitud
+            {(estado === "Buscando" || estado === "Asignado" || estado === "EnCamino") && (
+              <button 
+                  onClick={cancelarSolicitud} 
+                  className="w-full py-2 text-slate-400 hover:text-red-500 text-[10px] font-black uppercase tracking-[0.2em] transition-colors"
+              >
+                Cancelar Servicio
               </button>
             )}
           </div>
         </div>
       </main>
 
-      {/* ✅ ChatBox dinámico */}
-      {taxistaAsignado && taxistaAsignado.email && (
-        <div className="w-full max-w-md mt-6 p-4 border border-slate-200 rounded-2xl bg-white shadow-lg animate-in slide-in-from-bottom-2">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Chat con Taxista</h3>
+      {/* 💬 CHAT COLAPSABLE CORREGIDO */}
+{taxistaAsignado && taxistaAsignado.email && estado === 'EnCamino' && (
+  <div 
+    className={`fixed bottom-0 left-0 w-full z-[2000] transition-all duration-500 ease-in-out ${
+      chatAbierto ? "translate-y-0" : "translate-y-[calc(100%-70px)]"
+    }`}
+  >
+    <div className="max-w-md mx-auto bg-white rounded-t-[2.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.2)] border-x border-t border-slate-100 overflow-hidden">
+      
+      {/* 🟢 CABECERA / BOTÓN DESPLEGABLE (Siempre visible) */}
+      <div 
+        onClick={() => setChatAbierto(!chatAbierto)}
+        className="h-[70px] flex items-center justify-between px-8 cursor-pointer bg-white active:bg-slate-50 transition-colors border-b border-slate-50"
+      >
+        <div className="flex items-center gap-4">
+          <div className="relative h-10 w-10 bg-green-50 rounded-2xl flex items-center justify-center text-xl shadow-sm">
+            💬
+            {/* Punto de notificación */}
+            <div className="absolute -top-1 -right-1 h-3 w-3 bg-[#22c55e] border-2 border-white rounded-full animate-ping"></div>
           </div>
-          <div className="rounded-lg border border-slate-50 overflow-hidden">
-            <ChatBox toEmail={taxistaAsignado.email} userName={userPosition?.name || "Pasajero"} />
+          <div>
+            <h3 className="text-[11px] font-black text-slate-800 uppercase tracking-[0.2em]">
+              Chat con la Unidad
+            </h3>
+            <p className="text-[9px] font-bold text-green-500 uppercase tracking-widest">
+              {chatAbierto ? "Cerrar ventana" : "Toca para escribir"}
+            </p>
+          </div>
+        </div>
+        
+        {/* Flecha indicadora */}
+        <div className={`p-2 rounded-full bg-slate-50 transform transition-transform duration-500 ${chatAbierto ? "rotate-180" : "rotate-0"}`}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="18 15 12 9 6 15"></polyline>
+          </svg>
+        </div>
+      </div>
+
+      {/* 🟢 CUERPO DEL CHAT (Se oculta al colapsar) */}
+      <div className="h-[450px] bg-white">
+        <ChatBox 
+          toEmail={taxistaAsignado.email} 
+          userName={userPosition?.name || "Pasajero"} 
+        />
+      </div>
+    </div>
+  </div>
+)}
+
+      {/* FOOTER */}
+      <div className="mt-auto py-6 opacity-30">
+         <p className="text-[10px] font-black text-slate-400 tracking-[0.5em] uppercase">Ciudad Valles SLP</p>
+      </div>
+
+      {/* 🌟 PANTALLA DE FINALIZACIÓN */}
+      {estado === 'Finalizado' && (
+        <div className="fixed inset-0 z-[2000] bg-[#22c55e] flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in duration-500">
+          <div className="bg-white rounded-[3rem] p-10 shadow-2xl flex flex-col items-center text-center max-w-sm w-full">
+            <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center text-4xl mb-6 border-2 border-green-100">🚕</div>
+            <h2 className="text-3xl font-black text-slate-800 tracking-tighter leading-none mb-4 uppercase">¡Gracias por tu preferencia!</h2>
+            <p className="text-slate-400 font-bold text-sm leading-relaxed mb-8 uppercase tracking-widest">Esperamos que hayas tenido un excelente viaje.</p>
+            <button 
+              onClick={resetearApp} 
+              className="w-full py-5 bg-[#22c55e] hover:bg-[#16a34a] text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-green-200 transition-all"
+            >
+              Aceptar
+            </button>
           </div>
         </div>
       )}

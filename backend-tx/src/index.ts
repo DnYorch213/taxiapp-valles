@@ -180,6 +180,8 @@ io.on("connection", async (socket) => {
   const email = socket.handshake.auth?.email;
   const role = socket.handshake.auth?.role;
 
+  console.log(`Log: Usuario conectado [${email}] con rol [${role}]`);
+
   if (email) {
     socket.join(email);
     if (role === "taxista") {
@@ -289,15 +291,30 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("disconnect", async () => {
-    const uEmail = socket.handshake.auth?.email;
-    if (uEmail) {
-      if (pendingTimeouts.has(uEmail)) {
-        clearTimeout(pendingTimeouts.get(uEmail)!);
-        pendingTimeouts.delete(uEmail);
+    // Usamos las constantes 'email' que capturamos arriba 👆
+    if (email) {
+      console.log(`👻 Detectada desconexión de: ${email}`);
+
+      try {
+        // 1. Limpiamos cualquier timeout de reconexión si existía
+        if (pendingTimeouts.has(email)) {
+          clearTimeout(pendingTimeouts.get(email)!);
+          pendingTimeouts.delete(email);
+        }
+
+        // 2. Actualizamos la base de datos para que no aparezca en el mapa
+        await Position.updateOne({ email: email }, { estado: "desconectado" });
+
+        // 3. Obtenemos el registro para avisar al Panel Central
+        const p = await Position.findOne({ email: email });
+
+        // 4. Emitimos el aviso de que este usuario ya NO debe estar en el mapa
+        // El Frontend (PanelCentral) recibirá esto y lo borrará de la vista
+        io.emit("panel_update", buildPayload(p, p, "desconectado"));
+
+      } catch (error) {
+        console.error("Error al procesar desconexión:", error);
       }
-      await Position.updateOne({ email: uEmail }, { estado: "desconectado" });
-      const p = await Position.findOne({ email: uEmail });
-      io.emit("panel_update", buildPayload(p, p, "desconectado"));
     }
   });
 });

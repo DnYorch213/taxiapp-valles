@@ -19,9 +19,12 @@ const Navbar: React.FC = () => {
   const { userPosition, logout } = useTravel();
   const navigate = useNavigate();
 
-  const handleLogout = () => {
-    logout();
-    socket.disconnect(); // Desconectamos el socket al hacer logout
+ const handleLogout = () => {
+    // 📢 Opcional: Avisar al servidor que me voy voluntariamente
+    socket.emit("force_disconnect", { email: userPosition?.email });
+    
+    logout(); // Limpia el TravelContext y LocalStorage
+    socket.disconnect(); // Corta el cable del socket
     navigate("/login");
   };
 

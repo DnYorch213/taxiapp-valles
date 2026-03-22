@@ -8,18 +8,19 @@ interface PrivateRouteProps {
   role?: "pasajero" | "taxista" | "admin"; // 👈 tipado fuerte
 }
 
+// Tu componente con el toque final:
 export const PrivateRoute: React.FC<PrivateRouteProps> = ({ children, role }) => {
   const { userPosition } = useTravel();
 
-  // Si no hay usuario en contexto, redirige a login
   if (!userPosition) {
-    return <Navigate to="/login" />;
+    return <Navigate to="/login" replace />; // 👈 replace es clave aquí
   }
 
-  // Si hay rol requerido y no coincide, redirige a home
   if (role && userPosition.role !== role) {
-    return <Navigate to="/" />;
+    // Si es taxista y quiere entrar a admin, mejor mándalo a su vista de /taxista
+    const defaultRoute = userPosition.role === "taxista" ? "/taxista" : "/pasajero";
+    return <Navigate to={defaultRoute} replace />;
   }
 
-  return children;
+  return <>{children}</>;
 };
