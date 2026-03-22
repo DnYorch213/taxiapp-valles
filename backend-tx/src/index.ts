@@ -228,6 +228,11 @@ io.on("connection", async (socket) => {
       await Position.updateOne({ email: tEmail }, { estado: "activo" });
       const tPos = await Position.findOne({ email: tEmail });
       io.emit("panel_update", buildPayload(tPos, tPos, "activo"));
+
+      // 🚨 ESTA ES LA LÍNEA QUE FALTA:
+      // Avisamos al pasajero que limpie al taxista actual porque fue rechazado
+      io.to(requestEmail).emit("taxi_rejected_request");
+
       const pData = await Position.findOne({ email: requestEmail });
       if (pData) dispatchWithRetry(pData, [...excludedEmails, tEmail], 1); // Reinicia conteo o sigue flujo
       return;

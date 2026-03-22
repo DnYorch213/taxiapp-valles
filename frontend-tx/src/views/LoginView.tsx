@@ -92,7 +92,7 @@ const LoginView: React.FC = () => {
           TAXI<span className="text-[#22c55e]">VALLES</span>
         </h2>
         <p className="text-slate-400 font-bold text-xs uppercase tracking-widest">
-          Sindicato de Choferes - CD. VALLES
+          Taxistas de Automoviles de Alquiler - CD. VALLES
         </p>
       </div>
 

@@ -47,6 +47,14 @@ const PasajeroView: React.FC = () => {
       }
     });
 
+    socket.on("taxi_rejected_request", () => {
+    // Al limpiar esto, el pasajero deja de ver la card del taxista anterior
+    // y vuelve a ver el estado de "Buscando unidad..."
+    setTaxistaAsignado(null); 
+    setEstado("Buscando"); 
+    toast.info("Buscando otra unidad cercana...");
+  });
+
     socket.on("trip_status_update", (data: { status: string }) => {
       if (data.status === "en curso") {
         setEstado("EnCurso"); 
@@ -63,6 +71,7 @@ const PasajeroView: React.FC = () => {
     return () => {
       socket.off("taxista_asignado");
       socket.off("response_from_taxi");
+      socket.off("taxi_rejected_request");
       socket.off("trip_status_update");
       socket.off("trip_finished");
     };
@@ -132,13 +141,50 @@ const PasajeroView: React.FC = () => {
       </header>
 
       <main className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-100 relative">
-        {/* ILUSTRACIÓN DINÁMICA */}
-        <div className="h-44 bg-[#22c55e]/5 flex items-center justify-center relative overflow-hidden">
-           <div className="text-6xl grayscale-[0.5] opacity-10 absolute -right-4 -bottom-4 rotate-12">🚕</div>
-           <div className={`z-10 bg-white border-2 p-4 rounded-3xl shadow-xl transform transition-transform duration-500 ${estado !== 'Inactivo' ? 'rotate-0 scale-110 border-[#22c55e]' : '-rotate-2 border-slate-100'}`}>
-              <span className="text-4xl">{estado === 'EnCurso' ? '⭐' : '📍'}</span>
-           </div>
+       {/* 🟢 ILUSTRACIÓN DINÁMICA MEJORADA */}
+<div className="h-44 bg-slate-50 flex items-center justify-center relative overflow-hidden rounded-t-[2.5rem]">
+  {/* Decoración de fondo: Un taxi grande y desvanecido */}
+  <div className="text-8xl opacity-[0.03] absolute -right-6 -bottom-6 rotate-12 select-none">
+    🚕
+  </div>
+
+  {/* Contenedor del Icono Principal */}
+  <div className={`z-10 bg-white border-2 p-6 rounded-[2rem] shadow-2xl transform transition-all duration-700 ease-out ${
+    estado === 'EnCurso' 
+      ? 'rotate-0 scale-125 border-[#22c55e] shadow-green-100' 
+      : 'rotate-[-4deg] scale-100 border-slate-100'
+  }`}>
+    
+    <div className="relative flex items-center justify-center">
+      {/* Efecto de ondas cuando el viaje está en curso */}
+      {estado === 'EnCurso' && (
+        <div className="absolute inset-0 bg-[#22c55e]/20 rounded-full animate-ping scale-150"></div>
+      )}
+
+      {/* ICONO DINÁMICO: Palomita Verde o Pin de Ubicación */}
+      {estado === 'EnCurso' ? (
+        <div className="text-[#22c55e] animate-in zoom-in duration-500 relative z-10">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
         </div>
+      ) : (
+        <span className={`text-5xl relative z-10 ${estado !== 'Inactivo' ? 'animate-bounce' : 'grayscale opacity-50'}`}>
+          📍
+        </span>
+      )}
+    </div>
+  </div>
+
+  {/* Pequeño indicador de "Ruta Activa" solo en EnCurso */}
+  {estado === 'EnCurso' && (
+    <div className="absolute bottom-4 flex gap-1">
+      <div className="h-1.5 w-1.5 bg-[#22c55e] rounded-full animate-pulse"></div>
+      <div className="h-1.5 w-1.5 bg-[#22c55e]/40 rounded-full animate-pulse delay-75"></div>
+      <div className="h-1.5 w-1.5 bg-[#22c55e]/20 rounded-full animate-pulse delay-150"></div>
+    </div>
+  )}
+</div>
 
         {/* CONTENEDOR DE ESTADOS (REFRACTORIZADO) */}
         <div className="p-8">
