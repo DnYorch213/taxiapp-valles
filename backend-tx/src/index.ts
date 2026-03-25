@@ -41,7 +41,12 @@ app.use(express.json());
 const io = new Server(server, {
   cors: corsOptions,
   transports: ['websocket', 'polling'],
-  allowEIO3: true
+  allowEIO3: true,
+
+  // 🚨 AÑADE ESTAS LÍNEAS PARA EL CONTROL DE SEGUNDO PLANO:
+  pingInterval: 5000,  // Envía un "ping" cada 5 segundos
+  pingTimeout: 10000,  // Si en 10 segundos el pasajero no responde el ping, lo desconecta y borra del mapa
+  upgradeTimeout: 10000 // Tiempo máximo para pasar de polling a websocket
 });
 
 connectDB();

@@ -11,9 +11,12 @@ interface UserData {
 }
 
 export const useGeolocation = (user: UserData, onRegistered?: (pos: Position) => void) => {
-    // Usamos un ref para la función onRegistered y evitar reinicios innecesarios del efecto
     const onRegisteredRef = useRef(onRegistered);
     onRegisteredRef.current = onRegistered;
+
+    // 🚨 Ref para mantener los datos del usuario actualizados sin reiniciar el efecto
+    const userRef = useRef(user);
+    userRef.current = user;
 
     useEffect(() => {
         if (!user.email) return;
@@ -21,49 +24,53 @@ export const useGeolocation = (user: UserData, onRegistered?: (pos: Position) =>
         const watchId = navigator.geolocation.watchPosition(
             (pos) => {
                 const { latitude, longitude } = pos.coords;
-
-                // 🛡️ FILTRO ANTI-CEROS: Si la lat/lng es exactamente 0, ignoramos.
                 if (latitude === 0 || longitude === 0) return;
 
                 let lat = latitude;
                 let lng = longitude;
 
-                // 📏 OFFSET CORREGIDO (~15-20 metros aprox)
-                // 0.0002 es mucho más cercano a lo que buscabas que 0.0020
-                if (user.role === "pasajero") {
+                // OFFSET (Solo para visualización)
+                if (userRef.current.role === "pasajero") {
                     lat += 0.00015;
                     lng += 0.00015;
                 }
 
                 const newPos: Position & { estado: string } = {
-                    email: user.email,
-                    name: user.name,
-                    role: user.role,
-                    taxiNumber: user.role === "taxista" ? user.taxiNumber : undefined,
+                    email: userRef.current.email,
+                    name: userRef.current.name,
+                    role: userRef.current.role,
+                    taxiNumber: userRef.current.role === "taxista" ? userRef.current.taxiNumber : undefined,
                     lat,
                     lng,
-                    estado: user.estado as EstadoUsuario || "activo", // Puedes ajustar esto según tu lógica de negocio
+                    estado: userRef.current.estado as EstadoUsuario || "activo",
                 };
 
-                // Solo emitimos si los datos son válidos
-                socket.emit("position", newPos);
+                // Emitir solo si el socket está conectado
+                if (socket.connected) {
+                    socket.emit("position", newPos);
+                }
 
                 if (onRegisteredRef.current) {
                     onRegisteredRef.current(newPos);
                 }
             },
-            (error) => console.error("❌ Error GPS:", error.message),
+            (error) => {
+                // Si el error es por timeout (3), no matamos el proceso, solo avisamos
+                if (error.code !== 3) {
+                    console.error("❌ Error GPS:", error.message);
+                }
+            },
             {
-                enableHighAccuracy: true, // Fuerza el uso de GPS real
-                timeout: 10000,           // Espera máximo 10s
-                maximumAge: 0             // No usar posiciones cacheadas viejas
+                enableHighAccuracy: true,
+                timeout: 10000, // Subimos a 10s para dar margen en segundo plano
+                maximumAge: 0
             }
         );
 
         return () => {
             navigator.geolocation.clearWatch(watchId);
         };
-        // 💡 IMPORTANTE: Solo dependemos del email para no reiniciar el GPS 
-        // cada vez que cambie una propiedad menor del objeto user.
-    }, [user.email, user.role]);
+        // 💡 Quitamos user.role de las dependencias. 
+        // Solo reiniciamos el GPS si el email cambia (un login diferente).
+    }, [user.email]);
 };
