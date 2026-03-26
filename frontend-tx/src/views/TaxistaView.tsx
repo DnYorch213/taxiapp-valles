@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import { toast, ToastContainer } from "react-toastify";
 import L from 'leaflet';
+import axios from "axios"; // 👈 Importante para enviar la suscripción
 import "react-toastify/dist/ReactToastify.css";
 import "leaflet/dist/leaflet.css";
 
@@ -12,6 +13,21 @@ import { Payload } from "../types/Payload";
 import { ChatBox } from "../components/ChatBox";
 import { RoutingMachine } from "../components/RoutingMachine";
 import { taxistaIcon, pasajeroIcon } from "../utils/icons";
+
+// --- UTILIDAD: CONVERSIÓN DE LLAVE VAPID ---
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const VAPID_PUBLIC_KEY = "BHtVjCOYiH1nbyPq-mPS_ZqA0oHjGcONq5r5PV-sTC1jXzAvgGuFFwL5iv0ymk725NUX4_obl82JLilVs9W49-A"; // 👈 PEGA TU LLAVE AQUÍ
 
 // --- SUB-COMPONENTE: BARRA DE TIEMPO ---
 const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ duration, onFinish }) => {
@@ -41,6 +57,11 @@ const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ durati
   );
 };
 
+const playAlert = () => {
+  const audio = new Audio('/sounds/alert.mp3');
+  audio.play().catch(err => console.log("El navegador bloqueó el audio inicial:", err));
+};
+
 const TaxistaView: React.FC = () => {
   const { userPosition, setUserPosition } = useTravel();
   const [estado, setEstado] = useState<"Disponible" | "Asignado" | "EnCurso" | "EnCamino">("Disponible");
@@ -49,6 +70,43 @@ const TaxistaView: React.FC = () => {
   const [chatAbierto, setChatAbierto] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // 🔔 LÓGICA DE SUSCRIPCIÓN PUSH
+  useEffect(() => {
+    const activarNotificaciones = async () => {
+      if (!userPosition?.email) return;
+      
+      try {
+        // 1. Pedir permiso
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") return;
+
+        // 2. Esperar al Service Worker
+        const registration = await navigator.serviceWorker.ready;
+
+        // 3. Suscribirse al servidor de Push
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+        });
+
+        // 4. Guardar en tu Backend
+        await axios.post(`${API_URL}/save-subscription`, {
+          email: userPosition.email,
+          subscription: subscription
+        });
+
+        console.log("✅ Sistema Push vinculado para:", userPosition.email);
+      } catch (error) {
+        console.error("❌ Error en activación Push:", error);
+      }
+    };
+
+    if (userPosition?.role === "taxista") {
+      activarNotificaciones();
+    }
+  }, [userPosition?.email, userPosition?.role]);
+
+  // Resto de la lógica del componente (Sonidos, Geolocation, Sockets)...
   useEffect(() => {
     audioRef.current = new Audio("/sounds/alerta_taxi.mp3");
     if (audioRef.current) audioRef.current.loop = true;
@@ -81,6 +139,7 @@ const TaxistaView: React.FC = () => {
       setPasajeroAsignado(data);
       setExcludedEmails(data.excludedEmails || []);
       setEstado("Asignado");
+      playAlert();
       if (audioRef.current) audioRef.current.play().catch(() => {});
       if ("vibrate" in navigator) navigator.vibrate([500, 200, 500]);
       toast.info(`¡NUEVO SERVICIO!`, { position: "top-center" });
@@ -126,7 +185,7 @@ const TaxistaView: React.FC = () => {
     if (!pasajeroAsignado) return;
     socket.emit("passenger_on_board", { taxistaEmail: userPosition?.email, pasajeroEmail: pasajeroAsignado.email });
     setEstado("EnCurso");
-    setChatAbierto(false); // Cerramos el chat al abordar
+    setChatAbierto(false);
   };
 
   const finalizarViaje = () => {
@@ -137,11 +196,12 @@ const TaxistaView: React.FC = () => {
     setChatAbierto(false);
   };
 
+  // Renderizado del componente (Interfaz de usuario)...
   return (
     <div className="h-screen bg-slate-50 flex flex-col overflow-hidden font-sans relative">
       <ToastContainer theme="light" />
 
-      {/* 🗺️ MAPA */}
+      {/* MAPA */}
       <div className="flex-1 w-full relative">
         {userPosition?.lat ? (
           <MapContainer center={[userPosition.lat!, userPosition.lng!]} zoom={15} className="h-full w-full" zoomControl={false}>
@@ -162,14 +222,12 @@ const TaxistaView: React.FC = () => {
         </div>
       </div>
 
-      {/* 📋 SECCIÓN DE CONTROL */}
+      {/* SECCIÓN DE CONTROL */}
       <div className="bg-white rounded-t-[3.5rem] shadow-[0_-25px_60px_rgba(0,0,0,0.15)] p-8 z-[1001] relative border-t border-slate-50 transition-all duration-700">
         <div className="absolute top-4 left-1/2 -translate-x-1/2 w-16 h-1.5 bg-slate-200 rounded-full"></div>
 
         {pasajeroAsignado ? (
           <div className="space-y-6 pt-4 animate-in slide-in-from-bottom-6 duration-500">
-            
-            {/* 👤 CARD DEL PASAJERO REFACTORIZADA */}
             <div className={`relative p-6 rounded-[2.5rem] transition-all duration-500 overflow-hidden ${
               estado === "Asignado" 
                 ? "bg-[#22c55e] shadow-2xl shadow-green-200 ring-4 ring-green-100" 
@@ -210,7 +268,6 @@ const TaxistaView: React.FC = () => {
               </div>
             </div>
 
-            {/* 🕹️ BOTONERA DE ACCIÓN */}
             <div className={`flex flex-col gap-4 transition-all duration-500 ${estado === "EnCamino" || estado === "EnCurso" ? "pb-24" : "pb-4"}`}>
               {estado === "Asignado" && (
                 <div className="grid grid-cols-5 gap-3">
@@ -244,7 +301,7 @@ const TaxistaView: React.FC = () => {
         )}
       </div>
 
-      {/* 💬 CHAT COLAPSABLE */}
+      {/* CHAT COLAPSABLE */}
       {pasajeroAsignado && pasajeroAsignado.email && estado === "EnCamino" && (
         <div className={`fixed bottom-0 left-0 w-full z-[2000] transition-all duration-500 ease-in-out ${chatAbierto ? "translate-y-0" : "translate-y-[calc(100%-70px)]"}`}>
           <div className="max-w-md mx-auto bg-white rounded-t-[2.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.2)] border-x border-t border-slate-100 overflow-hidden">

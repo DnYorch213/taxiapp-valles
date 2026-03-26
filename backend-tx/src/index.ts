@@ -1,4 +1,4 @@
-import "dotenv/config";
+import * as dotenv from "dotenv";
 import express from "express";
 import { Request, Response } from "express";
 import http from "http";
@@ -9,6 +9,15 @@ import cors from "cors";
 import { connectDB } from "./db";
 import { Position } from "./models/Position";
 import { User } from "./models/User";
+import webpush from "web-push";
+
+dotenv.config();
+
+webpush.setVapidDetails(
+  "mailto:jorgelopezarevalo0@gmail.com",
+  process.env.VAPID_PUBLIC_KEY!,
+  process.env.VAPID_PRIVATE_KEY!
+);
 
 const app = express();
 const server = http.createServer(app);
@@ -85,61 +94,112 @@ function buildPayload(user: any, pos: any, estado: string, extra: any = {}) {
   };
 }
 
-// --- LÓGICA DE DESPACHO EN CASCADA (RECURSIVA) ---
+// --- FUNCIÓN AUXILIAR PARA ENVIAR NOTIFICACIÓN PUSH ---
+const enviarNotificacionPush = async (taxistaEmail: string, pasajeroData: any) => {
+  try {
+    const taxista = await User.findOne({ email: taxistaEmail, role: "taxista" });
+
+    if (taxista && taxista.pushSubscription) {
+      const payload = JSON.stringify({
+        title: "🚕 ¡Nuevo Servicio en Valles!",
+        body: `Cliente: ${pasajeroData.name}\n📍 Recoger en su ubicación actual`,
+        data: {
+          url: "/taxista",
+          timestamp: Date.now()
+        }
+      });
+
+      // Enviamos la señal al servidor de Google/Apple (Push)
+      await webpush.sendNotification(taxista.pushSubscription, payload);
+      console.log(`🔔 Push enviado con éxito a: ${taxistaEmail}`);
+    }
+    // ... dentro de enviarNotificacionPush
+  } catch (error: any) { // 👈 Forzamos a 'any' para acceder a sus propiedades
+    // Si la suscripción expiró o es inválida (Google/Apple nos avisan con 410 o 404)
+    if (error.statusCode === 410 || error.statusCode === 404) {
+      console.log(`⚠️ Suscripción expirada para ${taxistaEmail}. Limpiando base de datos...`);
+      await User.updateOne({ email: taxistaEmail }, { pushSubscription: null });
+    } else {
+      console.error(`❌ Error enviando Push a ${taxistaEmail}:`, error.message || error);
+    }
+  }
+};
+
+// --- LÓGICA DE DESPACHO EN CASCADA (REFACTORIZADA) ---
 const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [], attempt: number = 1) => {
   if (!isAutoMode) return;
 
-  // 1. Límite de reintentos
+  // 1. Límite de reintentos (Fail-safe)
   if (attempt > MAX_RETRIES) {
+    console.log(`❌ Límite de reintentos alcanzado para ${pasajeroData.email}`);
     await Position.updateOne({ email: pasajeroData.email }, { estado: "activo" });
     io.to(pasajeroData.email).emit("no_taxis_available", { message: "No hay unidades disponibles en este momento." });
-    io.emit("panel_update", { email: pasajeroData.email, estado: "activo" });
+
+    // Notificamos al panel para que el pasajero no se quede pegado en "buscando"
+    const pPos = await Position.findOne({ email: pasajeroData.email }).lean();
+    io.emit("panel_update", buildPayload(null, pPos, "activo"));
     return;
   }
 
-  const checkPasajero = await Position.findOne({ email: pasajeroData.email });
-
-  // 2. Validar que el pasajero siga necesitando el taxi
+  // 2. Validar que el pasajero siga necesitando el taxi (Estado fresco de DB)
+  const checkPasajero = await Position.findOne({ email: pasajeroData.email }).lean();
   if (!checkPasajero || ["en curso", "ocupado"].includes(checkPasajero.estado)) {
-    console.log(`⚠️ Abortando cascada: Pasajero ya en viaje o no existe.`);
+    console.log(`⚠️ Abortando cascada: Pasajero ya en viaje o canceló.`);
     return;
   }
 
+  // 3. Buscar taxistas disponibles (Usamos .lean() para obtener el taxiNumber real)
   const taxistasDisponibles = await Position.find({
     role: "taxista",
     estado: { $in: ["activo", "Disponible"] },
     email: { $nin: excludedEmails }
-  });
+  }).lean();
 
   if (taxistasDisponibles.length === 0) {
+    console.log(`🚫 Sin taxistas para el intento ${attempt}`);
     await Position.updateOne({ email: pasajeroData.email }, { estado: "activo" });
     io.to(pasajeroData.email).emit("no_taxis_available", { message: "No hay conductores cerca." });
-    io.emit("panel_update", { email: pasajeroData.email, estado: "activo" });
     return;
   }
 
-  // 3. Haversine: Encontrar al más cercano
-  let elMasCercano = taxistasDisponibles.reduce((prev, curr) => {
+  // 4. Haversine: Encontrar al más cercano
+  const elMasCercano = taxistasDisponibles.reduce((prev, curr) => {
     const distPrev = calculateDistance(pasajeroData.lat, pasajeroData.lng, prev.lat, prev.lng);
     const distCurr = calculateDistance(pasajeroData.lat, pasajeroData.lng, curr.lat, curr.lng);
     return distPrev < distCurr ? prev : curr;
   });
 
-  // 4. Bloqueo de estados
+  // 5. BLOQUEO DE ESTADOS
   await Position.updateOne({ email: elMasCercano.email }, { estado: "asignado" });
   await Position.updateOne({ email: pasajeroData.email }, { estado: "asignado" });
 
-  io.to(elMasCercano.email).emit("pasajero_asignado", buildPayload(pasajeroData, pasajeroData, "asignado", { excludedEmails }));
-  io.to(pasajeroData.email).emit("taxista_asignado", buildPayload(elMasCercano, elMasCercano, "asignado"));
+  // 🚀 ALERTA 1: Socket al Taxista (Datos del cliente)
+  io.to(elMasCercano.email).emit("pasajero_asignado", { ...pasajeroData, excludedEmails });
 
-  // 5. Cronómetro de 15 segundos
+  // 🚀 ALERTA 2: Socket al Pasajero (¡AQUÍ SE CORRIGE EL TAXI NUMBER!)
+  // Usamos buildPayload con el objeto 'elMasCercano' que ya trae el taxiNumber de la DB
+  io.to(pasajeroData.email).emit("taxista_asignado", buildPayload(null, elMasCercano, "asignado"));
+
+  // 🚀 ALERTA 3: Push Notification
+  enviarNotificacionPush(elMasCercano.email, pasajeroData);
+
+  // 6. Cronómetro de 15 segundos mejorado
+  // Limpiamos cualquier timeout previo del mismo taxista por seguridad
+  if (pendingTimeouts.has(elMasCercano.email)) {
+    clearTimeout(pendingTimeouts.get(elMasCercano.email)!);
+  }
+
   const timeout = setTimeout(async () => {
-    const tCheck = await Position.findOne({ email: elMasCercano.email });
-    if (tCheck && tCheck.estado === "asignado") {
-      await Position.updateOne({ email: elMasCercano.email }, { estado: "activo" });
-      io.emit("panel_update", { email: elMasCercano.email, estado: "activo" });
+    const tCheck = await Position.findOne({ email: elMasCercano.email }).lean();
 
-      // REINTENTO (Siguiente en la cascada)
+    // Si pasaron 15s y no cambió de estado, saltamos al siguiente
+    if (tCheck && tCheck.estado === "asignado") {
+      console.log(`⏳ Tiempo agotado para Tx-${elMasCercano.taxiNumber}. Reintentando...`);
+
+      await Position.updateOne({ email: elMasCercano.email }, { estado: "activo" });
+      pendingTimeouts.delete(elMasCercano.email);
+
+      // Llamada recursiva con lista negra actualizada
       dispatchWithRetry(pasajeroData, [...excludedEmails, elMasCercano.email], attempt + 1);
     }
   }, 15000);
@@ -172,11 +232,21 @@ app.post("/login", async (req: Request, res: Response) => {
     }
 
     const lastPos = await Position.findOne({ email: user.email });
-    const token = jwt.sign({ email: user.email, name: user.name, role: user.role }, process.env.JWT_SECRET as string, { expiresIn: '24h' });
+    const token = jwt.sign({ email: user.email, name: user.name, role: user.role }, process.env.JWT_SECRET as string, { expiresIn: '30d' });
 
     res.json({ token, role: user.role, name: user.name, taxiNumber: user.taxiNumber, email: user.email, lastCoords: lastPos ? { lat: lastPos.lat, lng: lastPos.lng } : null });
   } catch (error) {
     res.status(500).json({ message: "Error en login" });
+  }
+});
+
+app.post("/save-subscription", async (req: Request, res: Response) => {
+  const { email, subscription } = req.body;
+  try {
+    await User.findOneAndUpdate({ email }, { pushSubscription: subscription });
+    res.status(200).json({ message: "Suscripción guardada con éxito" });
+  } catch (err) {
+    res.status(500).json({ message: "Error al guardar suscripción" });
   }
 });
 
@@ -331,4 +401,5 @@ io.on("connection", async (socket) => {
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 SERVIDOR EN PUERTO: ${PORT} | AUTO: ${isAutoMode}`);
+
 });

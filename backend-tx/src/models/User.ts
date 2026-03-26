@@ -6,6 +6,7 @@ export interface IUser extends Document {
     password: string;
     role: "pasajero" | "taxista" | "admin";
     taxiNumber?: string | null; // 👈 nuevo campo, opcional
+    pushSubscription?: any | null; // 👈 nuevo campo para notificaciones push
 }
 
 const UserSchema = new Schema<IUser>({
@@ -18,6 +19,9 @@ const UserSchema = new Schema<IUser>({
             return this.role === "taxista";
         }
     },
+    // Para guardar objetos complejos como la suscripción de Web-Push, 
+    // usamos Schema.Types.Mixed o simplemente Object.
+    pushSubscription: { type: Object, default: null }
 });
 
 const User = mongoose.model<IUser>("User", UserSchema);

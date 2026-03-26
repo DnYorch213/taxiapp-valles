@@ -31,6 +31,7 @@ const PasajeroView: React.FC = () => {
     if (!socket) return;
 
     socket.on("taxista_asignado", (data: any) => {
+      console.log("👤 [TAXISTA] Datos del cliente recibidos:", data);
       setTaxistaAsignado(data);
       setEstado("Asignado");
       toast.success(`Taxi ${data.taxiNumber || ''} asignado`);
