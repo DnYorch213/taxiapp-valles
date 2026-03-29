@@ -8,6 +8,7 @@ export interface IPosition extends Document {
     lng: number;
     role: "pasajero" | "taxista" | "admin";
     estado: string;      // 👈 Agregamos estado para persistencia
+    pushSubscription?: any | null; // 👈 Para notificaciones push, opcional
     updatedAt: Date;
 }
 
@@ -18,12 +19,10 @@ const PositionSchema = new Schema<IPosition>({
     role: { type: String, enum: ["pasajero", "taxista", "admin"], required: true },
     name: { type: String, required: true },
     taxiNumber: { type: String, required: false }, // 👈 Cambiado a false
-    estado: { type: String, default: "activo" },    // 👈 Campo necesario
+    estado: { type: String, default: "activo" },
+    pushSubscription: { type: Object, default: null },      // 👈 Para notificaciones push, opcional
     updatedAt: { type: Date, default: Date.now },
 });
-
-// Índice para que los registros expiren si no se actualizan (opcional, p.ej. 24h)
-// PositionSchema.index({ updatedAt: 1 }, { expireAfterSeconds: 86400 });
 
 const Position = mongoose.model<IPosition>("Position", PositionSchema);
 

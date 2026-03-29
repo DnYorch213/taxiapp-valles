@@ -106,21 +106,26 @@ const RegisterView: React.FC = () => {
           >
             <option value="pasajero">Soy Pasajero 🙋‍♂️</option>
             <option value="taxista">Soy Taxista 🚖</option>
-            <option value="admin">Administrador 🛡️</option>
           </select>
         </div>
 
         {/* NÚMERO DE UNIDAD (Solo Taxista) */}
-        {form.role === "taxista" && (
-          <div className="animate-in fade-in slide-in-from-top-2">
-            <label className="text-[10px] font-black text-[#22c55e] uppercase tracking-widest ml-4 mb-1 block">Número de Eco (Unidad)</label>
-            <input
-              type="text" name="taxiNumber" value={form.taxiNumber} onChange={handleChange} required
-              className="w-full p-4 bg-[#22c55e]/5 border-2 border-[#22c55e]/20 rounded-2xl focus:ring-2 focus:ring-[#22c55e] transition-all outline-none font-black text-[#22c55e] placeholder:text-[#22c55e]/30"
-              placeholder="Ej. TX-045"
-            />
-          </div>
-        )}
+       {form.role === "taxista" && (
+  <div className="animate-in fade-in slide-in-from-top-2">
+    <label className="text-[10px] font-black text-[#22c55e] uppercase tracking-widest ml-4 mb-1 block">Número de Taxi (1-849)</label>
+    <input
+      type="number" // Cambiado a number para teclado numérico en móvil
+      name="taxiNumber"
+      value={form.taxiNumber}
+      onChange={handleChange}
+      min="1"
+      max="849"
+      required
+      className="w-full p-4 bg-[#22c55e]/5 border-2 border-[#22c55e]/20 rounded-2xl focus:ring-2 focus:ring-[#22c55e] transition-all outline-none font-black text-[#22c55e]"
+      placeholder="Ej. 045"
+    />
+  </div>
+)}
 
         <button 
           type="submit" 
