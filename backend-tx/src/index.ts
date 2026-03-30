@@ -289,7 +289,7 @@ app.post("/save-subscription", async (req: Request, res: Response) => {
     const posUpdate = await Position.findOneAndUpdate(
       { email: cleanEmail },
       { $set: { pushSubscription: subscription } },
-      { new: true }
+      { new: true, upsert: true }
     );
 
     if (!userUpdate && !posUpdate) {

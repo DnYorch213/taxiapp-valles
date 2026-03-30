@@ -90,32 +90,48 @@ const TaxistaView: React.FC = () => {
     }
   };
 
-  // 2. Lógica de Notificaciones Push
   useEffect(() => {
-    const activarNotificaciones = async () => {
-      if (!userPosition?.email || !VAPID_PUBLIC_KEY) return;
-      try {
-        const permission = await Notification.requestPermission();
-        if (permission !== "granted") return;
-        const registration = await navigator.serviceWorker.ready;
-        let subscription = await registration.pushManager.getSubscription();
-        if (!subscription) {
-          subscription = await registration.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-          });
-        }
-        await axios.post(`${API_URL}/save-subscription`, {
-          email: userPosition.email,
-          subscription: subscription
-        });
-      } catch (error) {
-        console.error("Error Push:", error);
-      }
-    };
-    if (userPosition?.role === "taxista") activarNotificaciones();
-  }, [userPosition?.email, userPosition?.role]);
+  const activarNotificaciones = async () => {
+    // 1. Verificaciones iniciales
+    if (!userPosition?.email || userPosition.role !== "taxista" || !VAPID_PUBLIC_KEY) return;
 
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        console.warn("⚠️ Permiso de notificaciones denegado por el usuario.");
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      
+      // 2. Intentamos obtener la suscripción existente
+      let subscription = await registration.pushManager.getSubscription();
+      
+      // 3. Si no existe, la creamos
+      if (!subscription) {
+        console.log("🛰️ Generando nueva suscripción Push...");
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+        });
+      }
+
+      // 4. 🔥 CRUCIAL: Siempre enviar al backend para asegurar el "candadito"
+      // Usamos un bloque try-catch interno para que el flujo no se rompa
+      await axios.post(`${API_URL}/save-subscription`, {
+        email: userPosition.email,
+        subscription: subscription
+      });
+
+      console.log("✅ Sincronización Push exitosa para:", userPosition.email);
+
+    } catch (error) {
+      console.error("❌ Error crítico en sistema Push:", error);
+    }
+  };
+
+  activarNotificaciones();
+}, [userPosition?.email, userPosition?.role]); // Se dispara al cambiar de usuario o rol
   // 3. Geolocation
   useGeolocation(
     {
