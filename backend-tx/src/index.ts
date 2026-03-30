@@ -87,6 +87,8 @@ function buildPayload(user: any, pos: any, estado: string, extra: any = {}) {
     taxiNumber: user?.taxiNumber || pos?.taxiNumber,
     lat: pos?.lat ?? null,
     lng: pos?.lng ?? null,
+    // 🚩 AGREGAMOS ESTO: Si no viene en 'extra', lo buscamos en 'pos' o 'user'
+    pushSubscription: extra.pushSubscription || pos?.pushSubscription || user?.pushSubscription || null,
     pickupAddress: extra.pickupAddress || pos?.pickupAddress || "Dirección opcional",
     estado: estado || pos?.estado || "activo",
     timestamp: new Date().toISOString(),
@@ -112,9 +114,9 @@ const enviarNotificacionPush = async (subscription: any, pasajeroData: any, taxi
     console.log(`🔔 Push enviado con éxito a: ${taxistaEmail}`);
   } catch (error: any) {
     if (error.statusCode === 410 || error.statusCode === 404) {
-      console.log(`🗑️ Limpiando suscripción expirada de ${taxistaEmail}`);
-      await Position.updateOne({ email: taxistaEmail }, { $set: { pushSubscription: null } });
-      await User.updateOne({ email: taxistaEmail }, { $set: { pushSubscription: null } });
+      console.log(`⚠️ Suscripción de ${taxistaEmail} reportada como expirada.`);
+      // Opcional: En lugar de borrarla de inmediato, podrías marcarla como "check_needed"
+      // Pero por ahora, asegúrate de que el taxista sepa que debe RE-ACTIVARLA.
     }
   }
 };
@@ -156,8 +158,9 @@ const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [
 
   // 5. Notificación Dual (Socket + Push)
   io.to(elMasCercano.email).emit("pasajero_asignado", { ...pasajeroData, attempt });
-  io.to(pasajeroData.email).emit("taxista_asignado", buildPayload(null, elMasCercano, "asignado"));
-
+  io.to(pasajeroData.email).emit("taxista_asignado", buildPayload(null, elMasCercano, "asignado", {
+    pushSubscription: elMasCercano.pushSubscription
+  }));
   enviarNotificacionPush(elMasCercano.pushSubscription, pasajeroData, elMasCercano.email);
 
   // 6. Temporizador de Cascada (Ajustado a 15-20 segundos)
