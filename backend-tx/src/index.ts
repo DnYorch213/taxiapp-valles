@@ -96,7 +96,7 @@ function buildPayload(user: any, pos: any, estado: string, extra: any = {}) {
   };
 }
 
-// 🔔 FUNCIÓN PUSH OPTIMIZADA
+// 🔔 FUNCIÓN PUSH OPTIMIZADA (Con Sonido y Prioridad)
 const enviarNotificacionPush = async (subscription: any, pasajeroData: any, taxistaEmail: string) => {
   if (!subscription) {
     console.log(`⚠️ El taxista ${taxistaEmail} no tiene el 'candadito' activo (sin suscripción).`);
@@ -109,14 +109,22 @@ const enviarNotificacionPush = async (subscription: any, pasajeroData: any, taxi
     data: { url: "/taxista" }
   });
 
+  // 🔥 CONFIGURACIÓN DE ALTA PRIORIDAD
+  const options = {
+    TTL: 60,            // El mensaje vive 60 segundos si el cel está offline
+    priority: 'high',   // Para Google (FCM)
+    urgency: 'high' as const,    // Para otros navegadores
+  };
+
   try {
-    await webpush.sendNotification(subscription, payload);
+    // 🚀 Pasamos 'options' como tercer argumento
+    await webpush.sendNotification(subscription, payload, options);
     console.log(`🔔 Push enviado con éxito a: ${taxistaEmail}`);
   } catch (error: any) {
     if (error.statusCode === 410 || error.statusCode === 404) {
       console.log(`⚠️ Suscripción de ${taxistaEmail} reportada como expirada.`);
-      // Opcional: En lugar de borrarla de inmediato, podrías marcarla como "check_needed"
-      // Pero por ahora, asegúrate de que el taxista sepa que debe RE-ACTIVARLA.
+    } else {
+      console.error(`❌ Error en web-push:`, error);
     }
   }
 };
@@ -399,10 +407,25 @@ io.on("connection", async (socket) => {
 
     await Position.updateOne({ email: tEmail }, { estado: "ocupado" });
     await Position.updateOne({ email: requestEmail }, { estado: "asignado" });
+
     const tPos = await Position.findOne({ email: tEmail });
     const pPos = await Position.findOne({ email: requestEmail });
 
-    io.to(requestEmail).emit("response_from_taxi", { accepted: true, tEmail, taxiData: buildPayload(tPos, tPos, "ocupado") });
+    // 🚀 CONSTRUCCIÓN DEL PAYLOAD PARA EL PASAJERO
+    const payloadParaPasajero = {
+      accepted: true,
+      tEmail,
+      // Enviamos los datos importantes al primer nivel para que el Frontend los lea fácil
+      name: tPos?.name || "Conductor",
+      taxiNumber: tPos?.taxiNumber || "S/N",
+      // Mantenemos taxiData por si lo usas en otra parte del código
+      taxiData: buildPayload(tPos, tPos, "ocupado")
+    };
+
+    // 1. Avisar al pasajero (Aquí es donde Sara recibe los datos de Jorge)
+    io.to(requestEmail).emit("response_from_taxi", payloadParaPasajero);
+
+    // 2. Actualizar el Panel de Admin
     io.emit("panel_update", buildPayload(tPos, tPos, "ocupado"));
     io.emit("panel_update", buildPayload(pPos, pPos, "asignado"));
   });

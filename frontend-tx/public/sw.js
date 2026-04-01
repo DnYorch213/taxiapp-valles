@@ -1,21 +1,25 @@
 // public/sw.js
 
-// 1. ESCUCHAR LA NOTIFICACIÓN PUSH (Cuando llega el taxi)
+// 1. ESCUCHAR LA NOTIFICACIÓN PUSH
 self.addEventListener("push", (event) => {
-  const data = event.data ? event.data.json() : {};
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    console.error("Error parseando JSON del push:", e);
+  }
 
   const options = {
     body: data.body || "Tienes un nuevo servicio pendiente",
-    icon: "/taxista.png", // Asegúrate de que este archivo exista en /public
+    icon: "/taxista.png",
     badge: "/taxista.png",
-    // Patrón de vibración: [vibrar, pausa, vibrar, pausa...]
-    // Este patrón es largo y rítmico para que parezca una llamada
     vibrate: [500, 100, 500, 100, 500, 100, 800],
     data: {
-      url: data.data?.url || "/taxista",
+      // 🛠️ IMPORTANTE: Guardamos la URL directamente para que notificationclick la encuentre
+      url: data.data?.url || data.url || "/taxista",
     },
-    tag: "servicio-taxi", // Agrupa notificaciones para no llenar la pantalla
-    renotify: true, // Hace que vibre de nuevo si llega otra del mismo tag
+    tag: "servicio-taxi",
+    renotify: true,
   };
 
   event.waitUntil(
@@ -26,13 +30,15 @@ self.addEventListener("push", (event) => {
   );
 });
 
-// 2. GESTIONAR EL CLICK (Llevar al taxista a la app)
+// 2. GESTIONAR EL CLICK (Refactorizado para evitar 404)
 self.addEventListener("notificationclick", (event) => {
-  event.notification.close(); // Cierra la notificación al hacer clic
+  event.notification.close();
 
-  // Normalizamos la URL de destino
-  const urlToOpen = new URL(event.notification.data.url, self.location.origin)
-    .href;
+  // 🛠️ VALIDACIÓN: Si no hay URL en data, usamos /taxista por defecto
+  const targetPath = event.notification.data?.url || "/taxista";
+
+  // Construimos la URL absoluta (ej. https://tu-app.vercel.app/taxista)
+  const urlToOpen = new URL(targetPath, self.location.origin).href;
 
   const promiseChain = clients
     .matchAll({
@@ -40,15 +46,19 @@ self.addEventListener("notificationclick", (event) => {
       includeUncontrolled: true,
     })
     .then((windowClients) => {
-      // Buscamos si ya hay una pestaña de la app abierta
+      // Intentar reutilizar pestaña abierta
       for (let client of windowClients) {
-        // Usamos .includes para ser flexibles con "/" o parámetros de URL
-        if (client.url.includes("/taxista") && "focus" in client) {
-          return client.focus();
+        try {
+          const clientPath = new URL(client.url).pathname;
+          if (clientPath.includes("/taxista") && "focus" in client) {
+            return client.focus();
+          }
+        } catch (e) {
+          console.error("Error validando URL del cliente:", e);
         }
       }
 
-      // Si la app estaba cerrada, abrimos una nueva pestaña
+      // Si no hay pestañas abiertas, abrir una nueva
       if (clients.openWindow) {
         return clients.openWindow(urlToOpen);
       }

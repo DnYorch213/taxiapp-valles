@@ -30,23 +30,37 @@ const PasajeroView: React.FC = () => {
   useEffect(() => {
     if (!socket) return;
 
-    socket.on("taxista_asignado", (data: any) => {
-      console.log("👤 [TAXISTA] Datos del cliente recibidos:", data);
-      setTaxistaAsignado(data);
-      setEstado("Asignado");
-      toast.success(`Taxi ${data.taxiNumber || ''} asignado`);
-    });
+   // ✅ AHORA (Mapeo robusto)
+socket.on("taxista_asignado", (data: any) => {
+  console.log("👤 Datos del taxista recibidos:", data);
+  
+  // Si el backend envía { accepted: true, taxiData: { ... } }
+  // o si envía el objeto directo, esto lo captura:
+  const infoLimpia = data.taxiData ? data.taxiData : data;
+  
+  setTaxistaAsignado(infoLimpia);
+  setEstado("Asignado");
+  
+  // Notificación con el número de taxi
+  const nTaxi = infoLimpia.taxiNumber || "S/N";
+  toast.success(`Taxi ${nTaxi} asignado`);
+});
 
-    socket.on("response_from_taxi", ({ accepted }) => {
-      if (accepted) {
-        setEstado("EnCamino");
-        toast.info("El taxista va hacia tu ubicación");
-      } else {
-        setEstado("Inactivo");
-        setTaxistaAsignado(null);
-        toast.warn("Buscando otro taxista...");
-      }
-    });
+    // ✅ AHORA
+socket.on("response_from_taxi", (data: any) => {
+  if (data.accepted) {
+    // Si el backend manda taxiData, actualizamos la card
+    if (data.taxiData) {
+      setTaxistaAsignado(data.taxiData);
+    }
+    setEstado("EnCamino");
+    toast.info("El taxista va hacia tu ubicación");
+  } else {
+    setEstado("Inactivo");
+    setTaxistaAsignado(null);
+    toast.warn("Buscando otro taxista...");
+  }
+});
 
     socket.on("taxi_rejected_request", () => {
     // Al limpiar esto, el pasajero deja de ver la card del taxista anterior
@@ -219,7 +233,7 @@ const PasajeroView: React.FC = () => {
                 <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">
                   {estado === 'EnCurso' ? 'Viaje Iniciado' : 'Datos del Taxista'}
                 </p>
-                <p className="text-lg font-black text-slate-800">Tx-{taxistaAsignado.taxiNumber}</p>
+                <p className="text-lg font-black text-slate-800">Taxi {taxistaAsignado.taxiNumber}</p>
                 <p className="text-[10px] font-bold text-slate-400 uppercase truncate max-w-[120px]">{taxistaAsignado.name}</p>
               </div>
               {estado === 'EnCamino' && (
