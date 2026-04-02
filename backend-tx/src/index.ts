@@ -521,6 +521,42 @@ io.on("connection", async (socket) => {
     io.to(data.toEmail).emit("receive_message", { senderName: data.senderName, message: data.message, timestamp: new Date().toISOString() });
   });
 
+  // --- EVENTO DE LOGOUT FORZADO ---
+  socket.on("force_disconnect", async ({ email }) => {
+    if (email) {
+      const cleanEmail = email.toLowerCase().trim();
+
+      try {
+        // 1. Limpiamos cualquier timeout pendiente de este taxista
+        if (pendingTimeouts.has(cleanEmail)) {
+          clearTimeout(pendingTimeouts.get(cleanEmail)!);
+          pendingTimeouts.delete(cleanEmail);
+        }
+
+        // 2. Actualizamos la BD de inmediato
+        await Position.updateOne(
+          { email: cleanEmail },
+          { $set: { estado: "desconectado", updatedAt: new Date() } }
+        );
+
+        // 3. Avisamos al Panel Central para que lo borre del mapa YA
+        io.emit("panel_update", {
+          email: cleanEmail,
+          estado: "desconectado",
+          force: true // Bandera opcional para que el frontend sepa que fue manual
+        });
+
+        console.log(`🚪 Logout manual procesado para: ${cleanEmail}`);
+
+        // 4. Desconectamos el socket físicamente desde el servidor
+        socket.disconnect(true);
+
+      } catch (error) {
+        console.error("Error en force_disconnect:", error);
+      }
+    }
+  });
+
   socket.on("disconnect", async () => {
     // Usamos las constantes 'email' que capturamos arriba 👆
     if (email) {

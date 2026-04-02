@@ -90,24 +90,25 @@ const TaxistaView: React.FC = () => {
     }
   };
 
-  useEffect(() => {
+ useEffect(() => {
   const activarNotificaciones = async () => {
-    // 1. Verificaciones iniciales
+    // 1. Validaciones de seguridad y dependencias
     if (!userPosition?.email || userPosition.role !== "taxista" || !VAPID_PUBLIC_KEY) return;
 
     try {
+      // 2. Solicitar permiso al usuario
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
-        console.warn("⚠️ Permiso de notificaciones denegado por el usuario.");
+        console.warn("⚠️ Permiso de notificaciones denegado.");
         return;
       }
 
+      // 3. Esperar a que el Service Worker esté listo
       const registration = await navigator.serviceWorker.ready;
-      
-      // 2. Intentamos obtener la suscripción existente
+
+      // 4. Obtener suscripción existente o crear una nueva
       let subscription = await registration.pushManager.getSubscription();
-      
-      // 3. Si no existe, la creamos
+
       if (!subscription) {
         console.log("🛰️ Generando nueva suscripción Push...");
         subscription = await registration.pushManager.subscribe({
@@ -116,23 +117,23 @@ const TaxistaView: React.FC = () => {
         });
       }
 
-      // 4. 🔥 CRUCIAL: Siempre enviar al backend para asegurar el "candadito"
-      // Usamos un bloque try-catch interno para que el flujo no se rompa
+      // 5. 🔥 Sincronización forzada con el Backend
+      // Esto asegura que el "candadito" esté siempre activo en la base de datos
       await axios.post(`${API_URL}/save-subscription`, {
-        email: userPosition.email,
+        email: userPosition.email.toLowerCase().trim(),
         subscription: subscription
       });
 
-      console.log("✅ Sincronización Push exitosa para:", userPosition.email);
+      console.log("✅ Sistema Push sincronizado con éxito.");
 
     } catch (error) {
-      console.error("❌ Error crítico en sistema Push:", error);
+      // Capturamos errores de red o bloqueos de navegador sin romper la app
+      console.error("❌ Error en el flujo de notificaciones:", error);
     }
   };
 
   activarNotificaciones();
-}, [userPosition?.email, userPosition?.role]); // Se dispara al cambiar de usuario o rol
-  // 3. Geolocation
+}, [userPosition?.email, userPosition?.role]);  // 3. Geolocation
   useGeolocation(
     {
       email: userPosition?.email || localStorage.getItem("email") || "",
@@ -150,6 +151,7 @@ const TaxistaView: React.FC = () => {
     if (!socket) return;
 
     socket.on("pasajero_asignado", (data: Payload & { excludedEmails?: string[] }) => {
+      console.log("🚕 Evento recibido:", data); // 👈 Añade esto para ver si llega algo
       setPasajeroAsignado(data);
       setExcludedEmails(data.excludedEmails || []);
       setEstado("Asignado");
