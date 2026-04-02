@@ -148,19 +148,42 @@ const TaxistaView: React.FC = () => {
 
   // 4. Lógica de Sockets Sincronizada
   useEffect(() => {
-    if (!socket) return;
+  if (!socket) return;
 
-    socket.on("pasajero_asignado", (data: Payload & { excludedEmails?: string[] }) => {
-      console.log("🚕 Evento recibido:", data); // 👈 Añade esto para ver si llega algo
-      setPasajeroAsignado(data);
-      setExcludedEmails(data.excludedEmails || []);
-      setEstado("Asignado");
-      
-      reproducirAlerta(); // 🔔 Usamos el Ref
+  // --- 🔥 NUEVO: PEDIR ESTADO AL CONECTAR ---
+  // Apenas el socket se conecta (o el componente se monta), preguntamos al servidor
+  const checkStatus = () => {
+    const email = userPosition?.email || localStorage.getItem("email");
+    if (email) {
+      console.log("🛰️ Solicitando verificación de viaje pendiente...");
+      socket.emit("check_my_status", { email: email.toLowerCase().trim() });
+    }
+  };
 
-      if ("vibrate" in navigator) navigator.vibrate([500, 200, 500]);
-      toast.info(`¡NUEVO SERVICIO!`, { position: "top-center" });
-    });
+  // Si el socket ya está conectado, pedimos status de una vez
+  if (socket.connected) checkStatus();
+  
+  // También lo pedimos cada vez que se reconecte formalmente
+  socket.on("connect", checkStatus);
+
+  // --- ESCUCHA DE EVENTOS ---
+  socket.on("pasajero_asignado", (data: Payload & { excludedEmails?: string[] }) => {
+    console.log("🚕 Viaje recuperado/asignado:", data);
+    
+    // Si ya estamos en un viaje "EnCurso", no dejamos que la tarjeta verde lo tape
+    // (A menos que sea una reconexión necesaria)
+    setPasajeroAsignado(data);
+    setExcludedEmails(data.excludedEmails || []);
+    
+    // IMPORTANTE: Si el estado era 'Disponible', lo pasamos a 'Asignado'
+    // Si ya estabas 'EnCamino', lo dejamos así para no interrumpir la navegación
+    setEstado(prev => (prev === "Disponible" ? "Asignado" : prev));
+    
+    reproducirAlerta(); 
+
+    if ("vibrate" in navigator) navigator.vibrate([500, 200, 500]);
+    toast.info(`¡SERVICIO DETECTADO!`, { position: "top-center" });
+  })
 
     socket.on("dispatch_timeout", () => {
       console.log("⏰ Tiempo agotado por el servidor.");
@@ -179,11 +202,12 @@ const TaxistaView: React.FC = () => {
     });
 
     return () => {
+      socket.off("connect", checkStatus);
       socket.off("pasajero_asignado");
       socket.off("dispatch_timeout");
       socket.off("trip_cancelled_by_passenger");
     };
-  }, [socket]);
+  }, [socket, userPosition?.email]);
 
   // --- ACCIONES DEL USUARIO ---
   const aceptarViaje = () => {

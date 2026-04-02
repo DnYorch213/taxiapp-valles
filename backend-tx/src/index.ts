@@ -335,7 +335,7 @@ app.post("/save-subscription", async (req: Request, res: Response) => {
 });
 // --- SOCKETS ---
 io.on("connection", async (socket) => {
-  // 1. Captura de datos (Soportando handshake.auth y handshake.query)
+  // 1. Captura de datos
   const rawEmail = socket.handshake.auth?.email || socket.handshake.query?.email;
   const email = rawEmail ? rawEmail.toString().toLowerCase().trim() : null;
   const role = socket.handshake.auth?.role || socket.handshake.query?.role;
@@ -345,47 +345,46 @@ io.on("connection", async (socket) => {
   if (email) {
     socket.join(email);
 
-    // --- 🔥 LÓGICA DE RECONEXIÓN INMORTAL ---
-    const checkStatus = await Position.findOne({ email });
+    // --- 🔥 LÓGICA DE RECONEXIÓN CON RETRASO DE CORTESÍA ---
+    // Usamos setTimeout para que el Frontend tenga tiempo de montar el componente
+    setTimeout(async () => {
+      const checkStatus = await Position.findOne({ email });
 
-    if (checkStatus && role === "taxista") {
-      // Caso A: El taxista se conecta y ya estaba marcado como 'asignado'
-      if (checkStatus.estado === "asignado") {
-        // Buscamos al pasajero que tiene asignado a este taxista
-        // Buscamos a alguien con estado 'asignado' o 'esperando' que coincida con la asignación
-        // Si no tienes un campo 'taxistaAsignado' en el pasajero, buscamos al que 
-        // esté en estado 'asignado' y no sea un taxista.
-        const pasajeroAsignado = await Position.findOne({
-          estado: "asignado",
+      if (checkStatus && role === "taxista" && checkStatus.estado === "asignado") {
+        // Buscamos al pasajero vinculado
+        const pasajero = await Position.findOne({
+          estado: { $in: ["esperando", "asignado"] },
           role: "pasajero"
-          // Si guardas el email del taxista en el pasajero, añádelo aquí:
+          // Si guardas taxistaAsignado en el pasajero, úsalo aquí para mayor precisión:
           // taxistaAsignado: email 
         });
 
-        if (pasajeroAsignado) {
-          console.log(`♻️ Re-enviando invitación de viaje a ${email} (Pasajero: ${pasajeroAsignado.email})`);
-          socket.emit("pasajero_asignado", buildPayload(pasajeroAsignado, pasajeroAsignado, "asignado"));
+        if (pasajero) {
+          console.log(`♻️ Sincronización forzada para ${email} (Re-enviando pasajero)`);
+          socket.emit("pasajero_asignado", buildPayload(pasajero, pasajero, "asignado"));
         }
       }
+    }, 1000); // 1 segundo para estabilizar la conexión en redes móviles
 
-      // 2. Actualización de estado normal para taxista
-      const updatedPos = await Position.findOneAndUpdate(
-        { email },
-        {
-          $set: {
-            estado: checkStatus.estado === "asignado" ? "asignado" : "activo",
-            socketId: socket.id,
-            updatedAt: new Date()
-          }
-        },
-        { upsert: true, returnDocument: 'after' }
-      );
+    // 2. Actualización de estado en BD
+    const currentDoc = await Position.findOne({ email });
+    const updatedPos = await Position.findOneAndUpdate(
+      { email },
+      {
+        $set: {
+          // Mantenemos el estado 'asignado' si ya lo tenía, si no, 'activo'
+          estado: currentDoc?.estado === "asignado" ? "asignado" : "activo",
+          socketId: socket.id,
+          updatedAt: new Date()
+        }
+      },
+      { upsert: true, returnDocument: 'after' }
+    );
 
-      // 3. Avisar al Panel Central
-      io.emit("panel_update", buildPayload(updatedPos, updatedPos, updatedPos.estado));
-    }
+    // 3. Avisar al Panel Central
+    io.emit("panel_update", buildPayload(updatedPos, updatedPos, updatedPos.estado));
 
-    // Si es admin, enviar modo
+    // Enviar modo de despacho a admins
     socket.emit("dispatch_mode_changed", { auto: isAutoMode });
   }
 
@@ -420,6 +419,14 @@ io.on("connection", async (socket) => {
       }
     } catch (error) {
       console.error("❌ Error en socket position:", error);
+    }
+  });
+
+  socket.on("check_my_status", async ({ email }) => {
+    const statusDoc = await Position.findOne({ email: email?.toLowerCase() });
+    if (statusDoc && statusDoc.estado === "asignado") {
+      const p = await Position.findOne({ estado: "asignado", role: "pasajero" });
+      if (p) socket.emit("pasajero_asignado", buildPayload(p, p, "asignado"));
     }
   });
 
