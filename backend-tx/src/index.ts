@@ -104,9 +104,15 @@ const enviarNotificacionPush = async (subscription: any, pasajeroData: any, taxi
   }
 
   const payload = JSON.stringify({
-    title: "🚕 ¡NUEVO SERVICIO!",
-    body: `Cliente: ${pasajeroData.name}\n📍 Toca para ver la ubicación del pasajero`,
-    data: { url: "/taxista" }
+    notification: { // 👈 Envolverlo en 'notification' ayuda a algunos navegadores
+      title: "🚕 ¡NUEVO SERVICIO!",
+      body: `Cliente: ${pasajeroData.name}\n📍 Toca para ver la ubicación`,
+      icon: "/icon-192x192.png", // Asegúrate de tener este icono en tu carpeta public
+      vibrate: [200, 100, 200, 100, 200, 100, 400],
+      data: {
+        url: "/taxista" // Esto lo leerá el Service Worker
+      }
+    }
   });
 
   // ✅ CORRECTO: Cumple con lo que pide la librería web-push
@@ -133,68 +139,72 @@ const enviarNotificacionPush = async (subscription: any, pasajeroData: any, taxi
   }
 };
 
-// 🚀 CASCADA DE DESPACHO REFACTORIZADA
 const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [], attempt: number = 1) => {
   if (!isAutoMode) return;
 
   // 1. Límite de seguridad
   if (attempt > MAX_RETRIES) {
-    console.log(`❌ Límite de reintentos alcanzado para ${pasajeroData.email}`);
+    console.log(`❌ Límite alcanzado para ${pasajeroData.email}`);
     await Position.updateOne({ email: pasajeroData.email }, { $set: { estado: "activo" } });
-    io.to(pasajeroData.email).emit("no_taxis_available", { message: "Sin unidades disponibles por ahora." });
+    io.to(pasajeroData.email).emit("no_taxis_available", { message: "Sin unidades disponibles." });
     return;
   }
 
-  // 2. Búsqueda de taxistas (Optimizada para incluir pushSubscription)
-  const taxistasDisponibles = await Position.find({
+  // 2. 🛡️ BÚSQUEDA INMORTAL (Basada en Push, no en Socket)
+  // Buscamos taxistas que tengan suscripción, sin importar si el socket parpadeó
+  const taxistasCandidatos = await Position.find({
     role: "taxista",
-    estado: { $in: ["activo", "Disponible"] },
-    email: { $nin: excludedEmails }
+    pushSubscription: { $exists: true, $ne: null }, // 🚩 CRUCIAL: Debe tener llave Push
+    estado: { $nin: ["EnCurso", "ocupado", "asignado"] }, // Que no estén ocupados
+    email: { $nin: excludedEmails } // Que no sea uno que ya rechazó
   }).lean() as IPosition[];
 
-  if (taxistasDisponibles.length === 0) {
-    io.to(pasajeroData.email).emit("no_taxis_available", { message: "Buscando más conductores..." });
+  if (taxistasCandidatos.length === 0) {
+    console.log(`📭 No hay taxistas con Push activo para ${pasajeroData.email}`);
+    io.to(pasajeroData.email).emit("no_taxis_available", { message: "Buscando conductores..." });
     return;
   }
 
-  // 3. Selección por cercanía
-  const elMasCercano = taxistasDisponibles.reduce((prev, curr) => {
+  // 3. Selección por cercanía (Valles GPS)
+  const elMasCercano = taxistasCandidatos.reduce((prev, curr) => {
     const distPrev = calculateDistance(pasajeroData.lat, pasajeroData.lng, prev.lat, prev.lng);
     const distCurr = calculateDistance(pasajeroData.lat, pasajeroData.lng, curr.lat, curr.lng);
     return distPrev < distCurr ? prev : curr;
   });
 
-  // 4. Bloqueo de estados
+  console.log(`🎯 Intentando con Tx-${elMasCercano.taxiNumber} (Estado: ${elMasCercano.estado})`);
+
+  // 4. Bloqueo de estados en BD
   await Position.updateOne({ email: elMasCercano.email }, { $set: { estado: "asignado" } });
   await Position.updateOne({ email: pasajeroData.email }, { $set: { estado: "asignado" } });
 
-  // 5. Notificación Dual (Socket + Push)
+  // 5. 🔔 NOTIFICACIÓN DUAL ESTRATÉGICA
+  // Enviamos por socket (si está conectado la recibe al instante)
   io.to(elMasCercano.email).emit("pasajero_asignado", { ...pasajeroData, attempt });
-  io.to(pasajeroData.email).emit("taxista_asignado", buildPayload(null, elMasCercano, "asignado", {
-    pushSubscription: elMasCercano.pushSubscription
-  }));
+
+  // Enviamos el PUSH (el "misil" que lo despierta si el socket murió hace 12 seg)
   enviarNotificacionPush(elMasCercano.pushSubscription, pasajeroData, elMasCercano.email);
 
-  // 6. Temporizador de Cascada (Ajustado a 15-20 segundos)
+  // 6. Temporizador de Cascada
   const timeout = setTimeout(async () => {
     const tCheck = await Position.findOne({ email: elMasCercano.email }).lean();
 
-    // Si el taxista NO ha cambiado su estado de "asignado" (no aceptó)
     if (tCheck && tCheck.estado === "asignado") {
-      console.log(`⏳ Tx-${elMasCercano.taxiNumber} no respondió. Saltando...`);
+      console.log(`⏳ Tx-${elMasCercano.taxiNumber} no respondió al Push/Socket. Saltando...`);
 
-      // 📢 ESTA LÍNEA ES CLAVE: Apaga la alerta sonora en el frontend del taxista
+      // Limpiamos la alerta en el frontend si es que el socket volvió
       io.to(elMasCercano.email).emit("dispatch_timeout");
 
-      // Liberar al taxista y reintentar con el siguiente
+      // Liberar al taxista para que vuelva a estar disponible
       await Position.updateOne({ email: elMasCercano.email }, { $set: { estado: "activo" } });
 
-      // Emitir al panel central que el taxista vuelve a estar activo
-      io.emit("panel_update", buildPayload(tCheck, tCheck, "activo"));
+      // Actualizar el Panel Central
+      io.emit("panel_update", { email: elMasCercano.email, estado: "activo" });
 
+      // Reintento: Pasamos al siguiente más cercano
       dispatchWithRetry(pasajeroData, [...excludedEmails, elMasCercano.email], attempt + 1);
     }
-  }, 22000); // 22 segundos es un buen balance para Valles
+  }, 22000);
 
   pendingTimeouts.set(elMasCercano.email, timeout);
 };
