@@ -40,26 +40,29 @@ const PanelCentral: React.FC = () => {
 
   const CENTER_VALLES: [number, number] = [21.9850, -99.0150];
 
-const posicionesValidas = useMemo(() => 
-  positions.filter(p => 
+const posicionesValidas = useMemo(() => {
+  console.log("📡 Posiciones recibidas en Panel:", positions); // <-- Añade este log temporal
+  return positions.filter(p => 
     esPosicionValida(p.lat, p.lng) && 
-    // 🛡️ Filtro doble: Si por alguna razón el objeto sigue ahí pero dice desconectado, no lo pintes
     p.estado.toLowerCase() !== "desconectado"
-  ), 
-  [positions]
+  );
+}, [positions]);
+
+ const pasajerosEspera = useMemo(() => 
+  posicionesValidas.filter(u => 
+    u.role === "pasajero" && 
+    // Agregamos "buscando" e "inactivo" para que el monitor siempre los vea si están online
+    ["activo", "esperando", "solicitando", "pendiente", "buscando", "inactivo"].includes(u.estado.toLowerCase())
+  ),
+  [posicionesValidas]
 );
 
-  const pasajerosEspera = useMemo(() => 
-    posicionesValidas.filter(u => 
-      u.role === "pasajero" && ["activo", "esperando", "solicitando", "pendiente"].includes(u.estado.toLowerCase())
-    ),
-    [posicionesValidas]
-  );
-
- const viajesEnCurso = useMemo(() =>
-  posicionesValidas
-    .filter(u => u.role === "pasajero" && ["asignado", "en camino", "aceptado", "viajando", "en curso", "ocupado"].includes(u.estado.toLowerCase()))
-    .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()), // 🕒 Los más recientes arriba
+const viajesEnCurso = useMemo(() =>
+  posicionesValidas.filter(u => 
+    // Quitamos la restricción de solo pasajero para ver también al taxista ocupado
+    ["asignado", "en camino", "aceptado", "viajando", "en curso", "ocupado"].includes(u.estado.toLowerCase())
+  )
+  .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()),
   [posicionesValidas]
 );
 

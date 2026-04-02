@@ -109,11 +109,15 @@ const enviarNotificacionPush = async (subscription: any, pasajeroData: any, taxi
     data: { url: "/taxista" }
   });
 
-  // 🔥 CONFIGURACIÓN DE ALTA PRIORIDAD
+  // ✅ CORRECTO: Cumple con lo que pide la librería web-push
   const options = {
-    TTL: 60,            // El mensaje vive 60 segundos si el cel está offline
-    priority: 'high',   // Para Google (FCM)
-    urgency: 'high' as const,    // Para otros navegadores
+    TTL: 60,
+    urgency: 'high' as const, // La librería usa 'urgency' para el nivel de prioridad
+    headers: {
+      // Para FCM (Google/Android), la prioridad se pasa en los headers
+      'Urgency': 'high',
+      'Topic': 'nuevos-servicios'
+    }
   };
 
   try {
@@ -190,7 +194,7 @@ const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [
 
       dispatchWithRetry(pasajeroData, [...excludedEmails, elMasCercano.email], attempt + 1);
     }
-  }, 18000); // 18 segundos es un buen balance para Valles
+  }, 22000); // 22 segundos es un buen balance para Valles
 
   pendingTimeouts.set(elMasCercano.email, timeout);
 };
@@ -291,7 +295,7 @@ app.post("/save-subscription", async (req: Request, res: Response) => {
     const userUpdate = await User.findOneAndUpdate(
       { email: cleanEmail },
       { $set: { pushSubscription: subscription } },
-      { new: true }
+      { returnDocument: "after" }
     );
 
     // 2. Actualización en la colección de Positions (Despacho)
@@ -300,7 +304,7 @@ app.post("/save-subscription", async (req: Request, res: Response) => {
     const posUpdate = await Position.findOneAndUpdate(
       { email: cleanEmail },
       { $set: { pushSubscription: subscription } },
-      { new: true, upsert: true }
+      { returnDocument: "after", upsert: true }
     );
 
     if (!userUpdate && !posUpdate) {
@@ -321,18 +325,36 @@ app.post("/save-subscription", async (req: Request, res: Response) => {
 });
 // --- SOCKETS ---
 io.on("connection", async (socket) => {
-  const email = socket.handshake.auth?.email;
+  // 1. Limpieza de datos (Evita errores de mayúsculas/espacios)
+  const rawEmail = socket.handshake.auth?.email;
+  const email = rawEmail ? rawEmail.toLowerCase().trim() : null;
   const role = socket.handshake.auth?.role;
 
   console.log(`Log: Usuario conectado [${email}] con rol [${role}]`);
 
   if (email) {
-    socket.join(email);
+    socket.join(email); // 👈 Creas la sala para recibir mensajes directos
+
     if (role === "taxista") {
-      await Position.updateOne({ email }, { estado: "activo", updatedAt: new Date() }, { upsert: true });
-      const updatedPos = await Position.findOne({ email });
+      // 2. Actualizamos la BD con el SocketId y el estado activo
+      const updatedPos = await Position.findOneAndUpdate(
+        { email },
+        {
+          $set: {
+            estado: "activo",
+            socketId: socket.id, // 🚩 VITAL: Guardar el ID actual para notificaciones
+            updatedAt: new Date()
+          }
+        },
+        { upsert: true, returnDocument: 'after' }
+      );
+
+      // 3. 🔥 LA LÍNEA QUE FALTA: Avisar al Panel Central inmediatamente
+      // Sin esto, el taxista no aparece en el monitor hasta que se mueva el GPS
       io.emit("panel_update", buildPayload(updatedPos, updatedPos, "activo"));
     }
+
+    // Si es admin, le enviamos el modo actual
     socket.emit("dispatch_mode_changed", { auto: isAutoMode });
   }
 
@@ -376,11 +398,19 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("request_taxi", async (pasajeroData: any) => {
+    const pEmail = pasajeroData.email.toLowerCase().trim();
+
     if (isAutoMode) {
       dispatchWithRetry(pasajeroData, [], 1);
     } else {
-      await Position.updateOne({ email: pasajeroData.email }, { estado: "esperando" });
-      io.emit("panel_update", buildPayload(pasajeroData, pasajeroData, "esperando"));
+      // 🚩 IMPORTANTE: Actualizar BD y avisar al mundo
+      await Position.updateOne({ email: pEmail }, { $set: { estado: "esperando" } });
+
+      // Obtenemos los datos completos para que el panel tenga el nombre y el icono
+      const updatedP = await Position.findOne({ email: pEmail });
+      io.emit("panel_update", buildPayload(updatedP, updatedP, "esperando"));
+
+      console.log(`📢 Solicitud manual detectada en panel para: ${pEmail}`);
     }
   });
 
@@ -431,19 +461,33 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("admin_assign_taxi", async ({ pasajeroEmail, taxistaEmail }) => {
-    if (pendingTimeouts.has(taxistaEmail)) {
-      clearTimeout(pendingTimeouts.get(taxistaEmail)!);
-      pendingTimeouts.delete(taxistaEmail);
+    const pEmail = pasajeroEmail.toLowerCase().trim();
+    const tEmail = taxistaEmail.toLowerCase().trim();
+
+    // Limpiar timeouts
+    if (pendingTimeouts.has(tEmail)) {
+      clearTimeout(pendingTimeouts.get(tEmail)!);
+      pendingTimeouts.delete(tEmail);
     }
-    const pData = await Position.findOne({ email: pasajeroEmail });
-    const tData = await Position.findOne({ email: taxistaEmail });
+
+    const pData = await Position.findOne({ email: pEmail });
+    const tData = await Position.findOne({ email: tEmail });
+
     if (pData && tData) {
-      await Position.updateOne({ email: taxistaEmail }, { estado: "asignado" });
-      await Position.updateOne({ email: pasajeroEmail }, { estado: "asignado" });
-      io.to(taxistaEmail).emit("pasajero_asignado", buildPayload(pData, pData, "asignado"));
-      io.to(pasajeroEmail).emit("taxista_asignado", buildPayload(tData, tData, "asignado"));
+      // 1. Actualizamos BD
+      await Position.updateOne({ email: tEmail }, { $set: { estado: "asignado" } });
+      await Position.updateOne({ email: pEmail }, { $set: { estado: "asignado" } });
+
+      // 2. Emitimos a las SALAS (Rooms)
+      io.to(tEmail).emit("pasajero_asignado", buildPayload(pData, pData, "asignado"));
+      io.to(pEmail).emit("taxista_asignado", buildPayload(tData, tData, "asignado"));
+
+      // 3. ACTUALIZAMOS AL MONITOR (Esto da la "acción" al panel)
+      // Enviamos ambos updates para que las listas del panel se muevan solas
       io.emit("panel_update", buildPayload(pData, pData, "asignado"));
       io.emit("panel_update", buildPayload(tData, tData, "asignado"));
+
+      console.log(`🚀 MONITOR: Asignación manual completada [${tEmail} -> ${pEmail}]`);
     }
   });
 
