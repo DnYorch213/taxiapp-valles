@@ -335,36 +335,57 @@ app.post("/save-subscription", async (req: Request, res: Response) => {
 });
 // --- SOCKETS ---
 io.on("connection", async (socket) => {
-  // 1. Limpieza de datos (Evita errores de mayúsculas/espacios)
-  const rawEmail = socket.handshake.auth?.email;
-  const email = rawEmail ? rawEmail.toLowerCase().trim() : null;
-  const role = socket.handshake.auth?.role;
+  // 1. Captura de datos (Soportando handshake.auth y handshake.query)
+  const rawEmail = socket.handshake.auth?.email || socket.handshake.query?.email;
+  const email = rawEmail ? rawEmail.toString().toLowerCase().trim() : null;
+  const role = socket.handshake.auth?.role || socket.handshake.query?.role;
 
   console.log(`Log: Usuario conectado [${email}] con rol [${role}]`);
 
   if (email) {
-    socket.join(email); // 👈 Creas la sala para recibir mensajes directos
+    socket.join(email);
 
-    if (role === "taxista") {
-      // 2. Actualizamos la BD con el SocketId y el estado activo
+    // --- 🔥 LÓGICA DE RECONEXIÓN INMORTAL ---
+    const checkStatus = await Position.findOne({ email });
+
+    if (checkStatus && role === "taxista") {
+      // Caso A: El taxista se conecta y ya estaba marcado como 'asignado'
+      if (checkStatus.estado === "asignado") {
+        // Buscamos al pasajero que tiene asignado a este taxista
+        // Buscamos a alguien con estado 'asignado' o 'esperando' que coincida con la asignación
+        // Si no tienes un campo 'taxistaAsignado' en el pasajero, buscamos al que 
+        // esté en estado 'asignado' y no sea un taxista.
+        const pasajeroAsignado = await Position.findOne({
+          estado: "asignado",
+          role: "pasajero"
+          // Si guardas el email del taxista en el pasajero, añádelo aquí:
+          // taxistaAsignado: email 
+        });
+
+        if (pasajeroAsignado) {
+          console.log(`♻️ Re-enviando invitación de viaje a ${email} (Pasajero: ${pasajeroAsignado.email})`);
+          socket.emit("pasajero_asignado", buildPayload(pasajeroAsignado, pasajeroAsignado, "asignado"));
+        }
+      }
+
+      // 2. Actualización de estado normal para taxista
       const updatedPos = await Position.findOneAndUpdate(
         { email },
         {
           $set: {
-            estado: "activo",
-            socketId: socket.id, // 🚩 VITAL: Guardar el ID actual para notificaciones
+            estado: checkStatus.estado === "asignado" ? "asignado" : "activo",
+            socketId: socket.id,
             updatedAt: new Date()
           }
         },
         { upsert: true, returnDocument: 'after' }
       );
 
-      // 3. 🔥 LA LÍNEA QUE FALTA: Avisar al Panel Central inmediatamente
-      // Sin esto, el taxista no aparece en el monitor hasta que se mueva el GPS
-      io.emit("panel_update", buildPayload(updatedPos, updatedPos, "activo"));
+      // 3. Avisar al Panel Central
+      io.emit("panel_update", buildPayload(updatedPos, updatedPos, updatedPos.estado));
     }
 
-    // Si es admin, le enviamos el modo actual
+    // Si es admin, enviar modo
     socket.emit("dispatch_mode_changed", { auto: isAutoMode });
   }
 
@@ -486,7 +507,7 @@ io.on("connection", async (socket) => {
     if (pData && tData) {
       // 1. Actualizamos BD
       await Position.updateOne({ email: tEmail }, { $set: { estado: "asignado" } });
-      await Position.updateOne({ email: pEmail }, { $set: { estado: "asignado" } });
+      await Position.updateOne({ email: pEmail }, { $set: { estado: "asignado", taxistaEmail: tEmail } });
 
       // 2. Emitimos a las SALAS (Rooms)
       io.to(tEmail).emit("pasajero_asignado", buildPayload(pData, pData, "asignado"));
