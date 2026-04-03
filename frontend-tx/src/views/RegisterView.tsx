@@ -31,20 +31,27 @@ const RegisterView: React.FC = () => {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      // 🚀 Petición usando la URL del entorno
-      const res = await axios.post<RegisterResponse>(`${API_URL}/register`, form);
-      alert(res.data.message);
-      navigate("/login");
-    } catch (error: any) {
-      // ⚠️ Manejo de errores detallado (ej: correo duplicado)
-      const errorMsg = error.response?.data?.message || "Error al conectar con el servidor";
-      alert(errorMsg);
-      console.error("Error en registro:", error);
+ const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  // 🛡️ Validación extra antes de disparar la red
+  if (form.role === "taxista") {
+    const num = parseInt(form.taxiNumber);
+    if (isNaN(num) || num < 1 || num > 849) {
+      alert("❌ El número de unidad debe estar entre 1 y 849");
+      return;
     }
-  };
+  }
+
+  try {
+    const res = await axios.post<RegisterResponse>(`${API_URL}/register`, form);
+    alert("✅ " + res.data.message);
+    navigate("/login");
+  } catch (error: any) {
+    const errorMsg = error.response?.data?.message || "Error al conectar con el servidor";
+    alert("⚠️ " + errorMsg);
+  }
+};
 
  return (
   <div className="min-h-screen bg-slate-50 flex flex-col justify-center p-6 relative overflow-hidden font-sans">

@@ -12,6 +12,7 @@ interface LoginResponse {
   name: string; 
   taxiNumber?: string;
   email: string;
+  lastCoords?: { lat: number; lng: number } | null;
 }
 
 const LoginView: React.FC = () => {
@@ -38,7 +39,7 @@ const LoginView: React.FC = () => {
         email: cleanEmail
       });
       
-      const { token, role, name, taxiNumber, email } = res.data;
+      const { token, role, name, taxiNumber, email, lastCoords } = res.data;
 
       // 1. Limpieza total de seguridad
       localStorage.clear();
@@ -61,8 +62,8 @@ const LoginView: React.FC = () => {
         email: email.toLowerCase(),
         id: email.toLowerCase(),
         name: name,
-        lat: 0, 
-        lng: 0,
+        lat: lastCoords?.lat || 0, 
+        lng: lastCoords?.lng || 0,
         role: role,
         taxiNumber: role === "taxista" ? taxiNumber : undefined,
       });
