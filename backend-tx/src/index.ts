@@ -455,11 +455,33 @@ io.on("connection", async (socket) => {
     }
   });
 
-  socket.on("check_my_status", async ({ email }) => {
-    const statusDoc = await Position.findOne({ email: email?.toLowerCase() });
-    if (statusDoc && statusDoc.estado === "asignado") {
-      const p = await Position.findOne({ estado: "asignado", role: "pasajero" });
-      if (p) socket.emit("pasajero_asignado", buildPayload(p, p, "asignado"));
+  // 🚩 Dentro de io.on("connection")
+  socket.on("reproducir_estado_viaje", async ({ email, role }) => {
+    try {
+      if (role === "taxista") {
+        // Buscamos si este taxista tiene un pasajero asignado
+        const pasajero = await Position.findOne({
+          role: "pasajero",
+          taxistaAsignado: email,
+          estado: { $in: ["asignado", "en curso", "ocupado"] }
+        });
+
+        if (pasajero) {
+          socket.emit("pasajero_asignado", buildPayload(pasajero, pasajero, "asignado"));
+          console.log(`🔄 Estado rehidratado para taxista: ${email}`);
+        }
+      } else if (role === "pasajero") {
+        // Si el pasajero recarga, buscamos si ya tiene un taxista
+        const miEstado = await Position.findOne({ email });
+        if (miEstado && miEstado.taxistaAsignado) {
+          const miTaxista = await Position.findOne({ email: miEstado.taxistaAsignado });
+          if (miTaxista) {
+            socket.emit("taxista_asignado", buildPayload(miTaxista, miTaxista, "asignado"));
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error al reproducir estado:", err);
     }
   });
 

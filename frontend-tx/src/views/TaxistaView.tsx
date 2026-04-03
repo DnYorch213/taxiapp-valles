@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import { toast, ToastContainer } from "react-toastify";
 import L from 'leaflet';
@@ -65,6 +65,20 @@ const TaxistaView: React.FC = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // --- AUDIO & NOTIFICACIONES ---
+  const detenerSonido = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+  }, []);
+
+  const reproducirAlerta = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(err => console.log("Audio bloqueado:", err));
+    }
+  }, []);
+
   useEffect(() => {
     audioRef.current = new Audio("/sounds/alerta_taxi.mp3");
     if (audioRef.current) {
@@ -72,21 +86,7 @@ const TaxistaView: React.FC = () => {
       audioRef.current.load();
     }
     return () => detenerSonido();
-  }, []);
-
-  const detenerSonido = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-  };
-
-  const reproducirAlerta = () => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(err => console.log("Audio bloqueado:", err));
-    }
-  };
+  }, [detenerSonido]);
 
   useEffect(() => {
     const activarNotificaciones = async () => {
@@ -126,34 +126,46 @@ const TaxistaView: React.FC = () => {
     }
   );
 
-  // --- 🔄 LÓGICA DE SOCKETS (RECUPERACIÓN MEJORADA) ---
+  // --- 🔄 LÓGICA DE SOCKETS (REFRESCADA) ---
+  
+  const checkStatus = useCallback(() => {
+    const miEmail = userPosition?.email || localStorage.getItem("email");
+    const miRole = localStorage.getItem("role");
+
+    if (miEmail && socket.connected) {
+      console.log("🛰️ Rehidratando estado del viaje...");
+      socket.emit("reproducir_estado_viaje", { 
+        email: miEmail.toLowerCase().trim(),
+        role: miRole 
+      });
+    }
+  }, [userPosition?.email]);
+
+  const handleAsignacion = useCallback((data: any) => {
+    console.log("🚕 ¡DATOS DE VIAJE RECIBIDOS!", data);
+    setPasajeroAsignado(data);
+    setExcludedEmails(data.excludedEmails || []);
+    
+    // 🔥 Lógica de estados para recuperación:
+    if (data.estado === "en curso" || data.estado === "ocupado") {
+      setEstado("EnCurso");
+      detenerSonido();
+    } else if (data.estado === "asignado") {
+      setEstado("EnCamino");
+      detenerSonido();
+    } else {
+      setEstado("Asignado");
+      reproducirAlerta();
+    }
+
+    if (data.lat && data.lng) {
+      toast.success("Ruta sincronizada correctamente");
+      if (window.navigator.vibrate) window.navigator.vibrate([200, 100, 200]);
+    }
+  }, [detenerSonido, reproducirAlerta]);
+
   useEffect(() => {
     if (!socket) return;
-
-    const handleAsignacion = (data: any) => {
-      console.log("🚕 ¡DATOS DE VIAJE RECIBIDOS!", data);
-      setPasajeroAsignado(data);
-      setExcludedEmails(data.excludedEmails || []);
-      
-      // 🔥 Lógica de estados para recuperación:
-      if (data.estado === "en curso" || data.estado === "ocupado") {
-        setEstado("EnCurso");
-        detenerSonido();
-      } else if (data.estado === "asignado") {
-        // Si el taxista ya estaba vinculado pero reinició, lo mandamos a EnCamino
-        // para que vea los botones de "Confirmar Abordo"
-        setEstado("EnCamino");
-        detenerSonido();
-      } else {
-        // Es un viaje nuevo entrando en tiempo real
-        setEstado("Asignado");
-        reproducirAlerta();
-      }
-
-      if (data.lat && data.lng) {
-        toast.success("Ruta sincronizada correctamente");
-      }
-    };
 
     const handleTimeout = () => {
       detenerSonido();
@@ -170,28 +182,28 @@ const TaxistaView: React.FC = () => {
       toast.error("El pasajero canceló el viaje");
     };
 
-    const checkStatus = () => {
-      const miEmail = userPosition?.email || localStorage.getItem("email");
-      if (miEmail) {
-        console.log("🛰️ Verificando estado tras conexión...");
-        socket.emit("check_my_status", { email: miEmail.toLowerCase().trim() });
-      }
-    };
-
+    // 1. Escuchas de eventos
     socket.on("pasajero_asignado", handleAsignacion);
     socket.on("dispatch_timeout", handleTimeout);
     socket.on("trip_cancelled_by_passenger", handleCancel);
+    
+    // 2. El truco maestro: Escuchar el evento 'connect' para reconexión automática
     socket.on("connect", checkStatus);
 
-    if (socket.connected) checkStatus();
+    // 3. Verificación inmediata
+    if (socket.connected) {
+      checkStatus();
+    }
 
+    // 4. Limpieza (Cleanup)
     return () => {
       socket.off("pasajero_asignado", handleAsignacion);
       socket.off("dispatch_timeout", handleTimeout);
       socket.off("trip_cancelled_by_passenger", handleCancel);
       socket.off("connect", checkStatus);
     };
-  }, [socket, userPosition?.email]);
+    
+  }, [socket, socket?.connected, userPosition?.email, handleAsignacion, checkStatus, detenerSonido]);
 
   // --- ACCIONES DEL TAXISTA ---
   const aceptarViaje = () => {
@@ -226,7 +238,6 @@ const TaxistaView: React.FC = () => {
 
   // --- MAPA & RUTA ---
   const puntosRuta = useMemo(() => {
-    // 🔥 Ahora incluimos "EnCurso" para que la ruta no desaparezca al subir al pasajero
     const estadosActivos = ["EnCamino", "Asignado", "EnCurso"];
     if (pasajeroAsignado?.lat && userPosition?.lat && estadosActivos.includes(estado)) {
       return [L.latLng(userPosition.lat!, userPosition.lng!), L.latLng(pasajeroAsignado.lat!, pasajeroAsignado.lng!)];
@@ -346,6 +357,7 @@ const TaxistaView: React.FC = () => {
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 bg-[#22c55e] rounded-2xl flex items-center justify-center text-xl shadow-lg shadow-green-100 text-white">💬</div>
                 <h3 className="text-[11px] font-black text-slate-800 uppercase tracking-widest">Chat con Pasajero</h3>
+                <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse"></div>
               </div>
               <div className={`transform transition-transform duration-500 ${chatAbierto ? "rotate-180" : "rotate-0"}`}>
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
