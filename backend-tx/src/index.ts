@@ -391,6 +391,21 @@ io.on("connection", async (socket) => {
   const initialPositions = await Position.find();
   socket.emit("positions", initialPositions.map(p => buildPayload(p, p, p.estado || "activo")));
 
+  // 🚩 AÑADE ESTO JUSTO DEBAJO:
+  if (role === "taxista" && email) {
+    const check = await Position.findOne({ email });
+    if (check && check.estado === "asignado") {
+      const pasajero = await Position.findOne({ estado: "asignado", role: "pasajero" });
+      if (pasajero) {
+        // Mandamos un pequeño delay para que el canal de socket se limpie
+        setTimeout(() => {
+          socket.emit("pasajero_asignado", buildPayload(pasajero, pasajero, "asignado"));
+          console.log(`✅ Recuperación exitosa para ${email}`);
+        }, 1500);
+      }
+    }
+  }
+
   socket.on("position", async (data: any) => {
     if (!data.email) return;
 

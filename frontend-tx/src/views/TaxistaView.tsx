@@ -29,7 +29,6 @@ function urlBase64ToUint8Array(base64String: string) {
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 const VAPID_PUBLIC_KEY = "BHtVjCOYiH1nbyPq-mPS_ZqA0oHjGcONq5r5PV-sTC1jXzAvgGuFFwL5iv0ymk725NUX4_obl82JLilVs9W49-A";
 
-// --- SUB-COMPONENTE: BARRA DE TIEMPO ---
 const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ duration, onFinish }) => {
   const [progress, setProgress] = useState(100);
   useEffect(() => {
@@ -63,10 +62,8 @@ const TaxistaView: React.FC = () => {
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
   const [chatAbierto, setChatAbierto] = useState(false);
   
-  // 🎵 REFERENCIA DE AUDIO CENTRALIZADA
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // 1. Inicialización del Audio
   useEffect(() => {
     audioRef.current = new Audio("/sounds/alerta_taxi.mp3");
     if (audioRef.current) {
@@ -90,50 +87,31 @@ const TaxistaView: React.FC = () => {
     }
   };
 
- useEffect(() => {
-  const activarNotificaciones = async () => {
-    // 1. Validaciones de seguridad y dependencias
-    if (!userPosition?.email || userPosition.role !== "taxista" || !VAPID_PUBLIC_KEY) return;
-
-    try {
-      // 2. Solicitar permiso al usuario
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        console.warn("⚠️ Permiso de notificaciones denegado.");
-        return;
-      }
-
-      // 3. Esperar a que el Service Worker esté listo
-      const registration = await navigator.serviceWorker.ready;
-
-      // 4. Obtener suscripción existente o crear una nueva
-      let subscription = await registration.pushManager.getSubscription();
-
-      if (!subscription) {
-        console.log("🛰️ Generando nueva suscripción Push...");
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+  useEffect(() => {
+    const activarNotificaciones = async () => {
+      if (!userPosition?.email || userPosition.role !== "taxista" || !VAPID_PUBLIC_KEY) return;
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") return;
+        const registration = await navigator.serviceWorker.ready;
+        let subscription = await registration.pushManager.getSubscription();
+        if (!subscription) {
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+          });
+        }
+        await axios.post(`${API_URL}/save-subscription`, {
+          email: userPosition.email.toLowerCase().trim(),
+          subscription: subscription
         });
+      } catch (error) {
+        console.error("❌ Error en notificaciones:", error);
       }
+    };
+    activarNotificaciones();
+  }, [userPosition?.email]);
 
-      // 5. 🔥 Sincronización forzada con el Backend
-      // Esto asegura que el "candadito" esté siempre activo en la base de datos
-      await axios.post(`${API_URL}/save-subscription`, {
-        email: userPosition.email.toLowerCase().trim(),
-        subscription: subscription
-      });
-
-      console.log("✅ Sistema Push sincronizado con éxito.");
-
-    } catch (error) {
-      // Capturamos errores de red o bloqueos de navegador sin romper la app
-      console.error("❌ Error en el flujo de notificaciones:", error);
-    }
-  };
-
-  activarNotificaciones();
-}, [userPosition?.email, userPosition?.role]);  // 3. Geolocation
   useGeolocation(
     {
       email: userPosition?.email || localStorage.getItem("email") || "",
@@ -146,70 +124,61 @@ const TaxistaView: React.FC = () => {
     }
   );
 
-  // 4. Lógica de Sockets Sincronizada
+  // --- 🔄 LÓGICA DE SOCKETS REFACTORIZADA ---
   useEffect(() => {
-  if (!socket) return;
+    if (!socket) return;
 
-  // --- 🔥 NUEVO: PEDIR ESTADO AL CONECTAR ---
-  // Apenas el socket se conecta (o el componente se monta), preguntamos al servidor
-  const checkStatus = () => {
-    const email = userPosition?.email || localStorage.getItem("email");
-    if (email) {
-      console.log("🛰️ Solicitando verificación de viaje pendiente...");
-      socket.emit("check_my_status", { email: email.toLowerCase().trim() });
-    }
-  };
+    const handleAsignacion = (data: any) => {
+      console.log("🚕 ¡PASAJERO RECIBIDO!", data);
+      setPasajeroAsignado(data);
+      setExcludedEmails(data.excludedEmails || []);
+      // Solo forzamos 'Asignado' si no estamos ya en un viaje activo
+      setEstado(prev => (prev === "EnCamino" || prev === "EnCurso" ? prev : "Asignado"));
+      reproducirAlerta();
+      if ("vibrate" in navigator) navigator.vibrate([500, 200, 500]);
+      toast.info(`¡SERVICIO DETECTADO!`, { position: "top-center" });
+    };
 
-  // Si el socket ya está conectado, pedimos status de una vez
-  if (socket.connected) checkStatus();
-  
-  // También lo pedimos cada vez que se reconecte formalmente
-  socket.on("connect", checkStatus);
-
-  // --- ESCUCHA DE EVENTOS ---
-  socket.on("pasajero_asignado", (data: Payload & { excludedEmails?: string[] }) => {
-    console.log("🚕 Viaje recuperado/asignado:", data);
-    
-    // Si ya estamos en un viaje "EnCurso", no dejamos que la tarjeta verde lo tape
-    // (A menos que sea una reconexión necesaria)
-    setPasajeroAsignado(data);
-    setExcludedEmails(data.excludedEmails || []);
-    
-    // IMPORTANTE: Si el estado era 'Disponible', lo pasamos a 'Asignado'
-    // Si ya estabas 'EnCamino', lo dejamos así para no interrumpir la navegación
-    setEstado(prev => (prev === "Disponible" ? "Asignado" : prev));
-    
-    reproducirAlerta(); 
-
-    if ("vibrate" in navigator) navigator.vibrate([500, 200, 500]);
-    toast.info(`¡SERVICIO DETECTADO!`, { position: "top-center" });
-  })
-
-    socket.on("dispatch_timeout", () => {
-      console.log("⏰ Tiempo agotado por el servidor.");
-      detenerSonido(); // 🛑 Detiene el Ref
+    const handleTimeout = () => {
+      detenerSonido();
       setPasajeroAsignado(null);
       setEstado("Disponible");
-      toast.warn("El tiempo para aceptar ha expirado", { position: "top-center" });
-    });
+      toast.warn("El tiempo para aceptar ha expirado");
+    };
 
-    socket.on("trip_cancelled_by_passenger", () => {
-      detenerSonido(); // 🛑 Detiene el Ref
+    const handleCancel = () => {
+      detenerSonido();
       setPasajeroAsignado(null);
       setEstado("Disponible");
       setChatAbierto(false);
       toast.error("El pasajero canceló el viaje");
-    });
+    };
+
+    const checkStatus = () => {
+      const miEmail = userPosition?.email || localStorage.getItem("email");
+      if (miEmail) {
+        console.log("🛰️ Verificando estado tras conexión...");
+        socket.emit("check_my_status", { email: miEmail.toLowerCase().trim() });
+      }
+    };
+
+    // Listeners
+    socket.on("pasajero_asignado", handleAsignacion);
+    socket.on("dispatch_timeout", handleTimeout);
+    socket.on("trip_cancelled_by_passenger", handleCancel);
+    socket.on("connect", checkStatus);
+
+    // Ejecución inmediata si ya está conectado al montar
+    if (socket.connected) checkStatus();
 
     return () => {
+      socket.off("pasajero_asignado", handleAsignacion);
+      socket.off("dispatch_timeout", handleTimeout);
+      socket.off("trip_cancelled_by_passenger", handleCancel);
       socket.off("connect", checkStatus);
-      socket.off("pasajero_asignado");
-      socket.off("dispatch_timeout");
-      socket.off("trip_cancelled_by_passenger");
     };
   }, [socket, userPosition?.email]);
 
-  // --- ACCIONES DEL USUARIO ---
   const aceptarViaje = () => {
     if (!pasajeroAsignado) return;
     detenerSonido();
@@ -251,7 +220,6 @@ const TaxistaView: React.FC = () => {
     <div className="h-screen bg-slate-50 flex flex-col overflow-hidden font-sans relative">
       <ToastContainer theme="light" />
 
-      {/* MAPA */}
       <div className="flex-1 w-full relative">
         {userPosition?.lat ? (
           <MapContainer center={[userPosition.lat!, userPosition.lng!]} zoom={15} className="h-full w-full" zoomControl={false}>
@@ -272,7 +240,6 @@ const TaxistaView: React.FC = () => {
         </div>
       </div>
 
-      {/* SECCIÓN DE CONTROL */}
       <div className="bg-white rounded-t-[3.5rem] shadow-[0_-25px_60px_rgba(0,0,0,0.15)] p-8 z-[1001] relative border-t border-slate-50 transition-all duration-700">
         <div className="absolute top-4 left-1/2 -translate-x-1/2 w-16 h-1.5 bg-slate-200 rounded-full"></div>
 
@@ -351,15 +318,13 @@ const TaxistaView: React.FC = () => {
         )}
       </div>
 
-      {/* CHAT COLAPSABLE */}
-      {pasajeroAsignado && pasajeroAsignado.email && estado === "EnCamino" && (
+      {pasajeroAsignado && pasajeroAsignado.email && (estado === "EnCamino" || estado === "EnCurso") && (
         <div className={`fixed bottom-0 left-0 w-full z-[2000] transition-all duration-500 ease-in-out ${chatAbierto ? "translate-y-0" : "translate-y-[calc(100%-70px)]"}`}>
           <div className="max-w-md mx-auto bg-white rounded-t-[2.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.2)] border-x border-t border-slate-100 overflow-hidden">
             <div onClick={() => setChatAbierto(!chatAbierto)} className="h-[70px] flex items-center justify-between px-8 cursor-pointer border-b border-slate-50 active:bg-slate-50">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 bg-[#22c55e] rounded-2xl flex items-center justify-center text-xl shadow-lg shadow-green-100 text-white">💬</div>
                 <h3 className="text-[11px] font-black text-slate-800 uppercase tracking-widest">Chat con Pasajero</h3>
-                <div className="flex items-center gap-3"></div>
               </div>
               <div className={`transform transition-transform duration-500 ${chatAbierto ? "rotate-180" : "rotate-0"}`}>
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
