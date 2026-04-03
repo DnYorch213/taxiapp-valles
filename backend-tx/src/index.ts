@@ -68,7 +68,7 @@ const pendingTimeouts = new Map<string, NodeJS.Timeout>();
 
 // --- HELPERS ---
 
-const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371;
   const dLat = (lat2 - lat1) * (Math.PI / 180);
   const dLon = (lon2 - lon1) * (Math.PI / 180);
@@ -96,49 +96,96 @@ function buildPayload(user: any, pos: any, estado: string, extra: any = {}) {
   };
 }
 
-// 🔔 FUNCIÓN PUSH OPTIMIZADA (Con Sonido y Prioridad)
+// 🔔 FUNCIÓN PUSH OPTIMIZADA
 const enviarNotificacionPush = async (subscription: any, pasajeroData: any, taxistaEmail: string) => {
-  if (!subscription) {
-    console.log(`⚠️ El taxista ${taxistaEmail} no tiene el 'candadito' activo (sin suscripción).`);
-    return;
-  }
-
-  const payload = JSON.stringify({
-    notification: { // 👈 Envolverlo en 'notification' ayuda a algunos navegadores
-      title: "🚕 ¡NUEVO SERVICIO!",
-      body: `Cliente: ${pasajeroData.name}\n📍 Toca para ver la ubicación`,
-      icon: "/icon-192x192.png", // Asegúrate de tener este icono en tu carpeta public
-      vibrate: [200, 100, 200, 100, 200, 100, 400],
-      data: {
-        url: "/taxista" // Esto lo leerá el Service Worker
-      }
-    }
-  });
-
-  // ✅ CORRECTO: Cumple con lo que pide la librería web-push
-  const options = {
-    TTL: 60,
-    urgency: 'high' as const, // La librería usa 'urgency' para el nivel de prioridad
-    headers: {
-      // Para FCM (Google/Android), la prioridad se pasa en los headers
-      'Urgency': 'high',
-      'Topic': 'nuevos-servicios'
-    }
-  };
+  if (!subscription) return;
 
   try {
-    // 🚀 Pasamos 'options' como tercer argumento
+    // 🔍 BUSCAMOS LA POSICIÓN DEL TAXISTA PARA CALCULAR DISTANCIA REAL
+    const taxistaPos = await Position.findOne({ email: taxistaEmail });
+
+    let distanciaMetros = 0;
+    if (taxistaPos && taxistaPos.lat && pasajeroData.lat) {
+      const distKM = calculateDistance(
+        Number(pasajeroData.lat),
+        Number(pasajeroData.lng),
+        Number(taxistaPos.lat),
+        Number(taxistaPos.lng)
+      );
+      distanciaMetros = Math.round(distKM * 1000);
+    }
+
+    const payload = JSON.stringify({
+      notification: {
+        title: "¡NUEVO VIAJE DISPONIBLE! 🚕",
+        body: `Pasajero: ${pasajeroData.name}\nDistancia: ${distanciaMetros}m`,
+        icon: "/icon-192x192.png",
+        vibrate: [200, 100, 200, 100, 200],
+        data: {
+          emailPasajero: pasajeroData.email,
+          emailTaxista: taxistaEmail,
+          url: "/taxista"
+        },
+        actions: [
+          { action: "aceptar", title: "✅ ACEPTAR VIAJE" },
+          { action: "rechazar", title: "❌ IGNORAR" }
+        ]
+      }
+    });
+
+    const options = {
+      TTL: 60,
+      urgency: 'high' as const,
+      headers: { 'Topic': 'nuevos-servicios' }
+    };
+
     await webpush.sendNotification(subscription, payload, options);
     console.log(`🔔 Push enviado con éxito a: ${taxistaEmail}`);
-  } catch (error: any) {
-    if (error.statusCode === 410 || error.statusCode === 404) {
-      console.log(`⚠️ Suscripción de ${taxistaEmail} reportada como expirada.`);
-    } else {
-      console.error(`❌ Error en web-push:`, error);
-    }
+  } catch (error) {
+    console.error(`❌ Error en web-push:`, error);
   }
 };
 
+// --- 🚩 NUEVO ENDPOINT PARA EL SERVICE WORKER ---
+// Este recibe la acción de "Aceptar" de la notificación
+app.post("/api/accept-trip-push", async (req: Request, res: Response) => {
+  const { taxistaEmail, pasajeroEmail } = req.body;
+
+  try {
+    const tEmail = taxistaEmail.toLowerCase().trim();
+    const pEmail = pasajeroEmail.toLowerCase().trim();
+
+    // 1. Limpiar timeouts si existían
+    if (pendingTimeouts.has(tEmail)) {
+      clearTimeout(pendingTimeouts.get(tEmail)!);
+      pendingTimeouts.delete(tEmail);
+    }
+
+    // 2. Vincular en BD
+    await Position.updateOne({ email: tEmail }, { $set: { estado: "ocupado" } });
+    await Position.updateOne({ email: pEmail }, {
+      $set: { estado: "asignado", taxistaAsignado: tEmail }
+    });
+
+    const tPos = await Position.findOne({ email: tEmail });
+
+    // 3. Avisar al Pasajero por Socket (si está conectado)
+    io.to(pEmail).emit("response_from_taxi", {
+      accepted: true,
+      tEmail: tEmail,
+      name: tPos?.name || "Conductor",
+      taxiNumber: tPos?.taxiNumber || "S/N"
+    });
+
+    // 4. Actualizar Panel Admin
+    io.emit("panel_update", { email: tEmail, estado: "ocupado" });
+    io.emit("panel_update", { email: pEmail, estado: "asignado" });
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Error procesando aceptación push" });
+  }
+});
 const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [], attempt: number = 1) => {
   if (!isAutoMode) return;
 
