@@ -8,7 +8,8 @@ export interface IPosition extends Document {
     lng: number;
     role: "pasajero" | "taxista" | "admin";
     estado: string;
-    // Definimos mejor la estructura interna para evitar que Mongoose la ignore
+    // 🔗 CAMBIO CLAVE: Campo para vincular taxista y pasajero
+    taxistaAsignado?: string | null;
     pushSubscription?: {
         endpoint: string;
         keys: {
@@ -17,17 +18,35 @@ export interface IPosition extends Document {
         };
     } | null;
     updatedAt: Date;
+    createdAt: Date;
 }
 
 const PositionSchema = new Schema<IPosition>({
-    email: { type: String, required: true, unique: true },
-    lat: { type: Number, required: true },
-    lng: { type: Number, required: true },
-    role: { type: String, enum: ["pasajero", "taxista", "admin"], required: true },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true
+    },
     name: { type: String, required: true },
     taxiNumber: { type: String, required: false },
-    estado: { type: String, default: "activo" },
-    // 💡 CAMBIO CLAVE: Usamos un esquema anidado en lugar de 'Object' genérico
+    lat: { type: Number, required: true },
+    lng: { type: Number, required: true },
+    role: {
+        type: String,
+        enum: ["pasajero", "taxista", "admin"],
+        required: true
+    },
+    estado: {
+        type: String,
+        default: "activo" // activo, asignado, en curso, ocupado, desconectado
+    },
+    // 💡 Aquí guardaremos el email del taxista si el rol es 'pasajero'
+    taxistaAsignado: {
+        type: String,
+        default: null
+    },
     pushSubscription: {
         type: {
             endpoint: String,
@@ -39,8 +58,11 @@ const PositionSchema = new Schema<IPosition>({
         default: null
     }
 }, {
-    timestamps: true // Esto genera automáticamente 'updatedAt' y 'createdAt'
+    timestamps: true // Esto ya maneja 'updatedAt' y 'createdAt' automáticamente
 });
+
+// Índice para búsquedas rápidas de servicios activos
+PositionSchema.index({ taxistaAsignado: 1, role: 1 });
 
 const Position = mongoose.model<IPosition>("Position", PositionSchema);
 

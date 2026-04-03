@@ -64,6 +64,7 @@ const TaxistaView: React.FC = () => {
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // --- AUDIO & NOTIFICACIONES ---
   useEffect(() => {
     audioRef.current = new Audio("/sounds/alerta_taxi.mp3");
     if (audioRef.current) {
@@ -112,6 +113,7 @@ const TaxistaView: React.FC = () => {
     activarNotificaciones();
   }, [userPosition?.email]);
 
+  // --- GEOLOCALIZACIÓN ---
   useGeolocation(
     {
       email: userPosition?.email || localStorage.getItem("email") || "",
@@ -124,19 +126,33 @@ const TaxistaView: React.FC = () => {
     }
   );
 
-  // --- 🔄 LÓGICA DE SOCKETS REFACTORIZADA ---
+  // --- 🔄 LÓGICA DE SOCKETS (RECUPERACIÓN MEJORADA) ---
   useEffect(() => {
     if (!socket) return;
 
     const handleAsignacion = (data: any) => {
-      console.log("🚕 ¡PASAJERO RECIBIDO!", data);
+      console.log("🚕 ¡DATOS DE VIAJE RECIBIDOS!", data);
       setPasajeroAsignado(data);
       setExcludedEmails(data.excludedEmails || []);
-      // Solo forzamos 'Asignado' si no estamos ya en un viaje activo
-      setEstado(prev => (prev === "EnCamino" || prev === "EnCurso" ? prev : "Asignado"));
-      reproducirAlerta();
-      if ("vibrate" in navigator) navigator.vibrate([500, 200, 500]);
-      toast.info(`¡SERVICIO DETECTADO!`, { position: "top-center" });
+      
+      // 🔥 Lógica de estados para recuperación:
+      if (data.estado === "en curso" || data.estado === "ocupado") {
+        setEstado("EnCurso");
+        detenerSonido();
+      } else if (data.estado === "asignado") {
+        // Si el taxista ya estaba vinculado pero reinició, lo mandamos a EnCamino
+        // para que vea los botones de "Confirmar Abordo"
+        setEstado("EnCamino");
+        detenerSonido();
+      } else {
+        // Es un viaje nuevo entrando en tiempo real
+        setEstado("Asignado");
+        reproducirAlerta();
+      }
+
+      if (data.lat && data.lng) {
+        toast.success("Ruta sincronizada correctamente");
+      }
     };
 
     const handleTimeout = () => {
@@ -162,13 +178,11 @@ const TaxistaView: React.FC = () => {
       }
     };
 
-    // Listeners
     socket.on("pasajero_asignado", handleAsignacion);
     socket.on("dispatch_timeout", handleTimeout);
     socket.on("trip_cancelled_by_passenger", handleCancel);
     socket.on("connect", checkStatus);
 
-    // Ejecución inmediata si ya está conectado al montar
     if (socket.connected) checkStatus();
 
     return () => {
@@ -179,6 +193,7 @@ const TaxistaView: React.FC = () => {
     };
   }, [socket, userPosition?.email]);
 
+  // --- ACCIONES DEL TAXISTA ---
   const aceptarViaje = () => {
     if (!pasajeroAsignado) return;
     detenerSonido();
@@ -209,8 +224,11 @@ const TaxistaView: React.FC = () => {
     setChatAbierto(false);
   };
 
+  // --- MAPA & RUTA ---
   const puntosRuta = useMemo(() => {
-    if (pasajeroAsignado?.lat && userPosition?.lat && (estado === "EnCamino" || estado === "Asignado")) {
+    // 🔥 Ahora incluimos "EnCurso" para que la ruta no desaparezca al subir al pasajero
+    const estadosActivos = ["EnCamino", "Asignado", "EnCurso"];
+    if (pasajeroAsignado?.lat && userPosition?.lat && estadosActivos.includes(estado)) {
       return [L.latLng(userPosition.lat!, userPosition.lng!), L.latLng(pasajeroAsignado.lat!, pasajeroAsignado.lng!)];
     }
     return [];
@@ -220,6 +238,7 @@ const TaxistaView: React.FC = () => {
     <div className="h-screen bg-slate-50 flex flex-col overflow-hidden font-sans relative">
       <ToastContainer theme="light" />
 
+      {/* --- ÁREA DE MAPA --- */}
       <div className="flex-1 w-full relative">
         {userPosition?.lat ? (
           <MapContainer center={[userPosition.lat!, userPosition.lng!]} zoom={15} className="h-full w-full" zoomControl={false}>
@@ -240,6 +259,7 @@ const TaxistaView: React.FC = () => {
         </div>
       </div>
 
+      {/* --- PANEL DE INFORMACIÓN --- */}
       <div className="bg-white rounded-t-[3.5rem] shadow-[0_-25px_60px_rgba(0,0,0,0.15)] p-8 z-[1001] relative border-t border-slate-50 transition-all duration-700">
         <div className="absolute top-4 left-1/2 -translate-x-1/2 w-16 h-1.5 bg-slate-200 rounded-full"></div>
 
@@ -318,6 +338,7 @@ const TaxistaView: React.FC = () => {
         )}
       </div>
 
+      {/* --- SECCIÓN DE CHAT --- */}
       {pasajeroAsignado && pasajeroAsignado.email && (estado === "EnCamino" || estado === "EnCurso") && (
         <div className={`fixed bottom-0 left-0 w-full z-[2000] transition-all duration-500 ease-in-out ${chatAbierto ? "translate-y-0" : "translate-y-[calc(100%-70px)]"}`}>
           <div className="max-w-md mx-auto bg-white rounded-t-[2.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.2)] border-x border-t border-slate-100 overflow-hidden">

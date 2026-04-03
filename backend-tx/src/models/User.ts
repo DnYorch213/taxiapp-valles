@@ -5,25 +5,46 @@ export interface IUser extends Document {
     email: string;
     password: string;
     role: "pasajero" | "taxista" | "admin";
-    taxiNumber?: string | null; // 👈 nuevo campo, opcional
-    pushSubscription?: any | null; // 👈 nuevo campo para notificaciones push
+    taxiNumber?: string | null;
+    pushSubscription?: any | null;
 }
 
 const UserSchema = new Schema<IUser>({
-    name: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
-    role: { type: String, enum: ["pasajero", "taxista", "admin"], required: true },
-    taxiNumber: {
-        type: String, required: function () {
-            return this.role === "taxista";
-        }
+    name: { type: String, required: true, trim: true },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true
     },
-    // Para guardar objetos complejos como la suscripción de Web-Push, 
-    // usamos Schema.Types.Mixed o simplemente Object.
-    pushSubscription: { type: Object, default: null }
+    password: { type: String, required: true },
+    role: {
+        type: String,
+        enum: ["pasajero", "taxista", "admin"],
+        required: true
+    },
+    taxiNumber: {
+        type: String,
+        // 💡 Validación mejorada: Solo requerimos taxiNumber si es taxista
+        required: function (this: IUser) {
+            return this.role === "taxista";
+        },
+        default: null
+    },
+    // Usamos 'Mixed' para suscripciones push ya que la estructura 
+    // de las keys de los navegadores puede variar ligeramente.
+    pushSubscription: {
+        type: Schema.Types.Mixed,
+        default: null
+    }
+}, {
+    timestamps: true // Útil para saber cuándo se registró el usuario
 });
+
+// Índice para búsquedas rápidas por email (ya es unique, pero no sobra)
+UserSchema.index({ email: 1 });
 
 const User = mongoose.model<IUser>("User", UserSchema);
 
-export { User }; 
+export { User };
