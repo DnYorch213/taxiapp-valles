@@ -42,9 +42,6 @@ const UserSchema = new Schema<IUser>({
     timestamps: true // Útil para saber cuándo se registró el usuario
 });
 
-// Índice para búsquedas rápidas por email (ya es unique, pero no sobra)
-UserSchema.index({ email: 1 });
-
 const User = mongoose.model<IUser>("User", UserSchema);
 
 export { User };
