@@ -53,9 +53,9 @@ const io = new Server(server, {
   allowEIO3: true,
 
   // 🚨 AÑADE ESTAS LÍNEAS PARA EL CONTROL DE SEGUNDO PLANO:
-  pingInterval: 5000,  // Envía un "ping" cada 5 segundos
-  pingTimeout: 10000,  // Si en 10 segundos el pasajero no responde el ping, lo desconecta y borra del mapa
-  upgradeTimeout: 10000 // Tiempo máximo para pasar de polling a websocket
+  pingInterval: 25000,  // Envía un "ping" cada 25 segundos
+  pingTimeout: 120000,  // 👈 ESPERA 2 MINUTOS antes de cerrar el socket (Ideal para Valles)
+  upgradeTimeout: 30000 // Tiempo máximo para pasar de polling a websocket
 });
 
 connectDB();
@@ -667,66 +667,58 @@ io.on("connection", async (socket) => {
     io.to(data.toEmail).emit("receive_message", { senderName: data.senderName, message: data.message, timestamp: new Date().toISOString() });
   });
 
-  // --- EVENTO DE LOGOUT FORZADO ---
+  // --- EVENTO DE LOGOUT FORZADO (Solo cuando pica "Cerrar Sesión") ---
   socket.on("force_disconnect", async ({ email }) => {
     if (email) {
       const cleanEmail = email.toLowerCase().trim();
-
       try {
-        // 1. Limpiamos cualquier timeout pendiente de este taxista
         if (pendingTimeouts.has(cleanEmail)) {
           clearTimeout(pendingTimeouts.get(cleanEmail)!);
           pendingTimeouts.delete(cleanEmail);
         }
 
-        // 2. Actualizamos la BD de inmediato
+        // 🚩 AQUÍ SÍ borramos de la BD porque es un Logout voluntario
         await Position.updateOne(
           { email: cleanEmail },
           { $set: { estado: "desconectado", updatedAt: new Date() } }
         );
 
-        // 3. Avisamos al Panel Central para que lo borre del mapa YA
         io.emit("panel_update", {
           email: cleanEmail,
           estado: "desconectado",
-          force: true // Bandera opcional para que el frontend sepa que fue manual
+          force: true
         });
 
         console.log(`🚪 Logout manual procesado para: ${cleanEmail}`);
-
-        // 4. Desconectamos el socket físicamente desde el servidor
         socket.disconnect(true);
-
       } catch (error) {
         console.error("Error en force_disconnect:", error);
       }
     }
   });
 
-  socket.on("disconnect", async () => {
-    // Usamos las constantes 'email' que capturamos arriba 👆
+  // --- GESTIÓN DE DESCONEXIÓN ACCIDENTAL (Pantalla apagada, túneles, internet lento) ---
+  socket.on("disconnect", async (reason) => {
     if (email) {
-      console.log(`👻 Detectada desconexión de: ${email}`);
+      console.log(`📡 Socket cerrado para: ${email} | Razón: ${reason}`);
 
+      // 🚩 EL CAMBIO CLAVE:
+      // NO actualizamos la base de datos a "desconectado". 
+      // Jorge se queda en el mapa con su último estado y ubicación.
+
+      // Solo registramos que el socketId ya no es válido para no intentar enviar por ahí
       try {
-        // 1. Limpiamos cualquier timeout de reconexión si existía
-        if (pendingTimeouts.has(email)) {
-          clearTimeout(pendingTimeouts.get(email)!);
-          pendingTimeouts.delete(email);
-        }
+        await Position.updateOne(
+          { email: email },
+          { $set: { socketId: null, updatedAt: new Date() } }
+        );
 
-        // 2. Actualizamos la base de datos para que no aparezca en el mapa
-        await Position.updateOne({ email: email }, { estado: "desconectado" });
-
-        // 3. Obtenemos el registro para avisar al Panel Central
-        const p = await Position.findOne({ email: email });
-
-        // 4. Emitimos el aviso de que este usuario ya NO debe estar en el mapa
-        // El Frontend (PanelCentral) recibirá esto y lo borrará de la vista
-        io.emit("panel_update", buildPayload(p, p, "desconectado"));
+        // OPCIONAL: Podrías emitir un evento para que el Admin vea que su icono
+        // está "gris" pero sigue ahí, aunque para tu caso es mejor que siga viéndose activo.
+        console.log(`✅ ${email} sigue inmortal en el mapa de Valles.`);
 
       } catch (error) {
-        console.error("Error al procesar desconexión:", error);
+        console.error("Error en disconnect pasivo:", error);
       }
     }
   });
