@@ -3,7 +3,7 @@ import "leaflet-routing-machine";
 import { createControlComponent } from "@react-leaflet/core";
 
 // 🔑 Tu Token de Mapbox
-const MAPBOX_TOKEN = "pk.eyJ1IjoiZG55b3JjaDIxMyIsImEiOiJjbW5sMGNpcmIxM2VqMnJxNWZicWQ0OTV2In0.XIpSK6AtxAPhzH7cmszRow";
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
 const createRoutingMachineLayer = (props: any) => {
   const { waypoints } = props;
