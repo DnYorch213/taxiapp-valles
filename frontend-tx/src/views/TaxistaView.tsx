@@ -141,28 +141,41 @@ const TaxistaView: React.FC = () => {
     }
   }, [userPosition?.email]);
 
-  const handleAsignacion = useCallback((data: any) => {
-    console.log("🚕 ¡DATOS DE VIAJE RECIBIDOS!", data);
-    setPasajeroAsignado(data);
-    setExcludedEmails(data.excludedEmails || []);
-    
-    // 🔥 Lógica de estados para recuperación:
-    if (data.estado === "en curso" || data.estado === "ocupado") {
-      setEstado("EnCurso");
-      detenerSonido();
-    } else if (data.estado === "asignado") {
-      setEstado("EnCamino");
-      detenerSonido();
-    } else {
-      setEstado("Asignado");
-      reproducirAlerta();
-    }
+ const handleAsignacion = useCallback((data: any) => {
+  console.log("🚕 ¡DATOS DE VIAJE RECIBIDOS!", data);
+  
+  // 1. Guardamos la info del pasajero
+  setPasajeroAsignado(data);
+  setExcludedEmails(data.excludedEmails || []);
+  
+  // 2. 🛡️ Lógica de Estados Refinada
+  // Comparamos contra lo que realmente manda el backend (minúsculas)
+  const estadoServidor = data.estado?.toLowerCase();
 
-    if (data.lat && data.lng) {
-      toast.success("Ruta sincronizada correctamente");
-      if (window.navigator.vibrate) window.navigator.vibrate([200, 100, 200]);
-    }
-  }, [detenerSonido, reproducirAlerta]);
+  if (estadoServidor === "en curso" || estadoServidor === "ocupado") {
+    // Caso: Ya lleva al pasajero
+    setEstado("EnCurso");
+    detenerSonido();
+  } else if (estadoServidor === "asignado") {
+    // 🚩 AQUÍ LA MAGIA: 
+    // Si ya aceptó (vía Push o Socket), el estado debería ser "EnCamino".
+    // Si NO ha aceptado aún, el servidor debería mandar algo que indique "pendiente" 
+    // o simplemente detectamos si el sonido debe sonar.
+    
+    setEstado("EnCamino"); 
+    detenerSonido(); // Si estamos rehidratando, mejor silencio.
+  } else {
+    // Caso: Es una oferta nueva (timbre inicial)
+    setEstado("Asignado"); 
+    reproducirAlerta();
+  }
+
+  // 3. Feedback visual
+  if (data.lat && data.lng) {
+    toast.success("Ruta sincronizada correctamente");
+    if (window.navigator.vibrate) window.navigator.vibrate([200, 100, 200]);
+  }
+}, [detenerSonido, reproducirAlerta]);
 
   useEffect(() => {
     if (!socket) return;
@@ -255,7 +268,7 @@ const TaxistaView: React.FC = () => {
           <MapContainer 
             center={[userPosition.lat!, userPosition.lng!]} 
             zoom={15} 
-            className="h-full w-full grayscale-[0.3] invert-[0.9] hue-rotate-[180deg]" // Filtro Modo Noche
+            className="h-full w-full"
             zoomControl={false}
           >
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />

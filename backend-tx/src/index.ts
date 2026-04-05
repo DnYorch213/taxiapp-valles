@@ -502,11 +502,11 @@ io.on("connection", async (socket) => {
     }
   });
 
-  // 🚩 Dentro de io.on("connection")
+  // 🚩 Dentro de io.on("connection") en index.ts
   socket.on("reproducir_estado_viaje", async ({ email, role }) => {
     try {
       if (role === "taxista") {
-        // Buscamos si este taxista tiene un pasajero asignado
+        // 🔍 Buscamos al pasajero que tenga a este Jorge como su taxista asignado
         const pasajero = await Position.findOne({
           role: "pasajero",
           taxistaAsignado: email,
@@ -514,24 +514,25 @@ io.on("connection", async (socket) => {
         });
 
         if (pasajero) {
-          socket.emit("pasajero_asignado", buildPayload(pasajero, pasajero, "asignado"));
-          console.log(`🔄 Estado rehidratado para taxista: ${email}`);
+          // ✅ CLAVE: Usamos el estado REAL del pasajero (asignado o en curso)
+          // Así la interfaz de Jorge sabrá exactamente qué botones mostrar.
+          socket.emit("pasajero_asignado", buildPayload(pasajero, pasajero, pasajero.estado));
+          console.log(`🔄 Estado [${pasajero.estado}] rehidratado para Jorge: ${email}`);
         }
       } else if (role === "pasajero") {
-        // Si el pasajero recarga, buscamos si ya tiene un taxista
+        // Lógica de pasajero (está perfecta tal cual la tienes)
         const miEstado = await Position.findOne({ email });
         if (miEstado && miEstado.taxistaAsignado) {
           const miTaxista = await Position.findOne({ email: miEstado.taxistaAsignado });
           if (miTaxista) {
-            socket.emit("taxista_asignado", buildPayload(miTaxista, miTaxista, "asignado"));
+            socket.emit("taxista_asignado", buildPayload(miTaxista, miTaxista, miEstado.estado));
           }
         }
       }
     } catch (err) {
-      console.error("Error al reproducir estado:", err);
+      console.error("❌ Error al reproducir estado:", err);
     }
   });
-
   socket.on("toggle_dispatch_mode", (data: { auto: boolean }) => {
     isAutoMode = data.auto;
     io.emit("dispatch_mode_changed", { auto: isAutoMode });

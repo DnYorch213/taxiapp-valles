@@ -2,36 +2,48 @@ import L from "leaflet";
 import "leaflet-routing-machine";
 import { createControlComponent } from "@react-leaflet/core";
 
-// 1. Extendemos de L.ControlOptions para que sea compatible con lo que react-leaflet espera
-interface RoutingProps extends L.ControlOptions {
-  waypoints: L.LatLng[];
-}
+// 🔑 Tu Token de Mapbox
+const MAPBOX_TOKEN = "pk.eyJ1IjoiZG55b3JjaDIxMyIsImEiOiJjbW5sMGNpcmIxM2VqMnJxNWZicWQ0OTV2In0.XIpSK6AtxAPhzH7cmszRow";
 
-const CreateRoutingMachineLayer = (props: RoutingProps) => {
+const createRoutingMachineLayer = (props: any) => {
   const { waypoints } = props;
+  
+  if (!waypoints || waypoints.length === 0) return null;
 
-  // Creamos la instancia con 'as any' para saltar las definiciones incompletas de la librería
+  // Usamos el constructor de control con un casteo directo a 'any'
   const instance = (L.Routing as any).control({
-    waypoints,
-    lineOptions: {
-      styles: [{ color: "#3b82f6", weight: 6 }],
-      extendToWaypoints: true,
-      missingRouteTolerance: 0,
-    },
+    waypoints: waypoints,
+    router: (L.Routing as any).mapbox(MAPBOX_TOKEN, {
+      profile: 'mapbox/driving',
+      language: 'es',
+    }),
+    
+    // 1. Quitamos los marcadores azules de Leaflet
+    createMarker: () => null, 
+    
+    // 2. Limpieza Total del panel de direcciones
     show: false,
     addWaypoints: false,
-    routeWhileDragging: false,
-    fitSelectedRoutes: true,
     draggableWaypoints: false,
-    // Tip: Si quieres que NO aparezcan los marcadores feos de la librería (A y B)
-    // descomenta la siguiente línea:
-     createMarker: () => null, 
+    fitSelectedRoutes: true,
+    // Forzamos clases que no existan para que no dibuje el cuadro blanco
+    containerClassName: 'hidden-routing-container',
+    itineraryClassName: 'hidden-itinerary',
+
+    lineOptions: {
+      styles: [
+        { color: "#0f172a", weight: 9, opacity: 0.2 }, // Sombra sutil para mapa claro
+        { color: "#22c55e", weight: 6, opacity: 1 }    // Verde neón
+      ],
+      extendToWaypoints: true,
+      missingRouteTolerance: 10
+    },
   });
 
   return instance;
 };
 
-// 2. Pasamos los tipos genéricos correctos para que no haya quejas de "no properties in common"
-export const RoutingMachine = createControlComponent<any, RoutingProps>(
-  CreateRoutingMachineLayer
+// Exportamos usando 'any' para evitar conflictos con el core de React-Leaflet
+export const RoutingMachine = createControlComponent<any, any>(
+  createRoutingMachineLayer
 );
