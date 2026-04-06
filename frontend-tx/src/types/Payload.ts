@@ -1,6 +1,18 @@
 // src/types/Payload.ts
 import { Rol } from "./Positions";
 
+// Definimos los estados como un tipo aparte para poder reutilizarlo
+export type ViajeEstado =
+    | "Disponible"
+    | "Buscando"
+    | "Asignado"
+    | "EnCamino"
+    | "EnCurso"
+    | "Finalizado"
+    | "Cancelado"
+    | "Desconectado"
+    | "Ocupado";
+
 export interface Payload {
     email: string;
     name?: string;
@@ -12,14 +24,9 @@ export interface Payload {
 
     pickupAddress?: string;
 
-    // Estados posibles del flujo (Actualizado)
-    estado:
-    | "activo" | "pendiente" | "esperando" | "asignado" | "solicitando"
-    | "aceptado" | "rechazado" | "cancelado" | "terminado" | "Finalizado" | "en camino" | "en curso" | "buscando" | "desconectado" | "ocupado"
-    | "desconectado" | "ocupado"
-    | "Inactivo" | "Esperando Asignación" | "Asignado" | "En Camino" | "En Curso" // ✅ Agrégalos aquí tal cual los usas en la UI
-    | string; // Para cualquier estado personalizado que quieras agregar dinámicamente
+    // ✅ Usamos el tipo específico para evitar errores de dedo
+    estado: ViajeEstado;
 
     timestamp: string;
-    updatedAt?: string | Date; // Para ordenar por fecha de actualización
+    updatedAt?: string | Date;
 }
