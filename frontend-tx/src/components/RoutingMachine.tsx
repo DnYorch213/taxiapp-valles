@@ -8,15 +8,24 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const createRoutingMachineLayer = (props: any) => {
   const { waypoints } = props;
   
-  if (!waypoints || waypoints.length === 0) return null;
+  // 🚩 VALIDACIÓN EXTRA: Verifica que los puntos tengan lat y lng válidos
+  if (!waypoints || waypoints.length < 2 || !waypoints[0]?.lat) {
+    return null;
+  }
 
-  // Usamos el constructor de control con un casteo directo a 'any'
+  // Convertimos a objetos de Leaflet reales por si acaso vienen como JSON plano
+  const validWaypoints = waypoints.map((wp: any) => L.latLng(wp.lat, wp.lng));
+
   const instance = (L.Routing as any).control({
-    waypoints: waypoints,
-    router: (L.Routing as any).mapbox(MAPBOX_TOKEN, {
-      profile: 'mapbox/driving',
-      language: 'es',
-    }),
+  waypoints: validWaypoints, // Usamos los puntos convertidos
+  router: (L.Routing as any).mapbox(MAPBOX_TOKEN, {
+  profile: 'mapbox/driving',
+  language: 'es',
+  // Fuerza a que la comunicación sea por HTTPS
+ urlParameters: {
+    access_token: MAPBOX_TOKEN
+  }
+}),
     
     // 1. Quitamos los marcadores azules de Leaflet
     createMarker: () => null, 
