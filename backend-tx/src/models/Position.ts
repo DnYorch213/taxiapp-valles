@@ -40,7 +40,7 @@ const PositionSchema = new Schema<IPosition>({
     },
     estado: {
         type: String,
-        default: "activo" // activo, asignado, en curso, ocupado, desconectado
+        default: "Disponible" // activo, asignado, en curso, ocupado, desconectado
     },
     // 💡 Aquí guardaremos el email del taxista si el rol es 'pasajero'
     taxistaAsignado: {

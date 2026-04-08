@@ -475,6 +475,20 @@ io.on("connection", async (socket) => {
     console.error("❌ Error crítico en la conexión de socket:", error);
   }
 
+  // --- 🛣️ PUENTE PARA EL RASTRO EN VIVO (POLYLINE) ---
+  socket.on("update_trip_path", async (data: { pasajeroEmail: string, lat: number, lng: number }) => {
+    const { pasajeroEmail, lat, lng } = data;
+
+    if (pasajeroEmail) {
+      const pEmail = pasajeroEmail.toLowerCase().trim();
+      // Le enviamos las coordenadas solo a la sala privada de ese pasajero
+      io.to(pEmail).emit("update_trip_path", { lat, lng });
+
+      // Opcional: Log para depuración en la terminal
+      // console.log(`📍 Rastro: Enviando punto a ${pEmail} [${lat}, ${lng}]`);
+    }
+  });
+
   // --- 💬 SISTEMA DE CHAT PRIVADO ---
   socket.on("send_message", ({ toEmail, message, fromName }) => {
     if (!toEmail || !message) return;
@@ -723,6 +737,9 @@ io.on("connection", async (socket) => {
       estado: "EnCurso",
       pasajeroEmail: pEmail
     });
+
+    // También avisamos al taxista por si acaso (aunque él ya lo sabe)
+    io.to(tEmail).emit("trip_status_update", { estado: "EnCurso" });
 
     // Avisar al panel
     io.emit("panel_update", { email: pEmail, estado: "EnCurso" });

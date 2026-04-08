@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { MapContainer, TileLayer, Marker } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Polyline } from "react-leaflet"; // 🚩 Importamos Polyline
 import { toast, ToastContainer } from "react-toastify";
 import L from 'leaflet';
 import axios from "axios";
@@ -62,10 +62,12 @@ const TaxistaView: React.FC = () => {
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
   const [chatAbierto, setChatAbierto] = useState(false);
   
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // 🚩 ESTADO PARA EL RASTRO DEL VIAJE
+  const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
   
-  // 🚩 REF PARA ESTADO: Vital para que useGeolocation vea el valor real sin cierres (closures)
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const estadoRef = useRef(estado);
+
   useEffect(() => { 
     estadoRef.current = estado; 
   }, [estado]);
@@ -94,59 +96,49 @@ const TaxistaView: React.FC = () => {
     return () => detenerSonido();
   }, [detenerSonido]);
 
-  useEffect(() => {
-    const activarNotificaciones = async () => {
-      if (!userPosition?.email || userPosition.role !== "taxista" || !VAPID_PUBLIC_KEY) return;
-      try {
-        const permission = await Notification.requestPermission();
-        if (permission !== "granted") return;
-        const registration = await navigator.serviceWorker.ready;
-        let subscription = await registration.pushManager.getSubscription();
-        if (!subscription) {
-          subscription = await registration.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-          });
-        }
-        await axios.post(`${API_URL}/save-subscription`, {
-          email: userPosition.email.toLowerCase().trim(),
-          subscription: subscription
-        });
-      } catch (error) {
-        console.error("❌ Error en notificaciones:", error);
-      }
-    };
-    activarNotificaciones();
-  }, [userPosition?.email]);
+ // --- 🛰️ GEOLOCALIZACIÓN REFACTOREADA ---
+useGeolocation(
+  {
+    email: userPosition?.email || localStorage.getItem("email") || "",
+    name: localStorage.getItem("userName") || userPosition?.name || "Taxista",
+    role: "taxista",
+    taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "",
+  },
+  (pos) => {
+    // 🛡️ VALIDACIÓN CRUCIAL: Solo procedemos si pos.lat y pos.lng son números válidos
+    if (pos.lat === null || pos.lng === null) return;
 
-  // --- 🛰️ GEOLOCALIZACIÓN REFACTOREADA ---
-  useGeolocation(
-    {
-      email: userPosition?.email || localStorage.getItem("email") || "",
-      name: localStorage.getItem("userName") || userPosition?.name || "Taxista",
-      role: "taxista",
-      taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "",
-    },
-    (pos) => {
-      // 1. Actualización local para el mapa propio
-      if (userPosition) {
-        setUserPosition({ ...userPosition, lat: pos.lat, lng: pos.lng });
-      }
+    // 1. Actualización local
+    if (userPosition) {
+      setUserPosition({ ...userPosition, lat: pos.lat, lng: pos.lng });
+    }
 
-      // 2. 🚀 ENVÍO CRÍTICO AL PASAJERO
-      const estadoActual = estadoRef.current;
-      if (socket && (estadoActual === "Asignado" || estadoActual === "EnCamino" || estadoActual === "EnCurso")) {
-        socket.emit("taxi_moved", {
+    const estadoActual = estadoRef.current;
+    
+    // 2. Envío al socket
+    if (socket && (estadoActual === "Asignado" || estadoActual === "EnCamino" || estadoActual === "EnCurso")) {
+      socket.emit("taxi_moved", {
+        lat: pos.lat, // Aquí TypeScript ya sabe que es 'number'
+        lng: pos.lng, // Aquí también
+        email: userPosition?.email || localStorage.getItem("email"),
+        taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber"),
+        role: "taxista"
+      });
+
+      if (estadoActual === "EnCurso") {
+        // Usamos la aserción de tipo o la validación previa para el historial
+        const nuevaCoord: L.LatLngExpression = [pos.lat, pos.lng];
+        setHistorialRuta((prev) => [...prev, nuevaCoord]);
+        
+        socket.emit("update_trip_path", {
+          pasajeroEmail: pasajeroAsignado?.email,
           lat: pos.lat,
-          lng: pos.lng,
-          email: userPosition?.email || localStorage.getItem("email"),
-          taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber"),
-          role: "taxista"
+          lng: pos.lng
         });
-        console.log("📍 Posición enviada en tiempo real");
       }
     }
-  );
+  }
+);
 
   // --- 🔄 LÓGICA DE SOCKETS ---
   const checkStatus = useCallback(() => {
@@ -163,7 +155,6 @@ const TaxistaView: React.FC = () => {
   const handleAsignacion = useCallback((data: any) => {
     setPasajeroAsignado(data);
     setExcludedEmails(data.excludedEmails || []);
-    
     const estadoServidor = data.estado?.toLowerCase();
 
     if (estadoServidor === "en curso" || estadoServidor === "ocupado") {
@@ -181,54 +172,37 @@ const TaxistaView: React.FC = () => {
   useEffect(() => {
     if (!socket) return;
 
-    const handleTimeout = () => {
+    socket.on("pasajero_asignado", handleAsignacion);
+    socket.on("dispatch_timeout", () => {
       detenerSonido();
       setPasajeroAsignado(null);
       setEstado("Disponible");
-      toast.warn("El tiempo para aceptar ha expirado");
-    };
-
-    const handleCancel = () => {
+    });
+    socket.on("trip_cancelled_by_passenger", () => {
       detenerSonido();
       setPasajeroAsignado(null);
       setEstado("Disponible");
       setChatAbierto(false);
-      toast.error("El pasajero canceló el viaje");
-    };
+      setHistorialRuta([]); // Limpiar rastro
+    });
 
-    socket.on("pasajero_asignado", handleAsignacion);
-    socket.on("dispatch_timeout", handleTimeout);
-    socket.on("trip_cancelled_by_passenger", handleCancel);
-    socket.on("connect", checkStatus);
-
-    // 🏁 1. Detectar cuando el viaje finaliza (enviado por el servidor)
-  socket.on("trip_finished", (data: { pasajeroEmail: string }) => {
-    console.log("🏁 Viaje finalizado detectado en Taxista:", data);
-    detenerSonido();
-    setEstado("Disponible");
-    setPasajeroAsignado(null);
-    setChatAbierto(false);
-    toast.success("Servicio finalizado correctamente");
-  });
-
-  // 🔄 2. Sincronizar estados intermedios (opcional pero recomendado)
-  socket.on("trip_status_update", (data: { estado: string }) => {
-    if (data.estado === "en curso") {
-      setEstado("EnCurso");
-    }
-  });
+    socket.on("trip_finished", () => {
+      detenerSonido();
+      setEstado("Disponible");
+      setPasajeroAsignado(null);
+      setChatAbierto(false);
+      setHistorialRuta([]); // Limpiar rastro
+    });
 
     if (socket.connected) checkStatus();
 
     return () => {
-      socket.off("pasajero_asignado", handleAsignacion);
-      socket.off("dispatch_timeout", handleTimeout);
-      socket.off("trip_cancelled_by_passenger", handleCancel);
-      socket.off("connect", checkStatus);
+      socket.off("pasajero_asignado");
+      socket.off("dispatch_timeout");
+      socket.off("trip_cancelled_by_passenger");
       socket.off("trip_finished");
-      socket.off("trip_status_update");
     };
-  }, [socket, handleAsignacion, checkStatus, detenerSonido]);
+  }, [handleAsignacion, checkStatus, detenerSonido]);
 
   // --- ACCIONES DEL TAXISTA ---
   const aceptarViaje = () => {
@@ -236,17 +210,6 @@ const TaxistaView: React.FC = () => {
     detenerSonido();
     socket.emit("taxi_response", { requestEmail: pasajeroAsignado.email, accepted: true, excludedEmails });
     setEstado("EnCamino");
-    
-    // Emitir posición inmediata al aceptar
-    if (userPosition?.lat) {
-      socket.emit("taxi_moved", {
-        lat: userPosition.lat,
-        lng: userPosition.lng,
-        email: userPosition.email,
-        taxiNumber: userPosition.taxiNumber,
-        role: "taxista"
-      });
-    }
   };
 
   const rechazarViaje = () => {
@@ -262,30 +225,28 @@ const TaxistaView: React.FC = () => {
     socket.emit("passenger_on_board", { taxistaEmail: userPosition?.email, pasajeroEmail: pasajeroAsignado.email });
     setEstado("EnCurso");
     setChatAbierto(false);
-    socket.emit("trip_status_update", { estado: "EnCurso" });
+    // 🚩 Al abordar, iniciamos el historial con la posición actual
+    if (userPosition?.lat) {
+      setHistorialRuta([[userPosition.lat, userPosition.lng!]]);
+    }
   };
 
- const finalizarViaje = () => {
-  if (!pasajeroAsignado) return;
-  
-  // Enviamos al servidor para que le avise al pasajero
-  socket.emit("end_trip", { 
-    pasajeroEmail: pasajeroAsignado.email, 
-    taxistaEmail: userPosition?.email 
-  });
-
-  // Limpieza local inmediata para que el taxista quede libre
-  setEstado("Disponible");
-  setPasajeroAsignado(null);
-  setChatAbierto(false);
-  
-  toast.info("Has finalizado el servicio");
-};
+  const finalizarViaje = () => {
+    if (!pasajeroAsignado) return;
+    socket.emit("end_trip", { 
+      pasajeroEmail: pasajeroAsignado.email, 
+      taxistaEmail: userPosition?.email 
+    });
+    setEstado("Disponible");
+    setPasajeroAsignado(null);
+    setHistorialRuta([]); // Limpiar historial al terminar
+    toast.info("Servicio finalizado");
+  };
 
   // --- MAPA & RUTA ---
   const puntosRuta = useMemo(() => {
-    const estadosActivos = ["EnCamino", "Asignado", "EnCurso"];
-    if (pasajeroAsignado?.lat && userPosition?.lat && estadosActivos.includes(estado)) {
+    // 🚩 Solo usamos RoutingMachine para ir a buscar al pasajero (EnCamino)
+    if (estado === "EnCamino" && pasajeroAsignado?.lat && userPosition?.lat) {
       return [L.latLng(userPosition.lat!, userPosition.lng!), L.latLng(pasajeroAsignado.lat!, pasajeroAsignado.lng!)];
     }
     return [];
@@ -304,9 +265,24 @@ const TaxistaView: React.FC = () => {
             zoomControl={false}
           >
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            
+            {/* 1. Ruta sugerida (Solo antes del abordo) */}
             {puntosRuta.length > 0 && <RoutingMachine waypoints={puntosRuta} />}
+            
+            {/* 2. 🚩 RASTRO EN VIVO (Cuando ya abordó) */}
+            {estado === "EnCurso" && (
+              <Polyline 
+                positions={historialRuta} 
+                pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} 
+              />
+            )}
+
             <Marker position={[userPosition.lat!, userPosition.lng!]} icon={taxistaIcon} />
-            {pasajeroAsignado?.lat && <Marker position={[pasajeroAsignado.lat!, pasajeroAsignado.lng!]} icon={pasajeroIcon} />}
+            
+            {/* 3. 🚩 OCULTAR PASAJERO SI YA ABORDÓ (EnCurso) */}
+            {pasajeroAsignado?.lat && estado !== "EnCurso" && (
+              <Marker position={[pasajeroAsignado.lat!, pasajeroAsignado.lng!]} icon={pasajeroIcon} />
+            )}
           </MapContainer>
         ) : (
           <div className="h-full w-full flex items-center justify-center bg-[#1e293b] text-slate-500 text-[10px] font-black uppercase italic animate-pulse">
@@ -320,90 +296,63 @@ const TaxistaView: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-[#1e293b] rounded-t-[3.5rem] shadow-[0_-25px_60px_rgba(0,0,0,0.5)] p-8 z-[1001] relative border-t border-white/5 transition-all duration-700">
+      <div className="bg-[#1e293b] rounded-t-[3.5rem] shadow-[0_-25px_60px_rgba(0,0,0,0.5)] p-8 z-[1001] relative border-t border-white/5">
         <div className="absolute top-4 left-1/2 -translate-x-1/2 w-16 h-1.5 bg-slate-700 rounded-full"></div>
 
         {pasajeroAsignado ? (
           <div className="space-y-6 pt-4 animate-in slide-in-from-bottom-6 duration-500">
-            <div className={`relative p-6 rounded-[2.5rem] transition-all duration-500 overflow-hidden ${
-              estado === "Asignado" 
-                ? "bg-[#22c55e] shadow-2xl shadow-green-900/40 ring-4 ring-green-500/30" 
-                : "bg-[#0f172a]/50 border-2 border-white/5 backdrop-blur-xl"
+            <div className={`relative p-6 rounded-[2.5rem] transition-all duration-500 ${
+              estado === "Asignado" ? "bg-[#22c55e] shadow-2xl" : "bg-[#0f172a]/50 border-2 border-white/5"
             }`}>
-              <div className="flex items-center gap-6 relative z-10">
-                <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center shadow-lg transform transition-all duration-500 ${
-                  estado === "EnCurso" 
-                    ? "bg-[#22c55e]/10 border-2 border-[#22c55e] scale-105" 
-                    : estado === "Asignado" 
-                      ? "bg-white rotate-3 shadow-green-900" 
-                      : "bg-[#1e293b] border border-white/10"
-                }`}>
-                  {estado === "EnCurso" ? (
-                    <div className="text-[#22c55e] animate-in zoom-in duration-300">
-                      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="20 6 9 17 4 12"></polyline>
-                      </svg>
-                    </div>
-                  ) : (
-                    <span className={`text-4xl ${estado === "Asignado" ? "animate-pulse" : "text-slate-500"}`}>👤</span>
-                  )}
-                </div>
-
+              <div className="flex items-center gap-6">
+                <div className="w-20 h-20 rounded-[2rem] bg-white flex items-center justify-center text-4xl shadow-lg">👤</div>
                 <div className="flex-1">
-                  <p className={`text-[10px] font-black uppercase tracking-[0.2em] mb-1 ${estado === "EnCurso" ? "text-[#22c55e]" : estado === "Asignado" ? "text-white/80" : "text-slate-400"}`}>
-                    {estado === "Asignado" && "¡Nueva Solicitud!"}
-                    {estado === "EnCamino" && "En Ruta al punto"}
-                    {estado === "EnCurso" && "Servicio Confirmado ✅"}
+                  <p className="text-[10px] font-black uppercase tracking-widest text-white/70">
+                    {estado === "EnCurso" ? "Viaje en Progreso" : "Pasajero asignado"}
                   </p>
-                  <h3 className={`text-2xl font-black tracking-tighter leading-tight ${estado === "Asignado" ? "text-white" : "text-slate-100"}`}>
-                    {pasajeroAsignado.name}
-                  </h3>
-                  {estado === "Asignado" && <TimerBar duration={15000} onFinish={() => rechazarViaje()} />}
+                  <h3 className="text-2xl font-black text-white">{pasajeroAsignado.name}</h3>
+                  {estado === "Asignado" && <TimerBar duration={15000} onFinish={rechazarViaje} />}
                 </div>
               </div>
             </div>
 
-            <div className={`flex flex-col gap-4 transition-all duration-500 ${estado === "EnCamino" ? "pb-24" : "pb-4"}`}>
+            <div className="flex flex-col gap-4">
               {estado === "Asignado" && (
                 <div className="grid grid-cols-5 gap-3">
-                  <button onClick={aceptarViaje} className="col-span-3 py-6 bg-[#22c55e] hover:bg-[#1db053] text-[#0f172a] rounded-[2rem] font-black text-lg uppercase shadow-lg active:scale-95 transition-all">ACEPTAR</button>
-                  <button onClick={rechazarViaje} className="col-span-2 py-6 bg-slate-800 text-slate-400 rounded-[2rem] font-black text-xs uppercase active:scale-95 border-2 border-white/5">IGNORAR</button>
+                  <button onClick={aceptarViaje} className="col-span-3 py-6 bg-[#22c55e] text-[#0f172a] rounded-[2rem] font-black text-lg shadow-lg">ACEPTAR</button>
+                  <button onClick={rechazarViaje} className="col-span-2 py-6 bg-slate-800 text-slate-400 rounded-[2rem] font-black text-xs">IGNORAR</button>
                 </div>
               )}
 
               {estado === "EnCamino" && (
-                <button onClick={confirmarAbordo} className="w-full py-7 bg-white text-[#0f172a] rounded-[2.5rem] font-black text-xl uppercase shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-3 border-b-8 border-slate-300">
-                  <span className="text-2xl">📍</span> CONFIRMAR ABORDO
+                <button onClick={confirmarAbordo} className="w-full py-7 bg-white text-[#0f172a] rounded-[2.5rem] font-black text-xl flex items-center justify-center gap-3 border-b-8 border-slate-300">
+                  📍 CONFIRMAR ABORDO
                 </button>
               )}
 
               {estado === "EnCurso" && (
-                <button onClick={finalizarViaje} className="w-full py-7 bg-red-600 hover:bg-red-700 text-white rounded-[2.5rem] font-black text-xl uppercase shadow-lg active:scale-95 border-b-8 border-red-900">
+                <button onClick={finalizarViaje} className="w-full py-7 bg-red-600 text-white rounded-[2.5rem] font-black text-xl border-b-8 border-red-900 shadow-xl">
                   🏁 FINALIZAR SERVICIO
                 </button>
               )}
             </div>
           </div>
         ) : (
-          <div className="py-16 flex flex-col items-center justify-center text-center animate-in fade-in zoom-in duration-700">
-            <div className="relative w-24 h-24 bg-[#0f172a] border-4 border-[#22c55e] rounded-[2rem] flex items-center justify-center text-5xl mb-6 shadow-xl">🚕</div>
-            <h2 className="text-2xl font-black text-white tracking-tighter uppercase italic">VALLES<span className="text-[#22c55e]">CONECTA</span></h2>
+          <div className="py-16 flex flex-col items-center justify-center">
+            <div className="w-24 h-24 bg-[#0f172a] border-4 border-[#22c55e] rounded-[2rem] flex items-center justify-center text-5xl mb-6 shadow-xl">🚕</div>
+            <h2 className="text-2xl font-black text-white uppercase italic">VALLES<span className="text-[#22c55e]">CONECTA</span></h2>
             <p className="text-slate-500 text-xs font-bold uppercase tracking-[0.3em] mt-2">Buscando pasajeros...</p>
           </div>
         )}
       </div>
 
-      {pasajeroAsignado?.email && (estado === "EnCamino") && (
-        <div className={`fixed bottom-0 left-0 w-full z-[2000] transition-all duration-500 ease-in-out ${chatAbierto ? "translate-y-0" : "translate-y-[calc(100%-70px)]"}`}>
-          <div className="max-w-md mx-auto bg-[#1e293b] rounded-t-[2.5rem] shadow-2xl border-x border-t border-white/10 overflow-hidden">
-            <div onClick={() => setChatAbierto(!chatAbierto)} className="h-[70px] flex items-center justify-between px-8 cursor-pointer border-b border-white/5 active:bg-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 bg-[#22c55e] rounded-2xl flex items-center justify-center text-xl text-[#0f172a]">💬</div>
-                <h3 className="text-[11px] font-black text-white uppercase tracking-widest">Chat con Pasajero</h3>
-              </div>
-              <div className={`transform transition-transform duration-500 ${chatAbierto ? "rotate-180" : "rotate-0"}`}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
-              </div>
+      {/* CHAT: Solo visible antes de que el pasajero aborde */}
+      {pasajeroAsignado?.email && estado === "EnCamino" && (
+        <div className={`fixed bottom-0 left-0 w-full z-[2000] transition-all duration-500 ${chatAbierto ? "translate-y-0" : "translate-y-[calc(100%-70px)]"}`}>
+          <div className="max-w-md mx-auto bg-[#1e293b] rounded-t-[2.5rem] shadow-2xl overflow-hidden">
+            <div onClick={() => setChatAbierto(!chatAbierto)} className="h-[70px] flex items-center justify-between px-8 cursor-pointer active:bg-slate-800">
+              <span className="text-[11px] font-black text-white uppercase">Mensajería Directa</span>
+              <span className="text-[#22c55e]">{chatAbierto ? '▼' : '▲'}</span>
             </div>
             <div className="h-[400px] bg-[#0f172a]">
               <ChatBox toEmail={pasajeroAsignado.email} userName={`Taxi ECO-${userPosition?.taxiNumber || 'Valles'}`} />
@@ -411,7 +360,6 @@ const TaxistaView: React.FC = () => {
           </div>
         </div>
       )}
-      <div className="h-2 bg-[#22c55e] w-full shadow-lg"></div>
     </div>
   );
 };
