@@ -252,116 +252,117 @@ useGeolocation(
     return [];
   }, [pasajeroAsignado, userPosition, estado]);
 
-  return (
-    <div className="h-screen bg-[#0f172a] flex flex-col overflow-hidden font-sans relative text-slate-100">
-      <ToastContainer theme="dark" />
+ return (
+  /* 1. Cambiamos h-screen por h-dvh para que ignore la barra del navegador */
+  <div className="h-dvh bg-[#0f172a] flex flex-col overflow-hidden font-sans relative text-slate-100">
+    <ToastContainer theme="dark" />
 
-      <div className="flex-1 w-full relative">
-        {userPosition?.lat ? (
-          <MapContainer 
-            center={[userPosition.lat!, userPosition.lng!]} 
-            zoom={15} 
-            className="h-full w-full"
-            zoomControl={false}
-          >
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-            
-            {/* 1. Ruta sugerida (Solo antes del abordo) */}
-            {puntosRuta.length > 0 && <RoutingMachine waypoints={puntosRuta} />}
-            
-            {/* 2. 🚩 RASTRO EN VIVO (Cuando ya abordó) */}
-            {estado === "EnCurso" && (
-              <Polyline 
-                positions={historialRuta} 
-                pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} 
-              />
-            )}
-
-            <Marker position={[userPosition.lat!, userPosition.lng!]} icon={taxistaIcon} />
-            
-            {/* 3. 🚩 OCULTAR PASAJERO SI YA ABORDÓ (EnCurso) */}
-            {pasajeroAsignado?.lat && estado !== "EnCurso" && (
-              <Marker position={[pasajeroAsignado.lat!, pasajeroAsignado.lng!]} icon={pasajeroIcon} />
-            )}
-          </MapContainer>
-        ) : (
-          <div className="h-full w-full flex items-center justify-center bg-[#1e293b] text-slate-500 text-[10px] font-black uppercase italic animate-pulse">
-            🛰️ Sincronizando GPS Valles...
-          </div>
-        )}
-
-        <div className="absolute top-6 left-6 z-[1000] bg-[#1e293b]/90 backdrop-blur-md px-4 py-2 rounded-2xl shadow-2xl border border-white/10 flex items-center gap-3">
-          <div className={`h-2.5 w-2.5 rounded-full ${estado === "Disponible" ? "bg-[#22c55e]" : "bg-orange-500 animate-ping"}`}></div>
-          <span className="text-[11px] font-black text-white uppercase tracking-widest">{estado}</span>
+    {/* MAPA: Ahora usamos un contenedor con altura fija/flexible para que no empuje todo hacia abajo */}
+    <div className="flex-1 w-full relative min-h-[40%]"> 
+      {userPosition?.lat ? (
+        <MapContainer 
+          center={[userPosition.lat!, userPosition.lng!]} 
+          zoom={15} 
+          className="h-full w-full"
+          zoomControl={false}
+        >
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          {puntosRuta.length > 0 && <RoutingMachine waypoints={puntosRuta} />}
+          {estado === "EnCurso" && (
+            <Polyline 
+              positions={historialRuta} 
+              pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} 
+            />
+          )}
+          <Marker position={[userPosition.lat!, userPosition.lng!]} icon={taxistaIcon} />
+          {pasajeroAsignado?.lat && estado !== "EnCurso" && (
+            <Marker position={[pasajeroAsignado.lat!, pasajeroAsignado.lng!]} icon={pasajeroIcon} />
+          )}
+        </MapContainer>
+      ) : (
+        <div className="h-full w-full flex items-center justify-center bg-[#1e293b] text-slate-500 text-[10px] font-black uppercase italic animate-pulse">
+          🛰️ Sincronizando GPS Valles...
         </div>
+      )}
+
+      {/* Indicador de estado superior */}
+      <div className="absolute top-6 left-6 z-[1000] bg-[#1e293b]/90 backdrop-blur-md px-4 py-2 rounded-2xl shadow-2xl border border-white/10 flex items-center gap-3">
+        <div className={`h-2.5 w-2.5 rounded-full ${estado === "Disponible" ? "bg-[#22c55e]" : "bg-orange-500 animate-ping"}`}></div>
+        <span className="text-[11px] font-black text-white uppercase tracking-widest">{estado}</span>
       </div>
+    </div>
 
-      <div className="bg-[#1e293b] rounded-t-[3.5rem] shadow-[0_-25px_60px_rgba(0,0,0,0.5)] p-8 z-[1001] relative border-t border-white/5">
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 w-16 h-1.5 bg-slate-700 rounded-full"></div>
+    {/* PANEL INFERIOR: Reducimos padding y ajustamos para móviles */}
+    <div className="bg-[#1e293b] rounded-t-[2.5rem] shadow-[0_-25px_60px_rgba(0,0,0,0.5)] px-6 pt-6 pb-8 z-[1001] relative border-t border-white/5">
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 w-12 h-1 bg-slate-700 rounded-full"></div>
 
-        {pasajeroAsignado ? (
-          <div className="space-y-6 pt-4 animate-in slide-in-from-bottom-6 duration-500">
-            <div className={`relative p-6 rounded-[2.5rem] transition-all duration-500 ${
-              estado === "Asignado" ? "bg-[#22c55e] shadow-2xl" : "bg-[#0f172a]/50 border-2 border-white/5"
-            }`}>
-              <div className="flex items-center gap-6">
-                <div className="w-20 h-20 rounded-[2rem] bg-white flex items-center justify-center text-4xl shadow-lg">👤</div>
-                <div className="flex-1">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-white/70">
-                    {estado === "EnCurso" ? "Viaje en Progreso" : "Pasajero asignado"}
-                  </p>
-                  <h3 className="text-2xl font-black text-white">{pasajeroAsignado.name}</h3>
-                  {estado === "Asignado" && <TimerBar duration={15000} onFinish={rechazarViaje} />}
-                </div>
+      {pasajeroAsignado ? (
+        <div className="space-y-4 pt-2"> {/* Espaciado más compacto */}
+          <div className={`relative p-4 rounded-[2rem] transition-all duration-500 ${
+            estado === "Asignado" ? "bg-[#22c55e] shadow-lg" : "bg-[#0f172a]/50 border-2 border-white/5"
+          }`}>
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-white flex items-center justify-center text-3xl shadow-lg">👤</div>
+              <div className="flex-1">
+                <p className="text-[9px] font-black uppercase tracking-widest text-white/70">
+                  {estado === "EnCurso" ? "En viaje" : "Pasajero"}
+                </p>
+                <h3 className="text-xl font-black text-white leading-tight">{pasajeroAsignado.name}</h3>
+                {estado === "Asignado" && <TimerBar duration={15000} onFinish={rechazarViaje} />}
               </div>
             </div>
-
-            <div className="flex flex-col gap-4">
-              {estado === "Asignado" && (
-                <div className="grid grid-cols-5 gap-3">
-                  <button onClick={aceptarViaje} className="col-span-3 py-6 bg-[#22c55e] text-[#0f172a] rounded-[2rem] font-black text-lg shadow-lg">ACEPTAR</button>
-                  <button onClick={rechazarViaje} className="col-span-2 py-6 bg-slate-800 text-slate-400 rounded-[2rem] font-black text-xs">IGNORAR</button>
-                </div>
-              )}
-
-              {estado === "EnCamino" && (
-                <button onClick={confirmarAbordo} className="w-full py-7 bg-white text-[#0f172a] rounded-[2.5rem] font-black text-xl flex items-center justify-center gap-3 border-b-8 border-slate-300">
-                  📍 CONFIRMAR ABORDO
-                </button>
-              )}
-
-              {estado === "EnCurso" && (
-                <button onClick={finalizarViaje} className="w-full py-7 bg-red-600 text-white rounded-[2.5rem] font-black text-xl border-b-8 border-red-900 shadow-xl">
-                  🏁 FINALIZAR SERVICIO
-                </button>
-              )}
-            </div>
           </div>
-        ) : (
-          <div className="py-16 flex flex-col items-center justify-center">
-            <div className="w-24 h-24 bg-[#0f172a] border-4 border-[#22c55e] rounded-[2rem] flex items-center justify-center text-5xl mb-6 shadow-xl">🚕</div>
-            <h2 className="text-2xl font-black text-white uppercase italic">VALLES<span className="text-[#22c55e]">CONECTA</span></h2>
-            <p className="text-slate-500 text-xs font-bold uppercase tracking-[0.3em] mt-2">Buscando pasajeros...</p>
-          </div>
-        )}
-      </div>
 
-      {/* CHAT: Solo visible antes de que el pasajero aborde */}
-      {pasajeroAsignado?.email && estado === "EnCamino" && (
-        <div className={`fixed bottom-0 left-0 w-full z-[2000] transition-all duration-500 ${chatAbierto ? "translate-y-0" : "translate-y-[calc(100%-70px)]"}`}>
-          <div className="max-w-md mx-auto bg-[#1e293b] rounded-t-[2.5rem] shadow-2xl overflow-hidden">
-            <div onClick={() => setChatAbierto(!chatAbierto)} className="h-[70px] flex items-center justify-between px-8 cursor-pointer active:bg-slate-800">
-              <span className="text-[11px] font-black text-white uppercase">Mensajería Directa</span>
-              <span className="text-[#22c55e]">{chatAbierto ? '▼' : '▲'}</span>
-            </div>
-            <div className="h-[400px] bg-[#0f172a]">
-              <ChatBox toEmail={pasajeroAsignado.email} userName={`Taxi ECO-${userPosition?.taxiNumber || 'Valles'}`} />
-            </div>
+          {/* BOTONES: Padding mayor para facilitar el toque */}
+          <div className="flex flex-col gap-3">
+            {estado === "Asignado" && (
+              <div className="grid grid-cols-5 gap-3">
+                <button onClick={aceptarViaje} className="col-span-3 py-5 bg-[#22c55e] text-[#0f172a] rounded-2xl font-black text-lg active:scale-95 transition-transform">ACEPTAR</button>
+                <button onClick={rechazarViaje} className="col-span-2 py-5 bg-slate-800 text-slate-400 rounded-2xl font-black text-xs uppercase">Ignorar</button>
+              </div>
+            )}
+
+            {estado === "EnCamino" && (
+              <button onClick={confirmarAbordo} className="w-full py-5 bg-white text-[#0f172a] rounded-2xl font-black text-lg flex items-center justify-center gap-3 border-b-4 border-slate-300 active:translate-y-1">
+                📍 CONFIRMAR ABORDO
+              </button>
+            )}
+
+            {estado === "EnCurso" && (
+              <button onClick={finalizarViaje} className="w-full py-5 bg-red-600 text-white rounded-2xl font-black text-lg border-b-4 border-red-900 shadow-xl active:translate-y-1">
+                🏁 FINALIZAR SERVICIO
+              </button>
+            )}
           </div>
+        </div>
+      ) : (
+        /* Estado buscando: Más compacto */
+        <div className="py-8 flex flex-col items-center justify-center">
+          <div className="w-16 h-16 bg-[#0f172a] border-4 border-[#22c55e] rounded-[1.5rem] flex items-center justify-center text-3xl mb-4 shadow-xl">🚕</div>
+          <h2 className="text-xl font-black text-white uppercase italic tracking-tighter">VALLES<span className="text-[#22c55e]">CONECTA</span></h2>
+          <p className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.2em] mt-1">Buscando pasajeros...</p>
         </div>
       )}
     </div>
-  );
+
+    {/* CHAT: Ajuste de posición para no tapar los botones */}
+    {pasajeroAsignado?.email && estado === "EnCamino" && (
+      <div className={`fixed bottom-0 left-0 w-full z-[2000] transition-all duration-500 ${chatAbierto ? "translate-y-0" : "translate-y-[calc(100%-60px)]"}`}>
+        <div className="max-w-md mx-auto bg-[#1e293b] rounded-t-[2rem] shadow-2xl border-t border-white/10 overflow-hidden">
+          <div onClick={() => setChatAbierto(!chatAbierto)} className="h-[60px] flex items-center justify-between px-8 cursor-pointer bg-[#1e293b]">
+            <span className="text-[10px] font-black text-white uppercase tracking-widest flex items-center gap-2">
+              <span className="h-2 w-2 bg-[#22c55e] rounded-full animate-pulse"></span> Chat con Pasajero
+            </span>
+            <span className="text-white opacity-50 text-xs">{chatAbierto ? '▼ OCULTAR' : '▲ ESCRIBIR'}</span>
+          </div>
+          <div className="h-[350px] bg-[#0f172a]">
+            <ChatBox toEmail={pasajeroAsignado.email} userName={`Taxi ECO-${userPosition?.taxiNumber || 'Valles'}`} />
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+);
 };
 
 export default TaxistaView;
