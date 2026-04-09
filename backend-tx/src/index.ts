@@ -380,6 +380,13 @@ app.post("/save-subscription", async (req: Request, res: Response) => {
     res.status(500).json({ message: "Error interno del servidor" });
   }
 });
+
+// Ruta para mantener el servidor despierto (Ping)
+app.get("/ping", (req: Request, res: Response) => {
+  console.log("📍 Ping recibido de Cron-job.org - Manteniendo el motor encendido.");
+  res.status(200).send("Taxi ECO Valles despierto ✅");
+});
+
 // --- SOCKETS ---
 io.on("connection", async (socket) => {
   // 1. Normalización y Extracción de Credenciales
