@@ -41,26 +41,41 @@ const PasajeroView: React.FC = () => {
     if (!socket) return;
 
     // ACEPTACIÓN DEL TAXI
-    socket.on("response_from_taxi", (data) => {
-      if (data.accepted) {
-        setEstado("Asignado");
-        if (data.lat && data.lng) {
-          setTaxiPos({ lat: data.lat, lng: data.lng });
-        }
-        setTaxistaAsignado({
-          email: data.tEmail,
-          name: data.name,
-          taxiNumber: data.taxiNumber,
-          role: "taxista",
-          lat: data.lat || 0,
-          lng: data.lng || 0,
-          estado: "Asignado",
-          timestamp: new Date().toISOString()
-        });
-        toast.success(`¡Unidad ${data.taxiNumber} detectada!`);
-      }
-    });
+socket.on("response_from_taxi", (data) => {
+  console.log("🚕 Respuesta del taxi recibida:", data);
+  
+  if (data.accepted) {
+    // 1. Limpieza inmediata de rastro y taxista previo
+    setTaxistaAsignado(null);
+    setTaxiPos(null);
+    setHistorialRuta([]); // 🚩 Limpiamos la línea de ruta anterior
 
+    // 2. Pequeño delay para que React limpie el mapa antes de dibujar el nuevo taxi
+    setTimeout(() => {
+      // Limpiamos el email entrante
+      const cleanEmail = data.tEmail?.toLowerCase().trim();
+
+      setEstado("Asignado");
+
+      if (data.lat && data.lng) {
+        setTaxiPos({ lat: data.lat, lng: data.lng });
+      }
+
+      setTaxistaAsignado({
+        email: cleanEmail,
+        name: data.name,
+        taxiNumber: data.taxiNumber,
+        role: "taxista",
+        lat: data.lat || 0,
+        lng: data.lng || 0,
+        estado: "Asignado",
+        timestamp: new Date().toISOString()
+      });
+
+      toast.success(`¡La Unidad ${data.taxiNumber} (${data.name}) va por ti!`);
+    }, 100); // 100ms es el tiempo ideal para evitar parpadeos visuales
+  }
+});
     // MOVIMIENTO DEL TAXI (Antes de abordar)
     socket.on("taxi_moved", (data: any) => {
       const emailAsignado = taxistaAsignado?.email?.toLowerCase().trim();
@@ -169,28 +184,27 @@ const PasajeroView: React.FC = () => {
     setChatAbierto(false);
   };
 
- return (
-  /* 1. Cambiamos min-h-screen por h-dvh para control total del alto en móviles */
+return (
   <div className="h-dvh bg-slate-50 flex flex-col items-center font-sans relative overflow-hidden">
     <ToastContainer theme="light" />
-    <div className="absolute top-0 left-0 w-full h-2 bg-[#22c55e] z-[2001]"></div>
+    <div className="absolute top-0 left-0 w-full h-1 bg-[#22c55e] z-[2001]"></div>
 
-    {/* HEADER: Un poco más compacto */}
-    <header className="w-full max-w-md flex justify-between items-center py-4 px-6 shrink-0">
-      <h1 className="text-xl font-black text-slate-800 tracking-tighter uppercase italic">
+    {/* HEADER: Más delgado para ganar espacio */}
+    <header className="w-full max-w-md flex justify-between items-center py-3 px-6 shrink-0 bg-slate-50">
+      <h1 className="text-lg font-black text-slate-800 tracking-tighter uppercase italic">
         VALLES<span className="text-[#22c55e]">VIAJE</span>
       </h1>
       <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-slate-200 shadow-sm">
-        <div className={`h-2 w-2 rounded-full ${userPosition?.lat ? 'bg-[#22c55e]' : 'bg-red-500 animate-pulse'}`}></div>
-        <span className="text-[9px] font-black text-slate-400 uppercase">GPS</span>
+        <div className={`h-1.5 w-1.5 rounded-full ${userPosition?.lat ? 'bg-[#22c55e]' : 'bg-red-500 animate-pulse'}`}></div>
+        <span className="text-[8px] font-black text-slate-400 uppercase">GPS</span>
       </div>
     </header>
 
-    {/* MAIN: Ahora con flex-col y h-full real */}
+    {/* MAIN: Ajustado para que el botón suba */}
     <main className="w-full max-w-md bg-white rounded-t-[2.5rem] shadow-2xl overflow-hidden border border-slate-100 relative flex flex-col flex-1 min-h-0">
       
-      {/* 🟢 SECCIÓN DEL MAPA: Altura flexible pero con un mínimo */}
-      <div className="flex-1 min-h-[250px] w-full relative bg-slate-100">
+      {/* 🟢 SECCIÓN DEL MAPA: Reducimos el min-h para que el panel de abajo suba */}
+      <div className="flex-1 min-h-[200px] w-full relative bg-slate-100">
         {userPosition?.lat && userPosition?.lng ? (
           <MapContainer
             center={[userPosition.lat, userPosition.lng]}
@@ -230,7 +244,7 @@ const PasajeroView: React.FC = () => {
 
         {/* Badge de estado flotante */}
         <div className="absolute top-4 right-4 z-[1000]">
-          <div className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all duration-500 ${
+          <div className={`px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all duration-500 ${
             estado === 'Disponible' 
               ? 'bg-slate-800/80 text-slate-100 backdrop-blur-md' 
               : 'bg-[#22c55e] text-white animate-pulse'
@@ -240,23 +254,23 @@ const PasajeroView: React.FC = () => {
         </div>
       </div>
 
-      {/* ⚪ CARD DEL TAXISTA: Reducimos márgenes negativos para que no se encime tanto */}
+      {/* ⚪ CARD DEL TAXISTA: Más compacta */}
       {taxistaAsignado && (
-        <div className="mx-6 -mt-6 relative z-[1001] p-4 bg-white border border-slate-100 rounded-[2rem] flex items-center gap-4 shadow-xl animate-in slide-in-from-bottom-4">
-          <div className="h-12 w-12 bg-green-50 rounded-2xl flex items-center justify-center text-xl">🚖</div>
+        <div className="mx-6 -mt-8 relative z-[1001] p-3 bg-white border border-slate-100 rounded-[1.5rem] flex items-center gap-4 shadow-xl">
+          <div className="h-10 w-10 bg-green-50 rounded-xl flex items-center justify-center text-lg">🚖</div>
           <div className="flex-1">
-            <p className="text-[9px] font-black text-[#22c55e] uppercase">Unidad {taxistaAsignado.taxiNumber || 'ECO'}</p>
-            <p className="text-base font-black text-slate-800 leading-tight">{taxistaAsignado.name}</p>
+            <p className="text-[8px] font-black text-[#22c55e] uppercase">Unidad {taxistaAsignado.taxiNumber || 'ECO'}</p>
+            <p className="text-sm font-black text-slate-800 leading-tight">{taxistaAsignado.name}</p>
           </div>
         </div>
       )}
 
-      {/* SECCIÓN DE BOTONES: Ahora con mt-0 y padding controlado */}
-      <div className="p-6 flex flex-col shrink-0 bg-white">
-        <div className="mb-4">
-          <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Servicio Valles</p>
-          <h2 className="text-xl font-black text-slate-900 tracking-tighter leading-tight">
-            {estado === 'Disponible' && "¿A dónde vamos?"}
+      {/* SECCIÓN DE BOTONES: Reducción de padding vertical (p-5 y pb-10) */}
+      <div className="px-6 pt-5 pb-10 flex flex-col shrink-0 bg-white">
+        <div className="mb-3">
+          <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Servicio Valles</p>
+          <h2 className="text-lg font-black text-slate-900 tracking-tighter leading-tight">
+            {estado === 'Disponible' && "¿A dónde vamos hoy?"}
             {estado === 'Buscando' && "Buscando unidad..."}
             {(estado === 'Asignado' || estado === 'EnCamino') && "Tu taxi viene en camino"}
             {estado === 'EnCurso' && "¡Buen viaje por Valles!"}
@@ -267,9 +281,9 @@ const PasajeroView: React.FC = () => {
           <button
             onClick={solicitarTaxi}
             disabled={estado !== "Disponible"} 
-            className={`w-full py-5 rounded-[1.5rem] font-black transition-all transform active:scale-95 shadow-xl tracking-widest text-xs ${
+            className={`w-full py-5 rounded-[1.2rem] font-black transition-all transform active:scale-95 shadow-xl tracking-widest text-xs ${
               estado === "Disponible"
-                ? "bg-[#22c55e] text-white shadow-green-900/10" 
+                ? "bg-[#22c55e] text-white shadow-green-900/20" 
                 : "bg-slate-800 text-slate-500 cursor-not-allowed opacity-50"
             }`}
           >
@@ -279,7 +293,7 @@ const PasajeroView: React.FC = () => {
           {(estado === "Buscando" || estado === "Asignado" || estado === "EnCamino") && (
             <button
               onClick={cancelarSolicitud}
-              className="w-full py-3 bg-red-50 text-red-500 rounded-[1.5rem] font-bold text-[9px] uppercase border border-red-100 active:bg-red-100"
+              className="w-full py-3 bg-red-50 text-red-500 rounded-[1.2rem] font-bold text-[8px] uppercase border border-red-100 active:bg-red-100"
             >
               Cancelar Solicitud
             </button>
@@ -288,24 +302,32 @@ const PasajeroView: React.FC = () => {
       </div>
     </main>
 
-    {/* CHAT: Ajuste de altura para que el tirador no quede muy abajo */}
+    {/* CHAT AJUSTADO: Lo bajé un poquito más para que no se encime tanto con el nuevo botón más alto */}
     {taxistaAsignado?.email && (estado === 'Asignado' || estado === 'EnCamino') && (
-      <div className={`fixed bottom-0 left-0 w-full z-[2000] transition-all duration-500 flex justify-center ${chatAbierto ? "translate-y-0" : "translate-y-[calc(100%-60px)]"}`}>
-        <div className="w-full max-w-md bg-white rounded-t-[2.5rem] shadow-[0_-10px_40px_rgba(0,0,0,0.1)] border-t border-slate-100 overflow-hidden">
-          <div onClick={() => setChatAbierto(!chatAbierto)} className="h-[60px] flex items-center justify-between px-8 cursor-pointer bg-white">
-            <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Chat con la Unidad</span>
-            <div className={`transform transition-transform duration-500 ${chatAbierto ? "rotate-180" : "rotate-0"}`}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><polyline points="18 15 12 9 6 15"></polyline></svg>
+      <div 
+        className={`fixed left-0 w-full z-[2000] transition-all duration-500 flex justify-center 
+        ${chatAbierto ? "bottom-0" : "bottom-[90px]"}`} 
+      >
+        <div className="w-[92%] max-w-md bg-white rounded-t-[2rem] rounded-b-[2rem] shadow-[0_-10px_40px_rgba(0,0,0,0.15)] border border-slate-100 overflow-hidden">
+          <div onClick={() => setChatAbierto(!chatAbierto)} className="h-[55px] flex items-center justify-between px-8 cursor-pointer bg-white">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+              </span>
+              <span className="text-[9px] font-black text-slate-800 uppercase tracking-widest">Chat con Unidad</span>
             </div>
+            <svg className={`transform transition-transform duration-500 ${chatAbierto ? "rotate-180" : "rotate-0"}`} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3">
+              <polyline points="18 15 12 9 6 15"></polyline>
+            </svg>
           </div>
-          <div className="h-[380px] bg-white">
+          <div className={`${chatAbierto ? "h-[350px]" : "h-0"} transition-all duration-500 bg-white`}>
             <ChatBox toEmail={taxistaAsignado.email} userName={userPosition?.name || "Pasajero"} />
           </div>
         </div>
       </div>
     )}
-    
-    {/* PANTALLA DE FINALIZACIÓN: Ajustada a dvh */}
+     {/* PANTALLA DE FINALIZACIÓN: Ajustada a dvh */}
     {estado === 'Finalizado' && (
       <div className="fixed inset-0 z-[3000] bg-[#22c55e] flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in">
         <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center text-center max-w-xs w-full">

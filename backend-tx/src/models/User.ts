@@ -7,6 +7,15 @@ export interface IUser extends Document {
     role: "pasajero" | "taxista" | "admin";
     taxiNumber?: string | null;
     pushSubscription?: any | null;
+    // --- Campos de Seguridad ---
+    isVerified: boolean;
+    adminApproval: "pendiente" | "aprobado" | "rechazado";
+    documentos: {
+        licencia?: string;
+        tarjeton?: string;
+        seguro?: string;
+        tarjetaCirculación?: string;
+    };
 }
 
 const UserSchema = new Schema<IUser>({
@@ -26,20 +35,36 @@ const UserSchema = new Schema<IUser>({
     },
     taxiNumber: {
         type: String,
-        // 💡 Validación mejorada: Solo requerimos taxiNumber si es taxista
         required: function (this: IUser) {
             return this.role === "taxista";
         },
         default: null
     },
-    // Usamos 'Mixed' para suscripciones push ya que la estructura 
-    // de las keys de los navegadores puede variar ligeramente.
     pushSubscription: {
         type: Schema.Types.Mixed,
         default: null
+    },
+    // 🚩 Candado de seguridad: Solo admin puede cambiar esto a true
+    isVerified: {
+        type: Boolean,
+        default: false
+    },
+    // 🚩 Flujo de aprobación
+    adminApproval: {
+        type: String,
+        enum: ["pendiente", "aprobado", "rechazado"],
+        default: "pendiente"
+    },
+    // 🚩 URLs o referencias a los documentos físicos
+    documentos: {
+        licencia: { type: String, default: "" },
+        tarjeton: { type: String, default: "" },
+        seguro: { type: String, default: "" },
+        tarjetaCirculación: { type: String, default: "" }
     }
 }, {
-    timestamps: true // Útil para saber cuándo se registró el usuario
+    // Esto crea 'createdAt' (que sirve como fecha de registro) y 'updatedAt' automáticamente
+    timestamps: true
 });
 
 const User = mongoose.model<IUser>("User", UserSchema);

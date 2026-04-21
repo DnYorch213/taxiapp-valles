@@ -10,6 +10,7 @@ import { connectDB } from "./db";
 import { IPosition, Position } from "./models/Position";
 import { User } from "./models/User";
 import webpush from "web-push";
+import adminRoutes from "./routes/adminRoutes";
 
 dotenv.config();
 
@@ -46,6 +47,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(express.json());
+app.use("/api/admin", adminRoutes);
 
 const io = new Server(server, {
   cors: corsOptions,
@@ -90,7 +92,7 @@ function buildPayload(user: any, pos: any, estado: string, extra: any = {}) {
     // 🚩 AGREGAMOS ESTO: Si no viene en 'extra', lo buscamos en 'pos' o 'user'
     pushSubscription: extra.pushSubscription || pos?.pushSubscription || user?.pushSubscription || null,
     pickupAddress: extra.pickupAddress || pos?.pickupAddress || "Dirección opcional",
-    estado: estado || pos?.estado || "activo",
+    estado: estado || pos?.estado || "Activo",
     timestamp: new Date().toISOString(),
     ...extra,
   };
@@ -141,7 +143,12 @@ const enviarNotificacionPush = async (subscription: any, pasajeroData: any, taxi
 
     await webpush.sendNotification(subscription, payload, options);
     console.log(`🔔 Push enviado con éxito a: ${taxistaEmail}`);
-  } catch (error) {
+  } catch (error: any) {
+    if (error.statusCode === 410 || error.statusCode === 404) {
+      console.log(`⚠️ La suscripción de ${taxistaEmail} ha expirado. Limpiando BD...`);
+      await Position.updateOne({ email: taxistaEmail }, { $set: { pushSubscription: null } });
+      await User.updateOne({ email: taxistaEmail }, { $set: { pushSubscription: null } });
+    }
     console.error(`❌ Error en web-push:`, error);
   }
 };
@@ -162,9 +169,9 @@ app.post("/api/accept-trip-push", async (req: Request, res: Response) => {
     }
 
     // 2. Vincular en BD
-    await Position.updateOne({ email: tEmail }, { $set: { estado: "ocupado" } });
+    await Position.updateOne({ email: tEmail }, { $set: { estado: "Ocupado" } });
     await Position.updateOne({ email: pEmail }, {
-      $set: { estado: "asignado", taxistaAsignado: tEmail }
+      $set: { estado: "Asignado", taxistaAsignado: tEmail }
     });
 
     const tPos = await Position.findOne({ email: tEmail });
@@ -178,8 +185,8 @@ app.post("/api/accept-trip-push", async (req: Request, res: Response) => {
     });
 
     // 4. Actualizar Panel Admin
-    io.emit("panel_update", { email: tEmail, estado: "ocupado" });
-    io.emit("panel_update", { email: pEmail, estado: "asignado" });
+    io.emit("panel_update", { email: tEmail, estado: "Ocupado" });
+    io.emit("panel_update", { email: pEmail, estado: "Asignado" });
 
     res.status(200).json({ success: true });
   } catch (error) {
@@ -188,11 +195,18 @@ app.post("/api/accept-trip-push", async (req: Request, res: Response) => {
 });
 const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [], attempt: number = 1) => {
   if (!isAutoMode) return;
+  // Forzamos que el email sea una versión limpia antes de usarlo como llave
+  const pEmail = pasajeroData.email.toLowerCase().trim();
+
+  if (pendingTimeouts.has(pEmail)) {
+    clearTimeout(pendingTimeouts.get(pEmail)!);
+    pendingTimeouts.delete(pEmail);
+  }
 
   // 1. Límite de seguridad
   if (attempt > MAX_RETRIES) {
     console.log(`❌ Límite alcanzado para ${pasajeroData.email}`);
-    await Position.updateOne({ email: pasajeroData.email }, { $set: { estado: "activo" } });
+    await Position.updateOne({ email: pasajeroData.email }, { $set: { estado: "Activo" } });
     io.to(pasajeroData.email).emit("no_taxis_available", { message: "Sin unidades disponibles." });
     return;
   }
@@ -202,7 +216,7 @@ const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [
   const taxistasCandidatos = await Position.find({
     role: "taxista",
     pushSubscription: { $exists: true, $ne: null }, // 🚩 CRUCIAL: Debe tener llave Push
-    estado: { $nin: ["EnCurso", "ocupado", "asignado"] }, // Que no estén ocupados
+    estado: { $nin: ["EnCurso", "Ocupado", "Asignado"] }, // Que no estén ocupados
     email: { $nin: excludedEmails } // Que no sea uno que ya rechazó
   }).lean() as IPosition[];
 
@@ -222,38 +236,49 @@ const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [
   console.log(`🎯 Intentando con Tx-${elMasCercano.taxiNumber} (Estado: ${elMasCercano.estado})`);
 
   // 4. Bloqueo de estados en BD
-  await Position.updateOne({ email: elMasCercano.email }, { $set: { estado: "asignado" } });
-  await Position.updateOne({ email: pasajeroData.email }, { $set: { estado: "asignado" } });
+  await Position.updateOne({ email: elMasCercano.email }, { $set: { estado: "Asignado" } });
+  await Position.updateOne({ email: pasajeroData.email }, { $set: { estado: "Asignado" } });
 
   // 5. 🔔 NOTIFICACIÓN DUAL ESTRATÉGICA
-  // Enviamos por socket (si está conectado la recibe al instante)
-  io.to(elMasCercano.email).emit("pasajero_asignado", { ...pasajeroData, attempt });
 
-  // Enviamos el PUSH (el "misil" que lo despierta si el socket murió hace 12 seg)
-  enviarNotificacionPush(elMasCercano.pushSubscription, pasajeroData, elMasCercano.email);
+  // A. Limpiamos la data (Extraemos el _doc de Mongoose si existe)
+  const dataParaEnviar = pasajeroData._doc ? pasajeroData._doc : pasajeroData;
 
+  // B. Socket: Enviamos con el flag 'isNewOffer' para que Yorchi vea el botón verde
+  io.to(elMasCercano.email).emit("pasajero_asignado", {
+    ...dataParaEnviar,
+    attempt,
+    isNewOffer: true // 🚩 ESTO evita que el viaje se acepte solo
+  });
+
+  // C. Push: Enviamos la misma data limpia para que la notificación no falle
+  // Cambiamos 'pasajeroData' por 'dataParaEnviar'
+  enviarNotificacionPush(elMasCercano.pushSubscription, dataParaEnviar, elMasCercano.email);
   // 6. Temporizador de Cascada
   const timeout = setTimeout(async () => {
     const tCheck = await Position.findOne({ email: elMasCercano.email }).lean();
 
-    if (tCheck && tCheck.estado === "asignado") {
+    if (tCheck && tCheck.estado === "Asignado") {
       console.log(`⏳ Tx-${elMasCercano.taxiNumber} no respondió al Push/Socket. Saltando...`);
 
       // Limpiamos la alerta en el frontend si es que el socket volvió
       io.to(elMasCercano.email).emit("dispatch_timeout");
 
       // Liberar al taxista para que vuelva a estar disponible
-      await Position.updateOne({ email: elMasCercano.email }, { $set: { estado: "activo" } });
+      await Position.updateOne({ email: elMasCercano.email }, { $set: { estado: "Activo" } });
 
       // Actualizar el Panel Central
-      io.emit("panel_update", { email: elMasCercano.email, estado: "activo" });
+      io.emit("panel_update", { email: elMasCercano.email, estado: "Activo" });
+
+      // IMPORTANTE: Limpiar el timeout antes de reintentar
+      pendingTimeouts.delete(pasajeroData.email);
 
       // Reintento: Pasamos al siguiente más cercano
       dispatchWithRetry(pasajeroData, [...excludedEmails, elMasCercano.email], attempt + 1);
     }
   }, 22000);
 
-  pendingTimeouts.set(elMasCercano.email, timeout);
+  pendingTimeouts.set(pEmail, timeout);
 };
 
 // --- RUTAS HTTP: REGISTRO CON BLOQUEO DE SEGURIDAD ---
@@ -308,7 +333,8 @@ app.post("/register", async (req: Request, res: Response) => {
       email: email.toLowerCase().trim(), // Guardamos siempre en minúsculas para evitar errores
       password: hashed,
       role,
-      taxiNumber: role === "taxista" ? taxiNumber.trim() : undefined
+      taxiNumber: role === "taxista" ? taxiNumber.trim() : undefined,
+      adminApproval: role === "taxista" ? "pendiente" : "aprobado"
     });
 
     await user.save();
@@ -330,7 +356,15 @@ app.post("/login", async (req: Request, res: Response) => {
     const lastPos = await Position.findOne({ email: user.email });
     const token = jwt.sign({ email: user.email, name: user.name, role: user.role }, process.env.JWT_SECRET as string, { expiresIn: '30d' });
 
-    res.json({ token, role: user.role, name: user.name, taxiNumber: user.taxiNumber, email: user.email, lastCoords: lastPos ? { lat: lastPos.lat, lng: lastPos.lng } : null });
+    res.json({
+      token,
+      role: user.role,
+      name: user.name,
+      taxiNumber: user.taxiNumber,
+      email: user.email,
+      adminApproval: user.adminApproval,
+      lastCoords: lastPos ? { lat: lastPos.lat, lng: lastPos.lng } : null
+    });
   } catch (error) {
     res.status(500).json({ message: "Error en login" });
   }
@@ -433,18 +467,18 @@ io.on("connection", async (socket) => {
     const viajeActivo = await Position.findOne({
       role: "pasajero",
       taxistaAsignado: email,
-      estado: { $in: ["asignado", "en curso", "ocupado"] }
+      estado: { $in: ["Asignado", "EnCurso", "Ocupado"] }
     });
 
     // 5. DETERMINAR ESTADO REAL (Persistencia de "En Curso")
     const currentDoc = await Position.findOne({ email });
-    let nuevoEstado = "activo";
+    let nuevoEstado = "Activo";
 
     if (viajeActivo) {
       // Si el documento dice "en curso", mantenemos la sesión de viaje viva
-      nuevoEstado = (currentDoc?.estado === "en curso" || currentDoc?.estado === "ocupado")
+      nuevoEstado = (currentDoc?.estado === "EnCurso" || currentDoc?.estado === "Ocupado")
         ? currentDoc.estado
-        : "asignado";
+        : "Asignado";
     }
 
     // 6. ACTUALIZAR SOCKET E INFO EN BD
@@ -462,7 +496,7 @@ io.on("connection", async (socket) => {
 
     // 7. EMISIONES INICIALES (Mapa y Modo de Despacho)
     const allPositions = await Position.find();
-    socket.emit("positions", allPositions.map(p => buildPayload(p, p, p.estado || "activo")));
+    socket.emit("positions", allPositions.map(p => buildPayload(p, p, p.estado || "Activo")));
     socket.emit("dispatch_mode_changed", { auto: isAutoMode });
 
     // 8. 🚀 RECUPERACIÓN CRÍTICA (Rehidratación de Interfaz)
@@ -530,7 +564,7 @@ io.on("connection", async (socket) => {
             lat: data.lat,          // Solo latitud
             lng: data.lng,          // Solo longitud
             name: finalName,        // Nombre validado
-            estado: data.estado || currentDoc?.estado || "activo",
+            estado: data.estado || currentDoc?.estado || "Activo",
             updatedAt: new Date()   // Fecha de movimiento
             // 💡 NOTA: Al no poner 'pushSubscription' aquí, Mongo NO lo toca.
           }
@@ -553,7 +587,7 @@ io.on("connection", async (socket) => {
     // OJO: Tu consulta usa "Asignado", "EnCurso", "Ocupado" (Case sensitive)
     const pasajeroRelacionado = await Position.findOne({
       taxistaAsignado: email,
-      estado: { $in: ["Asignado", "en curso", "ocupado", "EnCamino", "asignado"] }
+      estado: { $in: ["Asignado", "EnCurso", "Ocupado", "EnCamino"] }
     });
 
     if (pasajeroRelacionado) {
@@ -578,7 +612,7 @@ io.on("connection", async (socket) => {
       if (role === "taxista") {
         const pasajero = await Position.findOne({
           taxistaAsignado: cleanEmail,
-          estado: { $in: ["asignado", "en curso", "ocupado"] }
+          estado: { $in: ["Asignado", "EnCurso", "Ocupado", "EnCamino"] }
         });
 
         if (pasajero) {
@@ -598,7 +632,7 @@ io.on("connection", async (socket) => {
               taxiNumber: miTaxista.taxiNumber,
               lat: miTaxista.lat,
               lng: miTaxista.lng,
-              estado: miEstado.estado === "asignado" ? "Asignado" : "EnCamino"
+              estado: miEstado.estado === "Asignado" ? "Asignado" : "EnCamino"
             });
           }
         }
@@ -620,86 +654,90 @@ io.on("connection", async (socket) => {
       dispatchWithRetry(pasajeroData, [], 1);
     } else {
       // 🚩 IMPORTANTE: Actualizar BD y avisar al mundo
-      await Position.updateOne({ email: pEmail }, { $set: { estado: "esperando" } });
+      await Position.updateOne({ email: pEmail }, { $set: { estado: "Esperando" } });
 
       // Obtenemos los datos completos para que el panel tenga el nombre y el icono
       const updatedP = await Position.findOne({ email: pEmail });
-      io.emit("panel_update", buildPayload(updatedP, updatedP, "esperando"));
+      io.emit("panel_update", buildPayload(updatedP, updatedP, "Esperando"));
 
       console.log(`📢 Solicitud manual detectada en panel para: ${pEmail}`);
     }
   });
 
   socket.on("taxi_response", async ({ requestEmail, accepted, excludedEmails = [] }) => {
-    const tEmail = socket.handshake.auth?.email || socket.handshake.query?.email;
-
-    if (pendingTimeouts.has(tEmail)) {
-      clearTimeout(pendingTimeouts.get(tEmail)!);
-      pendingTimeouts.delete(tEmail);
+    const tEmail = socket.handshake.auth?.email || socket.handshake.query?.email || (socket as any).userEmail;
+    // 🛡️ LIMPIEZA EFECTIVA: Usamos el email del PASAJERO para detener el reloj
+    if (pendingTimeouts.has(requestEmail)) {
+      console.log(`⏱️ Temporizador detenido para el viaje de: ${requestEmail}`);
+      clearTimeout(pendingTimeouts.get(requestEmail)!);
+      pendingTimeouts.delete(requestEmail.toLowerCase().trim());
     }
 
     // --- CASO: EL TAXISTA RECHAZA EL VIAJE ---
     if (!accepted) {
-      await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
-      const tPos = await Position.findOne({ email: tEmail });
-      io.emit("panel_update", buildPayload(tPos, tPos, "activo"));
+      console.log(`❌ Tx ${tEmail} rechazó a ${requestEmail}. Buscando siguiente...`);
 
-      // Avisamos al pasajero para que limpie la UI del taxista que rechazó
+      // 1. Liberamos al taxista en la BD para que pueda recibir otros viajes
+      await Position.updateOne({ email: tEmail }, { $set: { estado: "Activo" } });
+
+      // 2. Notificamos al Panel Administrativo el cambio de estado
+      const tPos = await Position.findOne({ email: tEmail });
+      io.emit("panel_update", buildPayload(tPos, tPos, "Activo"));
+
+      // 3. (Opcional) Avisar al pasajero que esta unidad específica declinó
       io.to(requestEmail).emit("taxi_rejected_request");
 
+      // 4. DISPARAR EL SIGUIENTE INTENTO INMEDIATAMENTE
+      // Buscamos la data del pasajero para reintentar el despacho
       const pData = await Position.findOne({ email: requestEmail });
-      if (pData) dispatchWithRetry(pData, [...excludedEmails, tEmail], 1);
-      return;
+
+      if (pData) {
+        // Importante: Sumamos al taxista actual a la lista de excluidos
+        // para que dispatchWithRetry no lo vuelva a seleccionar.
+        const nuevosExcluidos = [...excludedEmails, tEmail];
+
+        // Llamamos al reintento (esto cancelará el timeout viejo y creará uno nuevo)
+        dispatchWithRetry(pData, nuevosExcluidos, 1);
+      }
+
+      return; // Salimos de la función aquí
     }
 
-    // --- CASO: EL TAXISTA ACEPTA EL VIAJE (Refactorizado) ---
+    // --- SI EL TAXISTA ACEPTA ---
     try {
-      // 1. Sincronizamos estados en la Base de Datos (Ambos como "Asignado")
-      await Position.updateOne(
-        { email: tEmail },
-        { $set: { estado: "Asignado" } }
-      );
-
-      await Position.updateOne(
-        { email: requestEmail },
-        {
-          $set: {
-            estado: "Asignado",
-            taxistaAsignado: tEmail
-          }
-        }
-      );
-
-      // 2. Obtenemos la posición actual del taxista para el mapa del pasajero
-      const tPos = await Position.findOne({ email: tEmail });
+      // 1. Verificar si el pasajero sigue disponible
       const pPos = await Position.findOne({ email: requestEmail });
+      const tPos = await Position.findOne({ email: tEmail });
 
-      // 3. Construimos el Payload "Inmortal" para el Pasajero
-      const payloadParaPasajero = {
+      if (!pPos || (pPos.estado !== "Buscando" && pPos.estado !== "Asignado")) {
+        socket.emit("error_message", "El viaje ya no está disponible.");
+        return;
+      }
+
+      // 2. Vinculamos a ambos en la Base de Datos
+      await Position.updateOne({ email: requestEmail }, { $set: { estado: "Asignado" } });
+      await Position.updateOne({ email: tEmail }, { $set: { estado: "Asignado" } });
+
+      // 3. 🚩 EL PASO QUE FALTA: Avisar al pasajero (Koko)
+      // Usamos el email del pasajero como nombre de la sala (Room)
+      io.to(requestEmail.toLowerCase().trim()).emit("response_from_taxi", {
         accepted: true,
         tEmail: tEmail,
-        name: tPos?.name || "Conductor",
-        taxiNumber: tPos?.taxiNumber || "S/N",
-        estado: "Asignado", // Coincide con el if de React
-        lat: tPos?.lat,     // 🚩 Crucial para que el marcador aparezca YA
-        lng: tPos?.lng,     // 🚩 Crucial para que el marcador aparezca YA
-        taxiData: buildPayload(tPos, tPos, "Asignado")
-      };
+        name: tPos?.name || "Taxista",
+        taxiNumber: tPos?.taxiNumber || "N/A",
+        lat: tPos?.lat,
+        lng: tPos?.lng
+      });
 
-      // 4. Enviamos la señal de éxito al Pasajero
-      io.to(requestEmail).emit("response_from_taxi", payloadParaPasajero);
-
-      // 5. Actualizamos el Panel Administrativo
+      // 4. Notificamos al Panel Administrativo
       io.emit("panel_update", buildPayload(tPos, tPos, "Asignado"));
-      io.emit("panel_update", buildPayload(pPos, pPos, "Asignado"));
 
-      console.log(`✅ Viaje vinculado: [${tEmail}] recogerá a [${requestEmail}]`);
+      console.log(`✅ Viaje vinculado con éxito entre ${tEmail} y ${requestEmail}`);
 
     } catch (error) {
-      console.error("❌ Error en la vinculación del viaje:", error);
+      console.error("❌ Error en taxi_response:", error);
     }
   });
-
   socket.on("admin_assign_taxi", async ({ pasajeroEmail, taxistaEmail }) => {
     const pEmail = pasajeroEmail.toLowerCase().trim();
     const tEmail = taxistaEmail.toLowerCase().trim();
@@ -715,42 +753,54 @@ io.on("connection", async (socket) => {
 
     if (pData && tData) {
       // 1. Actualizamos BD
-      await Position.updateOne({ email: tEmail }, { $set: { estado: "asignado" } });
-      await Position.updateOne({ email: pEmail }, { $set: { estado: "asignado", taxistaEmail: tEmail } });
+      await Position.updateOne({ email: tEmail }, { $set: { estado: "Asignado" } });
+      await Position.updateOne({ email: pEmail }, { $set: { estado: "Asignado", taxistaEmail: tEmail } });
 
       // 2. Emitimos a las SALAS (Rooms)
-      io.to(tEmail).emit("pasajero_asignado", buildPayload(pData, pData, "asignado"));
-      io.to(pEmail).emit("taxista_asignado", buildPayload(tData, tData, "asignado"));
+      io.to(tEmail).emit("pasajero_asignado", buildPayload(pData, pData, "Asignado"));
+      io.to(pEmail).emit("taxista_asignado", buildPayload(tData, tData, "Asignado"));
 
       // 3. ACTUALIZAMOS AL MONITOR (Esto da la "acción" al panel)
       // Enviamos ambos updates para que las listas del panel se muevan solas
-      io.emit("panel_update", buildPayload(pData, pData, "asignado"));
-      io.emit("panel_update", buildPayload(tData, tData, "asignado"));
+      io.emit("panel_update", buildPayload(pData, pData, "Asignado"));
+      io.emit("panel_update", buildPayload(tData, tData, "Asignado"));
 
       console.log(`🚀 MONITOR: Asignación manual completada [${tEmail} -> ${pEmail}]`);
     }
   });
 
   socket.on("passenger_on_board", async ({ taxistaEmail, pasajeroEmail }) => {
-    const pEmail = pasajeroEmail.toLowerCase().trim();
-    const tEmail = taxistaEmail.toLowerCase().trim();
+    try {
+      // 🛡️ ESCUDO DE SEGURIDAD: Si no hay emails, cancelamos el proceso
+      if (!pasajeroEmail || !taxistaEmail) {
+        console.error("⚠️ Intento de Abordo fallido: Datos incompletos", { taxistaEmail, pasajeroEmail });
+        return;
+      }
 
-    await Position.updateOne({ email: tEmail }, { $set: { estado: "en curso" } });
-    await Position.updateOne({ email: pEmail }, { $set: { estado: "en curso" } });
+      const pEmail = pasajeroEmail.toLowerCase().trim();
+      const tEmail = taxistaEmail.toLowerCase().trim();
 
-    // 🚀 MANDAMOS EL EMAIL TAMBIÉN
-    // Esto permite que el PasajeroView haga: if(data.pasajeroEmail === miEmail)
-    io.to(pEmail).emit("trip_status_update", {
-      estado: "EnCurso",
-      pasajeroEmail: pEmail
-    });
+      await Position.updateOne({ email: tEmail }, { $set: { estado: "EnCurso" } });
+      await Position.updateOne({ email: pEmail }, { $set: { estado: "EnCurso" } });
 
-    // También avisamos al taxista por si acaso (aunque él ya lo sabe)
-    io.to(tEmail).emit("trip_status_update", { estado: "EnCurso" });
+      // 🚀 MANDAMOS EL EMAIL TAMBIÉN
+      io.to(pEmail).emit("trip_status_update", {
+        estado: "EnCurso",
+        pasajeroEmail: pEmail
+      });
 
-    // Avisar al panel
-    io.emit("panel_update", { email: pEmail, estado: "EnCurso" });
-    io.emit("panel_update", { email: tEmail, estado: "EnCurso" });
+      // También avisamos al taxista
+      io.to(tEmail).emit("trip_status_update", { estado: "EnCurso" });
+
+      // Avisar al panel
+      io.emit("panel_update", { email: pEmail, estado: "EnCurso" });
+      io.emit("panel_update", { email: tEmail, estado: "EnCurso" });
+
+      console.log(`✅ Viaje EN CURSO: ${tEmail} lleva a ${pEmail}`);
+
+    } catch (error) {
+      console.error("❌ Error en passenger_on_board:", error);
+    }
   });
 
   socket.on("passenger_cancel", async ({ pasajeroEmail, taxistaEmail }) => {
@@ -767,20 +817,20 @@ io.on("connection", async (socket) => {
     // Quitamos el 'taxistaAsignado' y regresamos a 'activo'
     await Position.updateOne(
       { email: pEmail },
-      { $set: { estado: "activo", taxistaAsignado: null } }
+      { $set: { estado: "Activo", taxistaAsignado: null } }
     );
 
     if (tEmail) {
       await Position.updateOne(
         { email: tEmail },
-        { $set: { estado: "activo" } }
+        { $set: { estado: "Activo" } }
       );
 
       // 3. AVISO PRIVADO AL TAXISTA
       // Para que su app oculte el chat y el marcador del pasajero
       io.to(tEmail).emit("trip_cancelled_by_passenger", {
         message: "El pasajero ha cancelado la solicitud.",
-        newStatus: "activo"
+        newStatus: "Activo"
       });
     }
 
@@ -789,13 +839,13 @@ io.on("connection", async (socket) => {
     io.emit("trip_finished", {
       pasajeroEmail: pEmail,
       taxistaEmail: tEmail,
-      estado: "cancelado"
+      estado: "Cancelado"
     });
 
     // 5. ACTUALIZACIÓN PANEL ADMIN (Monitor de Ciudad Valles)
-    io.emit("panel_update", { email: pEmail, estado: "activo" });
+    io.emit("panel_update", { email: pEmail, estado: "Activo" });
     if (tEmail) {
-      io.emit("panel_update", { email: tEmail, estado: "activo" });
+      io.emit("panel_update", { email: tEmail, estado: "Activo" });
     }
 
     console.log(`❌ Cancelación procesada: ${pEmail} liberó a ${tEmail || 'N/A'}`);
@@ -811,13 +861,13 @@ io.on("connection", async (socket) => {
     // 2. Actualizar BD (Muy bien hecho con updateMany)
     await Position.updateMany(
       { email: { $in: [pEmail, tEmail] } },
-      { $set: { estado: "activo", taxistaAsignado: null } }
+      { $set: { estado: "Activo", taxistaAsignado: null } }
     );
 
     const payload = {
       pasajeroEmail: pEmail,
       taxistaEmail: tEmail, // Agregamos esto
-      estado: "finalizado"
+      estado: "Finalizado"
     };
 
     // 🚩 LA CLAVE: Si no usas Rooms, usa io.emit para pruebas. 
@@ -825,11 +875,20 @@ io.on("connection", async (socket) => {
     io.emit("trip_finished", payload);
 
     // Notificar al panel de administración
-    io.emit("panel_update", { email: pEmail, estado: "activo" });
-    io.emit("panel_update", { email: tEmail, estado: "activo" });
+    io.emit("panel_update", { email: pEmail, estado: "Activo" });
+    io.emit("panel_update", { email: tEmail, estado: "Activo" });
 
     console.log(`✅ Viaje finalizado exitosamente entre ${tEmail} y ${pEmail}`);
   });
+
+  // Al final de tu main.tsx o index.tsx
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js') // <--- Asegúrate que el nombre coincida
+        .then(reg => console.log('✅ Service Worker registrado', reg))
+        .catch(err => console.error('❌ Error al registrar SW', err));
+    });
+  }
 
   // --- EVENTO DE LOGOUT FORZADO (Solo cuando pica "Cerrar Sesión") ---
   socket.on("force_disconnect", async ({ email }) => {
@@ -844,12 +903,12 @@ io.on("connection", async (socket) => {
         // 🚩 AQUÍ SÍ borramos de la BD porque es un Logout voluntario
         await Position.updateOne(
           { email: cleanEmail },
-          { $set: { estado: "desconectado", updatedAt: new Date() } }
+          { $set: { estado: "Desconectado", updatedAt: new Date() } }
         );
 
         io.emit("panel_update", {
           email: cleanEmail,
-          estado: "desconectado",
+          estado: "Desconectado",
           force: true
         });
 

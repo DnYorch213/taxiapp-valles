@@ -1,4 +1,3 @@
-// src/App.tsx
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, Link, useNavigate } from "react-router-dom";
 import PasajeroView from "./views/PasajeroView";
@@ -8,8 +7,9 @@ import LoginView from "./views/LoginView";
 import RegisterView from "./views/RegisterView";
 import { PrivateRoute } from "./components/PrivateRoute";
 import { TravelProvider, useTravel } from "./context/TravelContext";
-import PanelSolicitudes from "./views/PanelSolicitudes";
 import { socket } from "./lib/socket";
+import AdminVerificacion from "./views/AdminVerificacion";
+// ✅ Eliminamos PanelSolicitudes si no lo vas a usar, para evitar errores de compilación
 
 if (typeof window !== "undefined") {
   (window as any).socket = socket;
@@ -19,18 +19,16 @@ const Navbar: React.FC = () => {
   const { userPosition, logout } = useTravel();
   const navigate = useNavigate();
 
- const handleLogout = () => {
-    // 📢 Opcional: Avisar al servidor que me voy voluntariamente
+  const handleLogout = () => {
     socket.emit("force_disconnect", { email: userPosition?.email });
-    
-    logout(); // Limpia el TravelContext y LocalStorage
-    socket.disconnect(); // Corta el cable del socket
+    logout(); 
+    socket.disconnect(); 
     navigate("/login");
   };
 
   return (
     <div className="p-4 bg-gray-100 shadow-md flex justify-between items-center">
-      <h1 className="text-xl font-bold">🚖 App de Viajes</h1>
+      <h1 className="text-xl font-bold italic">Valles<span className="text-[#22c55e]">Control</span></h1>
       <nav className="space-x-4">
         {!userPosition ? (
           <>
@@ -47,15 +45,18 @@ const Navbar: React.FC = () => {
             )}
             {userPosition.role === "admin" && (
               <>
-                <Link to="/panel" className="text-blue-600 hover:underline">Panel Central</Link>
-                <Link to="/panelSolicitudes" className="text-blue-600 hover:underline">Panel de Solicitudes</Link>
+                <Link to="/panel" className="text-blue-600 hover:underline font-bold">Monitor</Link>
+                {/* ✅ Solo dejamos este link que es el funcional */}
+                <Link to="/verificar-taxistas" className="text-[#22c55e] hover:underline font-black italic">
+                  AUTORIZAR 🚖
+                </Link>
               </>
             )}
             <button
               onClick={handleLogout}
-              className="ml-4 bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
+              className="ml-4 bg-red-600 text-white px-3 py-1 rounded font-bold hover:bg-red-700 transition-colors"
             >
-              Logout
+              Salir
             </button>
           </>
         )}
@@ -70,7 +71,7 @@ const App: React.FC = () => {
       <Router>
         <Navbar />
         <Routes>
-          <Route path="/" element={<div className="p-8 text-center">Bienvenido 🚕</div>} />
+          <Route path="/" element={<div className="p-8 text-center font-bold">Bienvenido a Valles Viaje 🚕</div>} />
           <Route path="/login" element={<LoginView />} />
           <Route path="/register" element={<RegisterView />} />
 
@@ -78,7 +79,9 @@ const App: React.FC = () => {
           <Route path="/pasajero" element={<PrivateRoute role="pasajero"><PasajeroView /></PrivateRoute>} />
           <Route path="/taxista" element={<PrivateRoute role="taxista"><TaxistaView /></PrivateRoute>} />
           <Route path="/panel" element={<PrivateRoute role="admin"><PanelCentral /></PrivateRoute>} />
-          <Route path="/panelSolicitudes" element={<PrivateRoute role="admin"><PanelSolicitudes /></PrivateRoute>} />
+          
+          {/* ✅ Esta es la ruta principal de administración ahora */}
+          <Route path="/verificar-taxistas" element={<PrivateRoute role="admin"><AdminVerificacion /></PrivateRoute>} />
         </Routes>
       </Router>
     </TravelProvider>

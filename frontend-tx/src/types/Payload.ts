@@ -11,7 +11,9 @@ export type ViajeEstado =
     | "Finalizado"
     | "Cancelado"
     | "Desconectado"
-    | "Ocupado";
+    | "Ocupado"
+    | "Activo"
+    | "Esperando"; // Estado general para taxistas en sesión, incluso sin viaje activo
 
 export interface Payload {
     email: string;

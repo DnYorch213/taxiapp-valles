@@ -1,5 +1,5 @@
 // public/sw.js
-
+const API_BASE_URL = "https://taxiapp-valles.onrender.com";
 // 1. ESCUCHAR LA NOTIFICACIÓN PUSH
 self.addEventListener("push", (event) => {
   let data = {};
@@ -57,7 +57,7 @@ self.addEventListener("notificationclick", (event) => {
 
   // --- LÓGICA DE ACCIÓN: ACEPTAR ---
   if (action === "aceptar") {
-    const apiPromise = fetch(`${self.location.origin}/api/accept-trip-push`, {
+    const apiPromise = fetch(`${API_BASE_URL}/api/accept-trip-push`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
