@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { socket } from "../lib/socket";
@@ -21,6 +21,13 @@ const PasajeroView: React.FC = () => {
   
   // 🚩 ESTADO PARA EL RASTRO EN VIVO
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
+
+  const taxistaAsignadoRef = useRef<Payload | null>(null);
+
+// Actualiza la referencia cada vez que cambie el estado
+useEffect(() => {
+  taxistaAsignadoRef.current = taxistaAsignado;
+}, [taxistaAsignado]);
 
   // 1. GPS Hook
   useGeolocation(
@@ -76,9 +83,10 @@ socket.on("response_from_taxi", (data) => {
     }, 100); // 100ms es el tiempo ideal para evitar parpadeos visuales
   }
 });
-    // MOVIMIENTO DEL TAXI (Antes de abordar)
+   // MOVIMIENTO DEL TAXI antes de abordar (Usando la Ref para comparar)
     socket.on("taxi_moved", (data: any) => {
-      const emailAsignado = taxistaAsignado?.email?.toLowerCase().trim();
+      // 🚩 Aquí usamos la Ref.current para el valor más fresco
+      const emailAsignado = taxistaAsignadoRef.current?.email?.toLowerCase().trim();
       const emailEntrante = (data.tEmail || data.email || data.taxistaEmail)?.toLowerCase().trim();
 
       if (emailAsignado && emailEntrante === emailAsignado) {

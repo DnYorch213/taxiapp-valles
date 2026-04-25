@@ -491,7 +491,7 @@ io.on("connection", async (socket) => {
           updatedAt: new Date()
         }
       },
-      { upsert: true, returnDocument: 'after' }
+      { upsert: false, returnDocument: 'after' }
     );
 
     // 7. EMISIONES INICIALES (Mapa y Modo de Despacho)
@@ -507,6 +507,19 @@ io.on("connection", async (socket) => {
         socket.emit("pasajero_asignado", buildPayload(viajeActivo, viajeActivo, viajeActivo.estado));
         console.log(`✅ Viaje recuperado: Pasajero[${viajeActivo.email}] -> Taxista[${email}]`);
       }, 1000);
+    }
+
+    if (viajeActivo && role === "pasajero") {
+      const taxistaData = await Position.findOne({ email: viajeActivo.taxistaAsignado });
+      socket.emit("response_from_taxi", {
+        accepted: true,
+        tEmail: taxistaData?.email,
+        name: taxistaData?.name,
+        taxiNumber: taxistaData?.taxiNumber,
+        lat: taxistaData?.lat,
+        lng: taxistaData?.lng,
+        rehydrated: true // Para que el frontend sepa que es una recuperación
+      });
     }
 
     // 9. AVISAR AL PANEL DE CONTROL
