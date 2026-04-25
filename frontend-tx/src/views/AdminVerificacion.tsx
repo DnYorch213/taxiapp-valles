@@ -11,11 +11,13 @@ interface Taxista {
   adminApproval: string;
 }
 
+// ... (Tus imports e interfaces igual)
+
 const AdminVerificacion: React.FC = () => {
   const [pendientes, setPendientes] = useState<Taxista[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState<string | null>(null); // Guardamos el ID del que se está procesando
   const [verificados, setVerificados] = useState<Taxista[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [tab, setTab] = useState<'pendientes' | 'verificados'>('pendientes');
 
   const navigate = useNavigate();
@@ -23,71 +25,68 @@ const AdminVerificacion: React.FC = () => {
   const role = localStorage.getItem('role');
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-  // 🛡️ PROTECCIÓN DE RUTA: Solo Admins pasan aquí
+  // 🛡️ PROTECCIÓN DE RUTA
   useEffect(() => {
     if (!token || role !== 'admin') {
-      toast.error("Acceso restringido: Solo para administración.");
+      toast.error("Acceso restringido");
       navigate('/login');
     }
   }, [token, role, navigate]);
 
-  const fetchPendientes = async () => {
+  // 🔄 CARGA DE DATOS CENTRALIZADA
+  const fetchData = async () => {
+    setLoading(true);
     try {
-      const res = await axios.get<Taxista[]>(`${API_URL}/api/admin/pending`, {
+      const endpoint = tab === 'pendientes' ? 'pending' : 'verified';
+      const res = await axios.get<Taxista[]>(`${API_URL}/api/admin/${endpoint}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setPendientes(res.data);
+      
+      if (tab === 'pendientes') setPendientes(res.data);
+      else setVerificados(res.data);
+      
     } catch (error: any) {
       console.error("Error al cargar:", error);
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        navigate('/login');
-      }
-      toast.error("Error al cargar taxistas pendientes");
+      toast.error("Error de conexión con VallesControl");
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { 
-    if (role === 'admin') fetchPendientes(); 
-  }, []);
-
-  const fetchVerificados = async () => {
-  try {
-    const res = await axios.get<Taxista[]>(`${API_URL}/api/admin/verified`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    setVerificados(res.data);
-  } catch (error) {
-    console.error("Error al cargar verificados");
-  }
-};
-
-useEffect(() => { 
-  if (role === 'admin') {
-    fetchPendientes();
-    fetchVerificados();
-  }
-}, []);
+  // Se dispara cada vez que cambias de pestaña
+  useEffect(() => {
+    if (role === 'admin') fetchData();
+  }, [tab]); // <-- Aquí está el truco: escucha el cambio de tab
 
   const handleAction = async (id: string, action: 'aprobar' | 'rechazar') => {
-    if (actionLoading) return; // Evitar doble clic
-    
-    setActionLoading(id); // Bloqueamos solo esta tarjeta
+    if (actionLoading) return;
+    setActionLoading(id);
     try {
-      await axios.put(`${API_URL}/api/admin/update-status/${id}`, 
-        { action },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      toast.success(`Operador ${action === 'aprobar' ? 'AUTORIZADO ✅' : 'RECHAZADO ❌'}`);
-      setPendientes(prev => prev.filter(t => t._id !== id));
-    } catch (error) {
+  await axios.put(`${API_URL}/api/admin/update-status/${id}`, 
+    { action },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  
+  toast.success(`Operador ${action === 'aprobar' ? 'AUTORIZADO ✅' : 'RECHAZADO ❌'}`);
+  
+  // 1. Buscamos al taxista en la lista de pendientes antes de quitarlo
+  const taxistaAprobado = pendientes.find(t => t._id === id);
+
+  // 2. Quitamos de pendientes
+  setPendientes(prev => prev.filter(t => t._id !== id));
+
+  // 3. Si fue aprobado, lo pasamos a la lista de verificados localmente
+  if (action === 'aprobar' && taxistaAprobado) {
+    setVerificados(prev => [...prev, { ...taxistaAprobado, adminApproval: 'aprobado' }]);
+  }
+} catch (error) {
       toast.error("No se pudo completar la acción");
     } finally {
       setActionLoading(null);
     }
   };
+
+  // ... (Tu Renderizado igual, está excelente el CSS)
 
   if (loading) return (
     <div className="h-dvh flex items-center justify-center bg-[#0f172a] text-[#22c55e] animate-pulse font-black italic uppercase tracking-tighter">

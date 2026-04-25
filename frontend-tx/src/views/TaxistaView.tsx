@@ -26,7 +26,7 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
-const API_URL = import.meta.env.VITE_API_URL || "http://192.168.1.9:3001";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 const VAPID_PUBLIC_KEY = "BHtVjCOYiH1nbyPq-mPS_ZqA0oHjGcONq5r5PV-sTC1jXzAvgGuFFwL5iv0ymk725NUX4_obl82JLilVs9W49-A";
 
 const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ duration, onFinish }) => {
@@ -70,7 +70,6 @@ const TaxistaView: React.FC = () => {
 
  // --- 🔔 FUNCIÓN DE SUSCRIPCIÓN (SÁCADA DEL USEEFFECT) ---
   const gestionarSuscripcion = async () => {
-    const API_URL_BUS = "http://192.168.1.9:3001"; // Tu IP
     const userEmail = userPosition?.email || localStorage.getItem("email");
 
     if (!userEmail) {
@@ -95,7 +94,7 @@ const TaxistaView: React.FC = () => {
 
       if (subscription) {
         console.log(`Enviando suscripción para: ${userEmail}`);
-        await axios.post(`${API_URL_BUS}/save-subscription`, {
+        await axios.post(`${API_URL}/save-subscription`, {
           email: userEmail,
           subscription: subscription
         });
@@ -142,7 +141,7 @@ const TaxistaView: React.FC = () => {
     return () => detenerSonido();
   }, [detenerSonido]);
 
- // --- 🛰️ GEOLOCALIZACIÓN REFACTOREADA ---
+// --- 🛰️ GEOLOCALIZACIÓN REFACTOREADA ---
 useGeolocation(
   {
     email: userPosition?.email || localStorage.getItem("email") || "",
@@ -151,7 +150,6 @@ useGeolocation(
     taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "",
   },
   (pos) => {
-    // 🛡️ VALIDACIÓN CRUCIAL: Solo procedemos si pos.lat y pos.lng son números válidos
     if (pos.lat === null || pos.lng === null) return;
 
     // 1. Actualización local
@@ -161,18 +159,11 @@ useGeolocation(
 
     const estadoActual = estadoRef.current;
     
-    // 2. Envío al socket
+    // 2. Envío al socket con LÓGICA EXCLUSIVA
     if (socket && (estadoActual === "Asignado" || estadoActual === "EnCamino" || estadoActual === "EnCurso")) {
-      socket.emit("taxi_moved", {
-        lat: pos.lat, // Aquí TypeScript ya sabe que es 'number'
-        lng: pos.lng, // Aquí también
-        email: userPosition?.email || localStorage.getItem("email"),
-        taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber"),
-        role: "taxista"
-      });
-
+      
       if (estadoActual === "EnCurso") {
-        // Usamos la aserción de tipo o la validación previa para el historial
+        // --- MODO VIAJE: Solo emitimos el rastro ---
         const nuevaCoord: L.LatLngExpression = [pos.lat, pos.lng];
         setHistorialRuta((prev) => [...prev, nuevaCoord]);
         
@@ -180,6 +171,15 @@ useGeolocation(
           pasajeroEmail: pasajeroAsignado?.email,
           lat: pos.lat,
           lng: pos.lng
+        });
+      } else {
+        // --- MODO APROXIMACIÓN (Asignado/EnCamino): Emitimos movimiento normal ---
+        socket.emit("taxi_moved", {
+          lat: pos.lat,
+          lng: pos.lng,
+          email: userPosition?.email || localStorage.getItem("email"),
+          taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber"),
+          role: "taxista"
         });
       }
     }

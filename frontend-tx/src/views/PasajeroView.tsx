@@ -133,7 +133,7 @@ socket.on("response_from_taxi", (data) => {
       socket.off("trip_finished");
       socket.off("taxi_rejected_request");
     };
-  }, [socket, userPosition?.email, taxistaAsignado?.email, taxiPos]);
+  }, [socket, userPosition?.email, taxistaAsignado?.email]);
 
   // 3. Heartbeat
   useEffect(() => {
