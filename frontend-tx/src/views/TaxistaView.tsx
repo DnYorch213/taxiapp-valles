@@ -232,14 +232,14 @@ const handleAsignacion = useCallback((data: any) => {
       setEstado("Asignado"); 
       reproducirAlerta();
     } 
-    else if (estadoServidor === "encurso" || estadoServidor === "ocupado") {
+    else if (estadoServidor === "EnCurso" || estadoServidor === "Ocupado") {
       /**
        * CASO B: Viaje ya iniciado
        */
       setEstado("EnCurso");
       detenerSonido();
     } 
-    else if (estadoServidor === "asignado") {
+    else if (estadoServidor === "Asignado") {
       /**
        * CASO C: Reconexión (El taxista ya había aceptado previamente)
        * Como no es 'isNewOffer', lo mandamos directo a la vista de navegación.
@@ -261,13 +261,19 @@ const handleAsignacion = useCallback((data: any) => {
     if (!socket) return;
 
     socket.on("pasajero_asignado", handleAsignacion);
-
+    // 🚩 ESTO ES LO QUE FALTA: Escuchar la confirmación oficial
     socket.on("assignment_confirmed", (data) => {
-      console.log("✅ Confirmación final del servidor recibida:", data);
+      console.log("✅ Confirmación recibida del servidor:", data);
       if (data.success) {
-        setEstado("EnCamino"); // Aseguramos que pase a navegación
+        setEstado("EnCamino"); // Ahora sí, cambiamos la vista
         detenerSonido();
-        toast.success("¡Viaje vinculado correctamente!");
+        toast.success("¡Viaje vinculado! Dirígete al pasajero.");
+        
+        // Si el servidor mandó datos actualizados del pasajero, los guardamos
+        if (data.pasajero) {
+          const pEmail = data.pasajero.email.toLowerCase().trim();
+          setPasajeroAsignado({ ...data.pasajero, email: pEmail });
+        }
       }
     });
     socket.on("dispatch_timeout", () => {
@@ -310,17 +316,14 @@ const aceptarViaje = () => {
   }
   detenerSonido();
   
-  // Enviamos la respuesta al servidor
+  // Enviamos el email del pasajero tal cual lo recibimos del socket
   socket.emit("taxi_response", { 
     requestEmail: pasajeroAsignado.email.toLowerCase().trim(), 
     accepted: true, 
     excludedEmails 
   });
   
-  // 🚩 NOTA: Ya no ponemos setEstado("EnCamino") aquí.
-  // Esperaremos a que llegue el evento "assignment_confirmed" para cambiarlo.
-  // Esto garantiza que el viaje realmente se guardó en la BD.
-  toast.info("Procesando asignación..."); 
+  setEstado("EnCamino");
 };
 
 const rechazarViaje = () => {
