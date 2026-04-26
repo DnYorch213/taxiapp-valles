@@ -261,6 +261,15 @@ const handleAsignacion = useCallback((data: any) => {
     if (!socket) return;
 
     socket.on("pasajero_asignado", handleAsignacion);
+
+    socket.on("assignment_confirmed", (data) => {
+      console.log("✅ Confirmación final del servidor recibida:", data);
+      if (data.success) {
+        setEstado("EnCamino"); // Aseguramos que pase a navegación
+        detenerSonido();
+        toast.success("¡Viaje vinculado correctamente!");
+      }
+    });
     socket.on("dispatch_timeout", () => {
       detenerSonido();
       setPasajeroAsignado(null);
@@ -286,6 +295,7 @@ const handleAsignacion = useCallback((data: any) => {
 
     return () => {
       socket.off("pasajero_asignado");
+      socket.off("assignment_confirmed");
       socket.off("dispatch_timeout");
       socket.off("trip_cancelled_by_passenger");
       socket.off("trip_finished");
@@ -300,14 +310,17 @@ const aceptarViaje = () => {
   }
   detenerSonido();
   
-  // Enviamos el email del pasajero tal cual lo recibimos del socket
+  // Enviamos la respuesta al servidor
   socket.emit("taxi_response", { 
     requestEmail: pasajeroAsignado.email.toLowerCase().trim(), 
     accepted: true, 
     excludedEmails 
   });
   
-  setEstado("EnCamino");
+  // 🚩 NOTA: Ya no ponemos setEstado("EnCamino") aquí.
+  // Esperaremos a que llegue el evento "assignment_confirmed" para cambiarlo.
+  // Esto garantiza que el viaje realmente se guardó en la BD.
+  toast.info("Procesando asignación..."); 
 };
 
 const rechazarViaje = () => {

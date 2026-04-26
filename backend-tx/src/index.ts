@@ -717,9 +717,12 @@ io.on("connection", async (socket) => {
     }
 
     // --- SI EL TAXISTA ACEPTA ---
+    // --- SI EL TAXISTA ACEPTA ---
     try {
-      // 1. Verificar si el pasajero sigue disponible
-      const pPos = await Position.findOne({ email: requestEmail });
+      const pEmail = requestEmail.toLowerCase().trim();
+      const tEmail = (socket.handshake.auth?.email || (socket as any).userEmail)?.toLowerCase().trim();
+
+      const pPos = await Position.findOne({ email: pEmail });
       const tPos = await Position.findOne({ email: tEmail });
 
       if (!pPos || (pPos.estado !== "Buscando" && pPos.estado !== "Asignado")) {
@@ -727,30 +730,44 @@ io.on("connection", async (socket) => {
         return;
       }
 
-      // 2. Vinculamos a ambos en la Base de Datos
-      await Position.updateOne({ email: requestEmail }, { $set: { estado: "Asignado" } });
-      await Position.updateOne({ email: tEmail }, { $set: { estado: "Asignado" } });
+      // 1. VINCULACIÓN CRÍTICA EN BD
+      // Guardamos en el PASAJERO quién es su TAXISTA
+      await Position.updateOne(
+        { email: pEmail },
+        { $set: { estado: "Asignado", taxistaAsignado: tEmail } } // 🚩 ESTO FALTABA
+      );
 
-      // 3. 🚩 EL PASO QUE FALTA: Avisar al pasajero (Koko)
-      // Usamos el email del pasajero como nombre de la sala (Room)
-      io.to(requestEmail.toLowerCase().trim()).emit("response_from_taxi", {
+      // Guardamos en el TAXISTA a quién lleva (opcional, pero recomendado)
+      await Position.updateOne(
+        { email: tEmail },
+        { $set: { estado: "Asignado", pasajeroAsignado: pEmail } }
+      );
+
+      // 2. EMISIÓN AL PASAJERO
+      // Asegúrate de enviar las coordenadas actuales del objeto tPos
+      io.to(pEmail).emit("response_from_taxi", {
         accepted: true,
         tEmail: tEmail,
         name: tPos?.name || "Taxista",
         taxiNumber: tPos?.taxiNumber || "N/A",
-        lat: tPos?.lat,
-        lng: tPos?.lng
+        lat: tPos?.lat || 0,
+        lng: tPos?.lng || 0
       });
 
-      // 4. Notificamos al Panel Administrativo
-      io.emit("panel_update", buildPayload(tPos, tPos, "Asignado"));
+      // 3. CONFIRMACIÓN AL TAXISTA (Para que cambie su botón a "Abordar")
+      socket.emit("assignment_confirmed", {
+        success: true,
+        pasajero: pPos
+      });
 
-      console.log(`✅ Viaje vinculado con éxito entre ${tEmail} y ${requestEmail}`);
+      io.emit("panel_update", buildPayload(tPos, tPos, "Asignado"));
+      console.log(`✅ Vinculado: ${tEmail} va por ${pEmail}`);
 
     } catch (error) {
       console.error("❌ Error en taxi_response:", error);
     }
   });
+
   socket.on("admin_assign_taxi", async ({ pasajeroEmail, taxistaEmail }) => {
     const pEmail = pasajeroEmail.toLowerCase().trim();
     const tEmail = taxistaEmail.toLowerCase().trim();
