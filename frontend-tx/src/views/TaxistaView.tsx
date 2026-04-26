@@ -57,7 +57,7 @@ const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ durati
 
 const TaxistaView: React.FC = () => {
   const { userPosition, setUserPosition } = useTravel();
-  const [estado, setEstado] = useState<"Disponible" | "Asignado" | "EnCurso" | "EnCamino">("Disponible");
+  const [estado, setEstado] = useState<"disponible" | "asignado" | "encurso" | "encamino">("disponible");
   const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(null);
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
   const [chatAbierto, setChatAbierto] = useState(false);
@@ -160,9 +160,9 @@ useGeolocation(
     const estadoActual = estadoRef.current;
     
     // 2. Envío al socket con LÓGICA EXCLUSIVA
-    if (socket && (estadoActual === "Asignado" || estadoActual === "EnCamino" || estadoActual === "EnCurso")) {
+    if (socket && (estadoActual === "asignado" || estadoActual === "encamino" || estadoActual === "encurso")) {
       
-      if (estadoActual === "EnCurso") {
+      if (estadoActual === "encurso") {
         // --- MODO VIAJE: Solo emitimos el rastro ---
         const nuevaCoord: L.LatLngExpression = [pos.lat, pos.lng];
         setHistorialRuta((prev) => [...prev, nuevaCoord]);
@@ -229,29 +229,29 @@ const handleAsignacion = useCallback((data: any) => {
        * CASO A: Oferta Nueva (Viene del salto de Jorge o solicitud inicial)
        * Forzamos estado "Asignado" para que React muestre el botón de ACEPTAR.
        */
-      setEstado("Asignado"); 
+      setEstado("asignado"); 
       reproducirAlerta();
     } 
-    else if (estadoServidor === "EnCurso" || estadoServidor === "Ocupado") {
+    else if (estadoServidor === "encurso" || estadoServidor === "ocupado") {
       /**
        * CASO B: Viaje ya iniciado
        */
-      setEstado("EnCurso");
+      setEstado("encurso");
       detenerSonido();
     } 
-    else if (estadoServidor === "Asignado") {
+    else if (estadoServidor === "asignado") {
       /**
        * CASO C: Reconexión (El taxista ya había aceptado previamente)
        * Como no es 'isNewOffer', lo mandamos directo a la vista de navegación.
        */
-      setEstado("EnCamino"); 
+      setEstado("encamino"); 
       detenerSonido();
     } 
     else {
       /**
        * CASO D: Backup de seguridad
        */
-      setEstado("Asignado"); 
+      setEstado("asignado"); 
       reproducirAlerta();
     }
   }, 10);
@@ -265,7 +265,7 @@ const handleAsignacion = useCallback((data: any) => {
     socket.on("assignment_confirmed", (data) => {
       console.log("✅ Confirmación recibida del servidor:", data);
       if (data.success) {
-        setEstado("EnCamino"); // Ahora sí, cambiamos la vista
+        setEstado("encamino"); // Ahora sí, cambiamos la vista
         detenerSonido();
         toast.success("¡Viaje vinculado! Dirígete al pasajero.");
         
@@ -279,19 +279,19 @@ const handleAsignacion = useCallback((data: any) => {
     socket.on("dispatch_timeout", () => {
       detenerSonido();
       setPasajeroAsignado(null);
-      setEstado("Disponible");
+      setEstado("disponible");
     });
     socket.on("trip_cancelled_by_passenger", () => {
       detenerSonido();
       setPasajeroAsignado(null);
-      setEstado("Disponible");
+      setEstado("disponible");
       setChatAbierto(false);
       setHistorialRuta([]); // Limpiar rastro
     });
 
     socket.on("trip_finished", () => {
       detenerSonido();
-      setEstado("Disponible");
+      setEstado("disponible");
       setPasajeroAsignado(null);
       setChatAbierto(false);
       setHistorialRuta([]); // Limpiar rastro
@@ -323,7 +323,7 @@ const aceptarViaje = () => {
     excludedEmails 
   });
   
-  setEstado("EnCamino");
+  setEstado("encamino");
 };
 
 const rechazarViaje = () => {
@@ -335,7 +335,7 @@ const rechazarViaje = () => {
     excludedEmails 
   });
   setPasajeroAsignado(null);
-  setEstado("Disponible");
+  setEstado("disponible");
 };
 
 const confirmarAbordo = () => {
@@ -352,7 +352,7 @@ const confirmarAbordo = () => {
     pasajeroEmail: pEmail.toLowerCase().trim() 
   });
 
-  setEstado("EnCurso");
+  setEstado("encurso");
   setChatAbierto(false);
   
   if (userPosition?.lat) {
@@ -365,7 +365,7 @@ const finalizarViaje = () => {
   const pEmail = pasajeroAsignado?.email;
 
   if (!tEmail || !pEmail) {
-    setEstado("Disponible");
+    setEstado("disponible");
     setPasajeroAsignado(null);
     return;
   }
@@ -375,7 +375,7 @@ const finalizarViaje = () => {
     taxistaEmail: tEmail.toLowerCase().trim() 
   });
 
-  setEstado("Disponible");
+  setEstado("disponible");
   setPasajeroAsignado(null);
   setHistorialRuta([]); 
   toast.info("Servicio finalizado");
@@ -384,7 +384,7 @@ const finalizarViaje = () => {
   // --- MAPA & RUTA ---
   const puntosRuta = useMemo(() => {
     // 🚩 Solo usamos RoutingMachine para ir a buscar al pasajero (EnCamino)
-    if (estado === "EnCamino" && pasajeroAsignado?.lat && userPosition?.lat) {
+    if (estado === "encamino" && pasajeroAsignado?.lat && userPosition?.lat) {
       return [L.latLng(userPosition.lat!, userPosition.lng!), L.latLng(pasajeroAsignado.lat!, pasajeroAsignado.lng!)];
     }
     return [];
@@ -417,14 +417,14 @@ return (
         >
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
           {puntosRuta.length > 0 && <RoutingMachine waypoints={puntosRuta} />}
-          {estado === "EnCurso" && (
+          {estado === "encurso" && (
             <Polyline 
               positions={historialRuta} 
               pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} 
             />
           )}
           <Marker position={[userPosition.lat!, userPosition.lng!]} icon={taxistaIcon} />
-          {pasajeroAsignado?.lat && estado !== "EnCurso" && (
+          {pasajeroAsignado?.lat && estado !== "encurso" && (
             <Marker position={[pasajeroAsignado.lat!, pasajeroAsignado.lng!]} icon={pasajeroIcon} />
           )}
         </MapContainer>
@@ -436,7 +436,7 @@ return (
 
       {/* Badge de estado flotante sobre el mapa */}
       <div className="absolute top-4 left-4 z-[1000] bg-[#1e293b]/90 backdrop-blur-md px-4 py-2 rounded-2xl shadow-2xl border border-white/10 flex items-center gap-3">
-        <div className={`h-2.5 w-2.5 rounded-full ${estado === "Disponible" ? "bg-[#22c55e]" : "bg-orange-500 animate-ping"}`}></div>
+        <div className={`h-2.5 w-2.5 rounded-full ${estado === "disponible" ? "bg-[#22c55e]" : "bg-orange-500 animate-ping"}`}></div>
         <span className="text-[11px] font-black text-white uppercase tracking-widest">{estado}</span>
       </div>
     </main>
@@ -449,24 +449,24 @@ return (
         <div className="flex flex-col">
           {/* INFO DEL PASAJERO */}
           <div className="px-6 pt-8 pb-4">
-            <div className={`p-4 rounded-[2rem] transition-all duration-500 ${estado === "Asignado" ? "bg-[#22c55e]" : "bg-[#0f172a]/50 border border-white/5"}`}>
+            <div className={`p-4 rounded-[2rem] transition-all duration-500 ${estado === "asignado" ? "bg-[#22c55e]" : "bg-[#0f172a]/50 border border-white/5"}`}>
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shadow-lg">👤</div>
                 <div className="flex-1">
-                  <p className={`text-[8px] font-black uppercase tracking-[0.2em] ${estado === "Asignado" ? "text-[#0f172a]/60" : "text-slate-500"}`}>
-                    {estado === "EnCurso" ? "Viaje Activo" : "Solicitud Entrante"}
+                  <p className={`text-[8px] font-black uppercase tracking-[0.2em] ${estado === "asignado" ? "text-[#0f172a]/60" : "text-slate-500"}`}>
+                    {estado === "encurso" ? "Viaje Activo" : "Solicitud Entrante"}
                   </p>
-                  <h3 className={`text-lg font-black leading-tight ${estado === "Asignado" ? "text-[#0f172a]" : "text-white"}`}>
+                  <h3 className={`text-lg font-black leading-tight ${estado === "asignado" ? "text-[#0f172a]" : "text-white"}`}>
                     {pasajeroAsignado.name}
                   </h3>
-                  {estado === "Asignado" && <TimerBar duration={15000} onFinish={rechazarViaje} />}
+                  {estado === "asignado" && <TimerBar duration={15000} onFinish={rechazarViaje} />}
                 </div>
               </div>
             </div>
           </div>
 
           {/* CHAT INTEGRADO: Solo si ya aceptó el viaje y no ha finalizado */}
-          {(estado === "EnCamino") && (
+          {(estado === "encamino") && (
             <div className="border-y border-white/5 bg-[#0f172a]/30">
               <div 
                 onClick={() => setChatAbierto(!chatAbierto)}
@@ -488,7 +488,7 @@ return (
 
           {/* BOTONES DE ACCIÓN */}
           <div className="p-6 pb-10">
-            {estado === "Asignado" && (
+            {estado === "asignado" && (
               <div className="grid grid-cols-5 gap-3">
                 <button onClick={aceptarViaje} className="col-span-3 py-5 bg-[#22c55e] text-[#0f172a] rounded-2xl font-black text-lg active:scale-95 transition-transform shadow-xl shadow-green-900/20">
                   ACEPTAR
@@ -499,13 +499,13 @@ return (
               </div>
             )}
 
-            {estado === "EnCamino" && (
+            {estado === "encamino" && (
               <button onClick={confirmarAbordo} className="w-full py-5 bg-white text-[#0f172a] rounded-2xl font-black text-lg flex items-center justify-center gap-3 border-b-4 border-slate-300 active:translate-y-1 transition-all">
                 📍 CONFIRMAR ABORDO
               </button>
             )}
 
-            {estado === "EnCurso" && (
+            {estado === "encurso" && (
               <button onClick={finalizarViaje} className="w-full py-5 bg-red-600 text-white rounded-2xl font-black text-lg border-b-4 border-red-900 shadow-xl active:translate-y-1 transition-all">
                 🏁 FINALIZAR SERVICIO
               </button>

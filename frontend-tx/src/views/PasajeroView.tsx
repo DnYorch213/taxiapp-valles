@@ -15,7 +15,7 @@ import { taxistaIcon, pasajeroIcon } from "../utils/icons";
 const PasajeroView: React.FC = () => {
   const { userPosition, setUserPosition } = useTravel();
   const [taxiPos, setTaxiPos] = useState<{lat: number, lng: number} | null>(null);
-  const [estado, setEstado] = useState<Payload['estado'] | "EnCamino" | "EnCurso" | "Finalizado" | "Buscando">("Disponible");
+  const [estado, setEstado] = useState<Payload['estado'] | "encamino" | "encurso" | "finalizado" | "buscando">("disponible");
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
   const [chatAbierto, setChatAbierto] = useState(false);
   
@@ -62,7 +62,7 @@ socket.on("response_from_taxi", (data) => {
     // 3. Delay para evitar colisiones de renderizado en Leaflet
     setTimeout(() => {
       // Seteamos el estado principal PRIMERO
-      setEstado("Asignado");
+      setEstado("asignado");
 
       // Construimos el objeto de taxista completo y normalizado
       const infoTaxista = {
@@ -72,7 +72,7 @@ socket.on("response_from_taxi", (data) => {
         role: "taxista",
         lat: data.lat || 0,
         lng: data.lng || 0,
-        estado: "Asignado",
+        estado: "asignado",
         timestamp: new Date().toISOString()
       };
 
@@ -110,8 +110,8 @@ socket.on("response_from_taxi", (data) => {
 
     // INICIO DE VIAJE (CONFIRMAR ABORDO)
     socket.on("trip_status_update", (data: { estado: string }) => {
-      if (data.estado === "EnCurso" || data.estado === "en curso") {
-        setEstado("EnCurso");
+      if (data.estado === "encurso") {
+        setEstado("encurso");
         setChatAbierto(false);
         // Iniciamos el historial con la posición actual del encuentro
         if (taxiPos) setHistorialRuta([[taxiPos.lat, taxiPos.lng]]);
@@ -124,7 +124,7 @@ socket.on("response_from_taxi", (data) => {
       const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
 
       if (emailRecibido === miEmail || !data.pasajeroEmail) { 
-        setEstado("Finalizado"); 
+        setEstado("finalizado"); 
         setTaxistaAsignado(null);
         setTaxiPos(null);
         setHistorialRuta([]); // Limpiar rastro
@@ -136,7 +136,7 @@ socket.on("response_from_taxi", (data) => {
     socket.on("taxi_rejected_request", () => {
       setTaxistaAsignado(null); 
       setTaxiPos(null);
-      setEstado("Buscando"); 
+      setEstado("buscando"); 
       toast.info("Buscando otra unidad cercana...");
     });
 
@@ -174,10 +174,10 @@ socket.on("response_from_taxi", (data) => {
       lat: userPosition.lat,
       lng: userPosition.lng,
       role: "pasajero",
-      estado: "Buscando",
+      estado: "buscando",
       timestamp: new Date().toISOString(),
     });
-    setEstado("Buscando");
+    setEstado("buscando");
   };
 
   const cancelarSolicitud = () => {
@@ -185,14 +185,14 @@ socket.on("response_from_taxi", (data) => {
       pasajeroEmail: userPosition?.email,
       taxistaEmail: taxistaAsignado?.email,
     });
-    setEstado("Disponible");
+    setEstado("disponible");
     setTaxistaAsignado(null);
     setTaxiPos(null);
     setHistorialRuta([]);
   };
 
   const resetearApp = () => {
-    setEstado("Disponible");
+    setEstado("disponible");
     setTaxistaAsignado(null);
     setTaxiPos(null);
     setHistorialRuta([]);
@@ -228,15 +228,15 @@ return (
             zoomControl={false}
           >
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-            {estado !== "EnCurso" && (
+            {estado !== "encurso" && (
               <Marker position={[userPosition.lat, userPosition.lng]} icon={pasajeroIcon} />
             )}
-            {taxiPos && (estado === "Asignado" || estado === "EnCamino" || estado === "EnCurso") && (
+            {taxiPos && (estado === "asignado" || estado === "encamino" || estado === "encurso") && (
               <Marker position={[taxiPos.lat, taxiPos.lng]} icon={taxistaIcon}>
                 <Popup>Unidad {taxistaAsignado?.taxiNumber}</Popup>
               </Marker>
             )}
-            {taxiPos && (estado === "Asignado" || estado === "EnCamino") && (
+            {taxiPos && (estado === "asignado" || estado === "encamino") && (
               <RoutingMachine 
                 waypoints={[
                   L.latLng(taxiPos.lat, taxiPos.lng),
@@ -244,7 +244,7 @@ return (
                 ]} 
               />
             )}
-            {estado === "EnCurso" && historialRuta.length > 0 && (
+            {estado === "encurso" && historialRuta.length > 0 && (
               <Polyline 
                 positions={historialRuta} 
                 pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8, dashArray: '5, 10' }} 
@@ -260,11 +260,11 @@ return (
         {/* Badge de estado flotante */}
         <div className="absolute top-4 right-4 z-[1000]">
           <div className={`px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all duration-500 ${
-            estado === 'Disponible' 
+            estado === 'disponible' 
               ? 'bg-slate-800/80 text-slate-100 backdrop-blur-md' 
               : 'bg-[#22c55e] text-white animate-pulse'
           }`}>
-            {estado === 'EnCurso' ? 'VIAJE EN CURSO' : estado}
+            {estado === 'encurso' ? 'VIAJE EN CURSO' : estado}
           </div>
         </div>
       </div>
@@ -285,27 +285,27 @@ return (
         <div className="mb-3">
           <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Servicio Valles</p>
           <h2 className="text-lg font-black text-slate-900 tracking-tighter leading-tight">
-            {estado === 'Disponible' && "¿A dónde vamos hoy?"}
-            {estado === 'Buscando' && "Buscando unidad..."}
-            {(estado === 'Asignado' || estado === 'EnCamino') && "Tu taxi viene en camino"}
-            {estado === 'EnCurso' && "¡Buen viaje por Valles!"}
+            {estado === 'disponible' && "¿A dónde vamos hoy?"}
+            {estado === 'buscando' && "Buscando unidad..."}
+            {(estado === 'asignado' || estado === 'encamino') && "Tu taxi viene en camino"}
+            {estado === 'encurso' && "¡Buen viaje por Valles!"}
           </h2>
         </div>
 
         <div className="space-y-3">
           <button
             onClick={solicitarTaxi}
-            disabled={estado !== "Disponible"} 
+            disabled={estado !== "disponible"} 
             className={`w-full py-5 rounded-[1.2rem] font-black transition-all transform active:scale-95 shadow-xl tracking-widest text-xs ${
-              estado === "Disponible"
+              estado === "disponible"
                 ? "bg-[#22c55e] text-white shadow-green-900/20" 
                 : "bg-slate-800 text-slate-500 cursor-not-allowed opacity-50"
             }`}
           >
-            {estado === "Disponible" ? "SOLICITAR TRANSPORTE" : "VIAJE ACTIVO"}
+            {estado === "disponible" ? "SOLICITAR TRANSPORTE" : "VIAJE ACTIVO"}
           </button>
 
-          {(estado === "Buscando" || estado === "Asignado" || estado === "EnCamino") && (
+          {(estado === "buscando" || estado === "asignado" || estado === "encamino") && (
             <button
               onClick={cancelarSolicitud}
               className="w-full py-3 bg-red-50 text-red-500 rounded-[1.2rem] font-bold text-[8px] uppercase border border-red-100 active:bg-red-100"
@@ -318,7 +318,7 @@ return (
     </main>
 
     {/* CHAT AJUSTADO: Lo bajé un poquito más para que no se encime tanto con el nuevo botón más alto */}
-    {taxistaAsignado?.email && (estado === 'Asignado' || estado === 'EnCamino') && (
+    {taxistaAsignado?.email && (estado === 'asignado' || estado === 'encamino') && (
       <div 
         className={`fixed left-0 w-full z-[2000] transition-all duration-500 flex justify-center 
         ${chatAbierto ? "bottom-0" : "bottom-[90px]"}`} 
@@ -343,7 +343,7 @@ return (
       </div>
     )}
      {/* PANTALLA DE FINALIZACIÓN: Ajustada a dvh */}
-    {estado === 'Finalizado' && (
+    {estado === 'finalizado' && (
       <div className="fixed inset-0 z-[3000] bg-[#22c55e] flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in">
         <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center text-center max-w-xs w-full">
           <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center text-3xl mb-4">🚕</div>

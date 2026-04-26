@@ -3,17 +3,17 @@ import { Rol } from "./Positions";
 
 // Definimos los estados como un tipo aparte para poder reutilizarlo
 export type ViajeEstado =
-    | "Disponible"
-    | "Buscando"
-    | "Asignado"
-    | "EnCamino"
-    | "EnCurso"
-    | "Finalizado"
-    | "Cancelado"
-    | "Desconectado"
-    | "Ocupado"
-    | "Activo"
-    | "Esperando"; // Estado general para taxistas en sesión, incluso sin viaje activo
+    | "disponible"
+    | "buscando"
+    | "asignado"
+    | "encamino"
+    | "encurso"
+    | "finalizado"
+    | "cancelado"
+    | "desconectado"
+    | "ocupado"
+    | "activo"
+    | "esperando"; // Estado general para taxistas en sesión, incluso sin viaje activo
 
 export interface Payload {
     email: string;
