@@ -52,35 +52,42 @@ socket.on("response_from_taxi", (data) => {
   console.log("🚕 Respuesta del taxi recibida:", data);
   
   if (data.accepted) {
-    // 1. Limpieza inmediata de rastro y taxista previo
-    setTaxistaAsignado(null);
+    // 1. Limpieza de UI previa (Solo estados visuales efímeros)
     setTaxiPos(null);
-    setHistorialRuta([]); // 🚩 Limpiamos la línea de ruta anterior
+    setHistorialRuta([]); 
 
-    // 2. Pequeño delay para que React limpie el mapa antes de dibujar el nuevo taxi
+    // 2. Procesamiento de datos
+    const cleanEmail = data.tEmail?.toLowerCase().trim();
+    
+    // 3. Delay para evitar colisiones de renderizado en Leaflet
     setTimeout(() => {
-      // Limpiamos el email entrante
-      const cleanEmail = data.tEmail?.toLowerCase().trim();
-
+      // Seteamos el estado principal PRIMERO
       setEstado("Asignado");
 
-      if (data.lat && data.lng) {
-        setTaxiPos({ lat: data.lat, lng: data.lng });
-      }
-
-      setTaxistaAsignado({
+      // Construimos el objeto de taxista completo y normalizado
+      const infoTaxista = {
         email: cleanEmail,
-        name: data.name,
-        taxiNumber: data.taxiNumber,
+        name: data.name || "Taxista",
+        taxiNumber: data.taxiNumber || "S/N",
         role: "taxista",
         lat: data.lat || 0,
         lng: data.lng || 0,
         estado: "Asignado",
         timestamp: new Date().toISOString()
-      });
+      };
 
-      toast.success(`¡La Unidad ${data.taxiNumber} (${data.name}) va por ti!`);
-    }, 100); // 100ms es el tiempo ideal para evitar parpadeos visuales
+      setTaxistaAsignado(infoTaxista as Payload);
+
+      // Seteamos la posición para el marcador del mapa
+      if (data.lat && data.lng) {
+        setTaxiPos({ lat: data.lat, lng: data.lng });
+      }
+
+      toast.success(`¡La Unidad ${data.taxiNumber} (${data.name}) va en camino!`, {
+        position: "top-center",
+        autoClose: 5000
+      });
+    }, 100);
   }
 });
    // MOVIMIENTO DEL TAXI antes de abordar (Usando la Ref para comparar)

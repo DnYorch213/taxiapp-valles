@@ -462,23 +462,38 @@ io.on("connection", async (socket) => {
       );
     }
 
-    // 4. BÚSQUEDA DE VIAJE ACTIVO (Para recuperar estado tras desconexión)
-    // Si soy taxista, busco si algún pasajero me tiene asignado
-    const viajeActivo = await Position.findOne({
-      role: "pasajero",
-      taxistaAsignado: email,
-      estado: { $in: ["Asignado", "EnCurso", "Ocupado"] }
-    });
+    // 4. BÚSQUEDA DE VIAJE ACTIVO (Unificada)
+    let viajeParaPasajero: any = null;
+    let viajeParaTaxista: any = null;
 
-    // 5. DETERMINAR ESTADO REAL (Persistencia de "En Curso")
+    if (role === "pasajero") {
+      viajeParaPasajero = await Position.findOne({
+        email: email,
+        estado: { $in: ["Buscando", "Asignado", "EnCurso"] }
+      });
+    }
+
+    if (role === "taxista") {
+      viajeParaTaxista = await Position.findOne({
+        role: "pasajero",
+        taxistaAsignado: email,
+        estado: { $in: ["Asignado", "EnCurso", "Ocupado"] }
+      });
+    }
+
+    // 5. DETERMINAR ESTADO REAL
     const currentDoc = await Position.findOne({ email });
     let nuevoEstado = "Activo";
 
-    if (viajeActivo) {
-      // Si el documento dice "en curso", mantenemos la sesión de viaje viva
+    // Si soy taxista y tengo un viaje vinculado
+    if (viajeParaTaxista) {
       nuevoEstado = (currentDoc?.estado === "EnCurso" || currentDoc?.estado === "Ocupado")
         ? currentDoc.estado
         : "Asignado";
+    }
+    // Si soy pasajero y estoy en proceso
+    else if (viajeParaPasajero) {
+      nuevoEstado = viajeParaPasajero.estado;
     }
 
     // 6. ACTUALIZAR SOCKET E INFO EN BD
@@ -499,27 +514,35 @@ io.on("connection", async (socket) => {
     socket.emit("positions", allPositions.map(p => buildPayload(p, p, p.estado || "Activo")));
     socket.emit("dispatch_mode_changed", { auto: isAutoMode });
 
-    // 8. 🚀 RECUPERACIÓN CRÍTICA (Rehidratación de Interfaz)
-    if (viajeActivo && role === "taxista") {
+    // 8. 🚀 RECUPERACIÓN CRÍTICA (Rehidratación)
+
+    // CASO TAXISTA:
+    if (viajeParaTaxista && role === "taxista") {
       setTimeout(() => {
-        // Enviamos al taxista los datos del pasajero que lo está esperando
-        // Importante: Mandamos el estado REAL del pasajero para que los botones coincidan
-        socket.emit("pasajero_asignado", buildPayload(viajeActivo, viajeActivo, viajeActivo.estado));
-        console.log(`✅ Viaje recuperado: Pasajero[${viajeActivo.email}] -> Taxista[${email}]`);
+        socket.emit("pasajero_asignado", buildPayload(viajeParaTaxista, viajeParaTaxista, viajeParaTaxista.estado));
+        console.log(`✅ Viaje recuperado (TX): Pasajero[${viajeParaTaxista.email}] -> Taxista[${email}]`);
       }, 1000);
     }
 
-    if (viajeActivo && role === "pasajero") {
-      const taxistaData = await Position.findOne({ email: viajeActivo.taxistaAsignado });
-      socket.emit("response_from_taxi", {
-        accepted: true,
-        tEmail: taxistaData?.email,
-        name: taxistaData?.name,
-        taxiNumber: taxistaData?.taxiNumber,
-        lat: taxistaData?.lat,
-        lng: taxistaData?.lng,
-        rehydrated: true // Para que el frontend sepa que es una recuperación
-      });
+    // CASO PASAJERO:
+    if (viajeParaPasajero && role === "pasajero") {
+      // Si ya tiene taxista asignado, mandamos la info del taxi
+      if (viajeParaPasajero.taxistaAsignado) {
+        const taxistaData = await Position.findOne({ email: viajeParaPasajero.taxistaAsignado });
+        socket.emit("response_from_taxi", {
+          accepted: true,
+          tEmail: taxistaData?.email,
+          name: taxistaData?.name,
+          taxiNumber: taxistaData?.taxiNumber,
+          lat: taxistaData?.lat,
+          lng: taxistaData?.lng,
+          rehydrated: true
+        });
+      } else {
+        // Si solo estaba "Buscando", le avisamos que siga en ese estado
+        socket.emit("status_rehydration", { estado: "Buscando" });
+      }
+      console.log(`✅ Viaje recuperado (PSJ): ${email} sigue en estado ${viajeParaPasajero.estado}`);
     }
 
     // 9. AVISAR AL PANEL DE CONTROL
@@ -716,7 +739,6 @@ io.on("connection", async (socket) => {
       return; // Salimos de la función aquí
     }
 
-    // --- SI EL TAXISTA ACEPTA ---
     // --- SI EL TAXISTA ACEPTA ---
     try {
       const pEmail = requestEmail.toLowerCase().trim();
