@@ -58,7 +58,7 @@ const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ durati
 
 const TaxistaView: React.FC = () => {
   const { userPosition, setUserPosition } = useTravel();
-  const [estado, setEstado] = useState<"disponible" | "asignado" | "encurso" | "encamino">("disponible");
+  const [estado, setEstado] = useState<"disponible" | "asignado" | "encurso" | "encamino" | "finalizado">("disponible");
   const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(null);
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
   const [chatAbierto, setChatAbierto] = useState(false);
@@ -292,13 +292,28 @@ const handleAsignacion = useCallback((data: any) => {
       setHistorialRuta([]); // Limpiar rastro
     });
 
-    socket.on("trip_finished", () => {
-      detenerSonido();
-      setEstado("disponible");
-      setPasajeroAsignado(null);
-      setChatAbierto(false);
-      setHistorialRuta([]); // Limpiar rastro
-    });
+   socket.on("trip_finished", (payload) => {
+  detenerSonido();
+  
+  // 1. Actualizamos los datos del pasajero con la dirección que viene del server
+  if (payload?.destinationAddress) {
+    setPasajeroAsignado((prev: any) => ({
+      ...prev,
+      destinationAddress: payload.destinationAddress
+    }));
+  }
+
+  // 2. Cambiamos el estado para que la interfaz sepa que terminó
+  setEstado("finalizado"); 
+  setChatAbierto(false);
+  setHistorialRuta([]); 
+
+  // 3. 🕒 ESPERA DE CORTESÍA: Dejamos la info en pantalla 5 segundos
+  setTimeout(() => {
+    setEstado("disponible");
+    setPasajeroAsignado(null);
+  }, 5000); 
+});
 
     if (socket.connected) checkStatus();
 
