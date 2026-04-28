@@ -698,17 +698,39 @@ io.on("connection", async (socket) => {
   socket.on("request_taxi", async (pasajeroData: any) => {
     const pEmail = pasajeroData.email.toLowerCase().trim();
 
-    if (isAutoMode) {
-      dispatchWithRetry(pasajeroData, [], 1);
-    } else {
-      // 🚩 IMPORTANTE: Actualizar BD y avisar al mundo
-      await Position.updateOne({ email: pEmail }, { $set: { estado: "esperando" } });
+    try {
+      // 1. 🚩 PASO CRUCIAL: Obtener la dirección ANTES de avisar al taxista
+      // Usamos las coordenadas que vienen en el pasajeroData
+      const direccionReal = await reverseGeocode(pasajeroData.lat, pasajeroData.lng);
 
-      // Obtenemos los datos completos para que el panel tenga el nombre y el icono
-      const updatedP = await Position.findOne({ email: pEmail });
-      io.emit("panel_update", buildPayload(updatedP, updatedP, "esperando"));
+      if (isAutoMode) {
+        // Si usas modo automático, asegúrate de pasar la dirección al dispatch
+        const dataConDireccion = { ...pasajeroData, pickupAddress: direccionReal };
+        dispatchWithRetry(dataConDireccion, [], 1);
+      } else {
+        // 2. 🚩 ACTUALIZAR BD: Ahora sí guardamos la dirección real
+        await Position.updateOne(
+          { email: pEmail },
+          {
+            $set: {
+              estado: "esperando",
+              pickupAddress: direccionReal // 👈 ESTO FALTABA
+            }
+          }
+        );
 
-      console.log(`📢 Solicitud manual detectada en panel para: ${pEmail}`);
+        // 3. RECUPERAR Y EMITIR
+        const updatedP = await Position.findOne({ email: pEmail });
+
+        // Enviamos el payload al panel y a los taxistas con la dirección incluida
+        io.emit("panel_update", buildPayload(updatedP, updatedP, "esperando", {
+          pickupAddress: direccionReal
+        }));
+
+        console.log(`📢 Solicitud manual en Valles: ${pEmail} está en ${direccionReal}`);
+      }
+    } catch (error) {
+      console.error("Error al procesar solicitud de taxi:", error);
     }
   });
 
@@ -744,8 +766,8 @@ io.on("connection", async (socket) => {
 
     // --- ✅ CASO: EL TAXISTA ACEPTA EL VIAJE ---
     try {
-      const pPos = await Position.findOne({ email: pEmail });
-      const tPos = await Position.findOne({ email: tEmail });
+      let pPos = await Position.findOne({ email: pEmail });
+      let tPos = await Position.findOne({ email: tEmail });
 
       // 🚩 VALIDACIÓN FLEXIBLE: 
       // Solo bloqueamos si el pasajero NO existe o ya tiene a OTRO taxista asignado.
@@ -766,6 +788,11 @@ io.on("connection", async (socket) => {
         { email: tEmail },
         { $set: { estado: "asignado", pasajeroAsignado: pEmail } }
       );
+
+      // 2. 🚩 CLAVE: Buscamos el pasajero DESPUÉS de la actualización 
+      // para asegurarnos de traer la 'pickupAddress' que guardó 'request_taxi'
+      pPos = await Position.findOne({ email: pEmail });
+      tPos = await Position.findOne({ email: tEmail });
 
       // 3. EMISIÓN AL PASAJERO (Para que su UI cambie a 'Taxista en camino')
       const payloadPasajero = {
@@ -965,6 +992,7 @@ io.on("connection", async (socket) => {
         pasajeroEmail: pEmail,
         taxistaEmail: tEmail,
         estado: "finalizado",
+        pickupAddress: direccionOrigen,
         destinationAddress: direccionDestino // Opcional: enviarlo al front también
       };
 
