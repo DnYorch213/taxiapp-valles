@@ -510,23 +510,42 @@ return (
 
       {pasajeroAsignado ? (
         <div className="flex flex-col">
-          {/* INFO DEL PASAJERO */}
-          <div className="px-6 pt-8 pb-4">
-            <div className={`p-4 rounded-[2rem] transition-all duration-500 ${estado === "asignado" ? "bg-[#22c55e]" : "bg-[#0f172a]/50 border border-white/5"}`}>
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shadow-lg">👤</div>
-                <div className="flex-1">
-                  <p className={`text-[8px] font-black uppercase tracking-[0.2em] ${estado === "asignado" ? "text-[#0f172a]/60" : "text-slate-500"}`}>
-                    {estado === "encurso" ? "Viaje Activo" : "Solicitud Entrante"}
-                  </p>
-                  <h3 className={`text-lg font-black leading-tight ${estado === "asignado" ? "text-[#0f172a]" : "text-white"}`}>
-                    {pasajeroAsignado.name}
-                  </h3>
-                  {estado === "asignado" && <TimerBar duration={15000} onFinish={rechazarViaje} />}
-                </div>
+          {/* 🚩 INFO DEL PASAJERO Y DIRECCIÓN */}
+      <div className="px-6 pt-8 pb-4">
+        <div className={`p-5 rounded-[2.5rem] transition-all duration-500 ${estado === "asignado" ? "bg-[#22c55e]" : "bg-[#0f172a]/50 border border-white/5"}`}>
+          <div className="flex flex-col gap-3">
+            
+            {/* Fila Superior: Avatar y Nombre */}
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shadow-lg">👤</div>
+              <div className="flex-1">
+                <p className={`text-[8px] font-black uppercase tracking-[0.2em] ${estado === "asignado" ? "text-[#0f172a]/60" : "text-slate-500"}`}>
+                  {estado === "encurso" ? "Viaje Activo" : "Solicitud Entrante"}
+                </p>
+                <h3 className={`text-lg font-black leading-tight ${estado === "asignado" ? "text-[#0f172a]" : "text-white"}`}>
+                  {pasajeroAsignado.name}
+                </h3>
               </div>
             </div>
+
+            {/* CAJA DE DIRECCIÓN DE RECOGIDA */}
+            <div className={`mt-2 p-3 rounded-2xl flex items-start gap-3 ${estado === "asignado" ? "bg-[#0f172a]/10" : "bg-white/5"}`}>
+              <span className="text-xl">📍</span>
+              <div className="flex flex-col">
+                <span className={`text-[9px] font-black uppercase tracking-widest ${estado === "asignado" ? "text-[#0f172a]/70" : "text-slate-400"}`}>
+                  Punto de recogida:
+                </span>
+                <p className={`text-sm font-bold leading-tight ${estado === "asignado" ? "text-[#0f172a]" : "text-white"}`}>
+                  {pasajeroAsignado.pickupAddress || "Calculando ubicación..."}
+                </p>
+              </div>
+            </div>
+
+            {/* Barra de tiempo si está asignado */}
+            {estado === "asignado" && <TimerBar duration={15000} onFinish={rechazarViaje} />}
           </div>
+        </div>
+      </div>
 
           {/* CHAT INTEGRADO: Solo si ya aceptó el viaje y no ha finalizado */}
           {(estado === "encamino") && (

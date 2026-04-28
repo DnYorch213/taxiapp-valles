@@ -12,7 +12,7 @@ import { User } from "./models/User";
 import webpush from "web-push";
 import adminRoutes from "./routes/adminRoutes";
 import { Trip } from "./models/Trip";
-
+import { reverseGeocode } from "./services/geocodingService";
 dotenv.config();
 
 webpush.setVapidDetails(
@@ -93,6 +93,7 @@ function buildPayload(user: any, pos: any, estado: string, extra: any = {}) {
     // 🚩 AGREGAMOS ESTO: Si no viene en 'extra', lo buscamos en 'pos' o 'user'
     pushSubscription: extra.pushSubscription || pos?.pushSubscription || user?.pushSubscription || null,
     pickupAddress: extra.pickupAddress || pos?.pickupAddress || "Dirección opcional",
+    destinationAddress: extra.destinationAddress || pos?.destinationAddress || "Destino no especificado",
     estado: estado || pos?.estado || "activo",
     timestamp: new Date().toISOString(),
     ...extra,
@@ -910,7 +911,6 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("end_trip", async ({ pasajeroEmail, taxistaEmail }) => {
-    // 1. Limpieza y normalización de datos
     const pEmail = pasajeroEmail?.toLowerCase().trim();
     const tEmail = taxistaEmail?.toLowerCase().trim();
 
@@ -920,28 +920,36 @@ io.on("connection", async (socket) => {
     }
 
     try {
-      // 2. RECUPERAR DATOS ACTUALES (Para que el historial sea rico en info)
+      // 1. RECUPERAR DATOS ACTUALES
       const pPos = await Position.findOne({ email: pEmail });
       const tPos = await Position.findOne({ email: tEmail });
 
+      // 2. 🚩 GEOPROCESAMIENTO (NUEVO)
+      // Obtenemos la dirección de donde está el taxi justo ahora (Destino)
+      const direccionDestino = tPos
+        ? await reverseGeocode(tPos.lat, tPos.lng)
+        : "Destino no detectado";
+
+      // Si por alguna razón el origen no se guardó al inicio, lo recuperamos ahora
+      const direccionOrigen = pPos?.pickupAddress || (pPos ? await reverseGeocode(pPos.lat, pPos.lng) : "Origen desconocido");
+
       // 3. GUARDAR EN EL HISTORIAL (Colección Trip)
-      // Esto es lo que permite que el taxista vea sus viajes después
       const nuevoHistorial = new Trip({
         pasajeroEmail: pEmail,
         pasajeroName: pPos?.name || "Pasajero",
         taxistaEmail: tEmail,
         taxistaName: tPos?.name || "Taxista",
         taxiNumber: tPos?.taxiNumber || "S/N",
-        pickupAddress: pPos?.pickupAddress || "Dirección no especificada",
+        pickupAddress: direccionOrigen,
+        destinationAddress: direccionDestino, // 👈 DIRECCIÓN FINAL AGREGADA
         estado: "finalizado",
         fecha: new Date()
       });
 
       await nuevoHistorial.save();
-      console.log(`📖 Historial guardado: Tx ${tEmail} finalizó viaje con Psj ${pEmail}`);
+      console.log(`📖 Historial guardado con direcciones: Tx ${tEmail} finalizó viaje.`);
 
       // 4. ACTUALIZAR BD (Limpieza de estados activos)
-      // Importante: Limpiamos taxistaAsignado Y pasajeroAsignado
       await Position.updateMany(
         { email: { $in: [pEmail, tEmail] } },
         {
@@ -956,18 +964,18 @@ io.on("connection", async (socket) => {
       const payload = {
         pasajeroEmail: pEmail,
         taxistaEmail: tEmail,
-        estado: "finalizado"
+        estado: "finalizado",
+        destinationAddress: direccionDestino // Opcional: enviarlo al front también
       };
 
-      // 5. NOTIFICACIONES (Rooms + Panel)
-      // Usamos io.to().emit para que solo les llegue a ellos, y io.emit para el panel
+      // 5. NOTIFICACIONES
       io.to(pEmail).emit("trip_finished", payload);
       io.to(tEmail).emit("trip_finished", payload);
 
       io.emit("panel_update", { email: pEmail, estado: "activo" });
       io.emit("panel_update", { email: tEmail, estado: "activo" });
 
-      console.log(`✅ Viaje finalizado y registrado con éxito.`);
+      console.log(`✅ Viaje finalizado con éxito en: ${direccionDestino}`);
 
     } catch (error) {
       console.error("❌ Error crítico al finalizar viaje e historial:", error);

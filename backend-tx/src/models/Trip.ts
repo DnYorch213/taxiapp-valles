@@ -6,7 +6,7 @@ export interface ITrip extends Document {
     taxistaEmail: string;
     taxistaName: string;
     taxiNumber: string;
-    pickupAddress: string;
+    pickupAddress: { type: String, default: "Origen no especificado" }, destinationAddress: { type: String, default: "Destino no especificado" }; // 👈 AGREGADO
     fecha: Date;
     estado: string; // "finalizado" | "cancelado"
 }
@@ -18,6 +18,7 @@ const TripSchema: Schema = new Schema({
     taxistaName: { type: String },
     taxiNumber: { type: String },
     pickupAddress: { type: String },
+    destinationAddress: { type: String, default: "Destino no especificado" }, // 👈 AGREGA ESTO
     fecha: { type: Date, default: Date.now },
     estado: { type: String, default: "finalizado" }
 });
