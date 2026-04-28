@@ -11,6 +11,7 @@ import { useTravel } from "../context/TravelContext";
 import { useGeolocation } from "../hooks/useGeolocation";
 import { Payload } from "../types/Payload";
 import { ChatBox } from "../components/ChatBox";
+import { HistorialViajes } from "../components/HistorialViajes";
 import { RoutingMachine } from "../components/RoutingMachine";
 import { taxistaIcon, pasajeroIcon } from "../utils/icons";
 
@@ -67,8 +68,10 @@ const TaxistaView: React.FC = () => {
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const estadoRef = useRef(estado);
-
- // --- 🔔 FUNCIÓN DE SUSCRIPCIÓN (SÁCADA DEL USEEFFECT) ---
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [vistaActual, setVistaActual] = useState('mapa'); // 'mapa' o 'historial'
+ 
+  // --- 🔔 FUNCIÓN DE SUSCRIPCIÓN (SÁCADA DEL USEEFFECT) ---
   const gestionarSuscripcion = async () => {
     const userEmail = userPosition?.email || localStorage.getItem("email");
 
@@ -390,57 +393,117 @@ const finalizarViaje = () => {
     return [];
   }, [pasajeroAsignado, userPosition, estado]);
 
+  // --- OBJETO DE USUARIO PARA EL MENÚ LATERAL ---
+  const user = {
+    name: localStorage.getItem("userName") || userPosition?.name || "Taxista",
+    email: userPosition?.email || localStorage.getItem("email") || "",
+    taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "S/N"
+  };
+
+  const handleLogout = () => {
+    localStorage.clear();
+    window.location.href = "/login";
+  };
+
 return (
-  /* 1. Usamos h-dvh para control total del alto y bg oscuro de fondo */
+ 
   <div className="h-dvh bg-[#0f172a] flex flex-col overflow-hidden font-sans relative text-slate-100">
     <ToastContainer theme="dark" />
 
-    {/* HEADER COMPACTO (Fijo arriba) */}
-    <header className="w-full max-w-md mx-auto flex justify-between items-center py-3 px-6 shrink-0 bg-[#0f172a] z-[1002]">
-      <h1 className="text-lg font-black text-white uppercase italic tracking-tighter">
-        VALLES<span className="text-[#22c55e]">CONECTA</span>
-      </h1>
+    {/* BOTÓN HAMBURGUESA (Añadido) */}
+    <button 
+      onClick={() => setIsMenuOpen(true)}
+      className="fixed top-4 left-4 z-[1003] bg-[#1e293b] p-3 rounded-full shadow-2xl border border-white/10 active:scale-90 transition-transform"
+    >
+      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+      </svg>
+    </button>
+
+    {/* OVERLAY OSCURO */}
+    {isMenuOpen && (
+      <div 
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1004] transition-opacity"
+        onClick={() => setIsMenuOpen(false)}
+      />
+    )}
+
+    {/* MENÚ LATERAL (Actualizado con tus estilos) */}
+    <div className={`fixed top-0 left-0 h-full w-72 bg-[#1e293b] z-[1005] transform ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out shadow-2xl border-r border-white/5`}>
+      <div className="p-8 bg-gradient-to-br from-[#22c55e] to-[#16a34a] text-[#0f172a]">
+        <div className="h-16 w-16 bg-white rounded-2xl mb-4 flex items-center justify-center text-2xl shadow-lg font-black">
+          {user.name?.charAt(0)}
+        </div>
+        <h2 className="font-bold text-xl leading-tight">{user.name}</h2>
+        <p className="text-xs font-black opacity-70 uppercase tracking-widest">Unidad: {user.taxiNumber}</p>
+      </div>
+
+      <nav className="p-4 mt-4 space-y-2">
+        <button 
+          onClick={() => { setVistaActual('mapa'); setIsMenuOpen(false); }}
+          className={`w-full flex items-center gap-4 p-4 rounded-2xl font-bold transition-all ${vistaActual === 'mapa' ? 'bg-[#22c55e] text-[#0f172a]' : 'text-slate-400 hover:bg-white/5'}`}
+        >
+          <span className="text-xl">📍</span> Mapa en Vivo
+        </button>
+        
+        <button 
+          onClick={() => { setVistaActual('historial'); setIsMenuOpen(false); }}
+          className={`w-full flex items-center gap-4 p-4 rounded-2xl font-bold transition-all ${vistaActual === 'historial' ? 'bg-[#22c55e] text-[#0f172a]' : 'text-slate-400 hover:bg-white/5'}`}
+        >
+          <span className="text-xl">📋</span> Mis Viajes
+        </button>
+
+        <div className="border-t border-white/5 my-6"></div>
+
+        <button 
+          onClick={handleLogout}
+          className="w-full flex items-center gap-4 p-4 rounded-2xl font-bold text-red-400 hover:bg-red-500/10 transition-all"
+        >
+          <span className="text-xl">🚪</span> Cerrar Sesión
+        </button>
+      </nav>
+    </div>
+
+    {/* HEADER COMPACTO */}
+    <header className="w-full max-w-md mx-auto flex justify-end items-center py-3 px-6 shrink-0 bg-[#0f172a] z-[1002]">
       <div className="flex items-center gap-2 bg-[#1e293b] px-3 py-1 rounded-full border border-white/5">
         <div className={`h-1.5 w-1.5 rounded-full ${userPosition?.lat ? 'bg-[#22c55e]' : 'bg-red-500 animate-ping'}`}></div>
-        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">ECO-{userPosition?.taxiNumber || 'GPS'}</span>
+        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">ECO-{user.taxiNumber}</span>
       </div>
     </header>
 
-    {/* 2. CONTENIDO PRINCIPAL (Mapa flexible) */}
-    <main className="flex-1 w-full relative bg-[#1e293b]">
-      {userPosition?.lat ? (
-        <MapContainer 
-          center={[userPosition.lat!, userPosition.lng!]} 
-          zoom={15} 
-          className="h-full w-full"
-          zoomControl={false}
-        >
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          {puntosRuta.length > 0 && <RoutingMachine waypoints={puntosRuta} />}
-          {estado === "encurso" && (
-            <Polyline 
-              positions={historialRuta} 
-              pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} 
-            />
-          )}
-          <Marker position={[userPosition.lat!, userPosition.lng!]} icon={taxistaIcon} />
-          {pasajeroAsignado?.lat && estado !== "encurso" && (
-            <Marker position={[pasajeroAsignado.lat!, pasajeroAsignado.lng!]} icon={pasajeroIcon} />
-          )}
-        </MapContainer>
+    {/* CONTENIDO DINÁMICO (Cambia entre Mapa e Historial) */}
+    <main className="flex-1 w-full relative bg-[#1e293b] overflow-hidden">
+      {vistaActual === 'mapa' ? (
+        /* VISTA DEL MAPA (Tu código actual) */
+        userPosition?.lat ? (
+          <MapContainer center={[userPosition.lat!, userPosition.lng!]} zoom={15} className="h-full w-full" zoomControl={false}>
+            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            {puntosRuta.length > 0 && <RoutingMachine waypoints={puntosRuta} />}
+            {estado === "encurso" && <Polyline positions={historialRuta} pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} />}
+            <Marker position={[userPosition.lat!, userPosition.lng!]} icon={taxistaIcon} />
+            {pasajeroAsignado?.lat && estado !== "encurso" && <Marker position={[pasajeroAsignado.lat!, pasajeroAsignado.lng!]} icon={pasajeroIcon} />}
+          </MapContainer>
+        ) : (
+          <div className="h-full w-full flex items-center justify-center text-slate-500 text-[10px] font-black uppercase italic animate-pulse">🛰️ Sincronizando GPS...</div>
+        )
       ) : (
-        <div className="h-full w-full flex items-center justify-center text-slate-500 text-[10px] font-black uppercase italic animate-pulse">
-          🛰️ Sincronizando GPS Valles...
+        /* VISTA DEL HISTORIAL (El componente que hicimos antes) */
+        <div className="h-full w-full bg-[#0f172a] overflow-y-auto pt-4">
+           {/* Asegúrate de importar tu componente HistorialViajes o pegarlo aquí */}
+           <HistorialViajes email={user.email} />
         </div>
       )}
 
-      {/* Badge de estado flotante sobre el mapa */}
-      <div className="absolute top-4 left-4 z-[1000] bg-[#1e293b]/90 backdrop-blur-md px-4 py-2 rounded-2xl shadow-2xl border border-white/10 flex items-center gap-3">
-        <div className={`h-2.5 w-2.5 rounded-full ${estado === "disponible" ? "bg-[#22c55e]" : "bg-orange-500 animate-ping"}`}></div>
-        <span className="text-[11px] font-black text-white uppercase tracking-widest">{estado}</span>
-      </div>
+      {/* Badge de estado (Solo mostrar en el mapa) */}
+      {vistaActual === 'mapa' && (
+        <div className="absolute top-4 right-4 z-[1000] bg-[#1e293b]/90 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 flex items-center gap-3">
+          <div className={`h-2.5 w-2.5 rounded-full ${estado === "disponible" ? "bg-[#22c55e]" : "bg-orange-500 animate-ping"}`}></div>
+          <span className="text-[11px] font-black text-white uppercase tracking-widest">{estado}</span>
+        </div>
+      )}
     </main>
-
+  
     {/* 3. PANEL DE ACCIONES (Chat + Controles) */}
     <div className="w-full max-w-md mx-auto bg-[#1e293b] rounded-t-[2.5rem] shadow-[0_-25px_60px_rgba(0,0,0,0.5)] shrink-0 z-[1001] relative border-t border-white/5">
       <div className="absolute top-3 left-1/2 -translate-x-1/2 w-12 h-1 bg-slate-700 rounded-full"></div>

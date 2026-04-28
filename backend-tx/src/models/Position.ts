@@ -9,6 +9,8 @@ export interface IPosition extends Document {
     role: "pasajero" | "taxista" | "admin";
     estado: string;
     taxistaAsignado?: string | null;
+    pasajeroAsignado?: string | null; // 👈 AGREGADO
+    pickupAddress?: string;           // 👈 AGREGADO
     pushSubscription?: {
         endpoint: string;
         keys: {
@@ -27,7 +29,7 @@ const PositionSchema = new Schema<IPosition>({
         unique: true,
         lowercase: true,
         trim: true,
-        index: true // Índice simple adicional para búsquedas directas por correo
+        index: true
     },
     name: { type: String, required: true },
     taxiNumber: { type: String, required: false },
@@ -40,14 +42,23 @@ const PositionSchema = new Schema<IPosition>({
     },
     estado: {
         type: String,
-        default: "Disponible"
-        // Valores sugeridos: Disponible, Asignado, EnCamino, EnCurso, Ocupado, Desconectado
+        default: "disponible" // 💡 Nota: Lo cambié a minúsculas para seguir tu nueva lógica
     },
     taxistaAsignado: {
         type: String,
         default: null,
         lowercase: true,
         trim: true
+    },
+    pasajeroAsignado: { // 👈 AGREGADO
+        type: String,
+        default: null,
+        lowercase: true,
+        trim: true
+    },
+    pickupAddress: {    // 👈 AGREGADO
+        type: String,
+        default: ""
     },
     pushSubscription: {
         type: {
@@ -65,17 +76,10 @@ const PositionSchema = new Schema<IPosition>({
 
 // --- ⚡ SECCIÓN DE ÍNDICES ESTRATÉGICOS ---
 
-// 1. Despacho Veloz: Encuentra taxistas libres para asignar servicios de inmediato
 PositionSchema.index({ role: 1, estado: 1, email: 1 });
-
-// 2. Búsqueda Inmortal: Localiza suscripciones de Push sin recorrer documentos nulos
-// El 'sparse: true' hace que el índice sea pequeño y rápido (ignora a quien no tiene push)
 PositionSchema.index({ "pushSubscription.endpoint": 1 }, { sparse: true });
-
-// 3. Vinculación de Viajes: Para que el pasajero encuentre a su taxi (y viceversa) rápido
 PositionSchema.index({ taxistaAsignado: 1, role: 1 });
-
-// 4. Geo-limpieza: Para que el TTL (limpieza automática) sea posible si decides usarlo después
+PositionSchema.index({ pasajeroAsignado: 1 }); // 👈 Índice nuevo para búsquedas de taxistas
 PositionSchema.index({ updatedAt: 1 });
 
 const Position = mongoose.model<IPosition>("Position", PositionSchema);

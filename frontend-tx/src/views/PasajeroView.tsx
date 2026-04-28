@@ -247,7 +247,7 @@ return (
             {estado === "encurso" && historialRuta.length > 0 && (
               <Polyline 
                 positions={historialRuta} 
-                pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8, dashArray: '5, 10' }} 
+                pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} 
               />
             )}
           </MapContainer>

@@ -11,6 +11,7 @@ import { IPosition, Position } from "./models/Position";
 import { User } from "./models/User";
 import webpush from "web-push";
 import adminRoutes from "./routes/adminRoutes";
+import { Trip } from "./models/Trip";
 
 dotenv.config();
 
@@ -412,6 +413,16 @@ app.post("/save-subscription", async (req: Request, res: Response) => {
   } catch (err) {
     console.error("🔥 Error crítico en save-subscription:", err);
     res.status(500).json({ message: "Error interno del servidor" });
+  }
+});
+
+app.get("/api/history/:email", async (req: Request, res: Response) => {
+  try {
+    const email = req.params.email.toLowerCase().trim();
+    const viajes = await Trip.find({ taxistaEmail: email }).sort({ fecha: -1 }).limit(50);
+    res.json(viajes);
+  } catch (error) {
+    res.status(500).json({ message: "Error al obtener historial" });
   }
 });
 
@@ -886,7 +897,7 @@ io.on("connection", async (socket) => {
     io.emit("trip_finished", {
       pasajeroEmail: pEmail,
       taxistaEmail: tEmail,
-      estado: "Cancelado"
+      estado: "cancelado"
     });
 
     // 5. ACTUALIZACIÓN PANEL ADMIN (Monitor de Ciudad Valles)
@@ -899,33 +910,68 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("end_trip", async ({ pasajeroEmail, taxistaEmail }) => {
-    // 1. Limpieza de datos (Evitamos errores si vienen undefined)
+    // 1. Limpieza y normalización de datos
     const pEmail = pasajeroEmail?.toLowerCase().trim();
     const tEmail = taxistaEmail?.toLowerCase().trim();
 
-    if (!pEmail || !tEmail) return;
+    if (!pEmail || !tEmail) {
+      console.log("⚠️ Intento de finalizar viaje con datos incompletos.");
+      return;
+    }
 
-    // 2. Actualizar BD (Muy bien hecho con updateMany)
-    await Position.updateMany(
-      { email: { $in: [pEmail, tEmail] } },
-      { $set: { estado: "activo", taxistaAsignado: null } }
-    );
+    try {
+      // 2. RECUPERAR DATOS ACTUALES (Para que el historial sea rico en info)
+      const pPos = await Position.findOne({ email: pEmail });
+      const tPos = await Position.findOne({ email: tEmail });
 
-    const payload = {
-      pasajeroEmail: pEmail,
-      taxistaEmail: tEmail, // Agregamos esto
-      estado: "Finalizado"
-    };
+      // 3. GUARDAR EN EL HISTORIAL (Colección Trip)
+      // Esto es lo que permite que el taxista vea sus viajes después
+      const nuevoHistorial = new Trip({
+        pasajeroEmail: pEmail,
+        pasajeroName: pPos?.name || "Pasajero",
+        taxistaEmail: tEmail,
+        taxistaName: tPos?.name || "Taxista",
+        taxiNumber: tPos?.taxiNumber || "S/N",
+        pickupAddress: pPos?.pickupAddress || "Dirección no especificada",
+        estado: "finalizado",
+        fecha: new Date()
+      });
 
-    // 🚩 LA CLAVE: Si no usas Rooms, usa io.emit para pruebas. 
-    // Si usas Rooms, asegúrate de que ambos hicieron .join()
-    io.emit("trip_finished", payload);
+      await nuevoHistorial.save();
+      console.log(`📖 Historial guardado: Tx ${tEmail} finalizó viaje con Psj ${pEmail}`);
 
-    // Notificar al panel de administración
-    io.emit("panel_update", { email: pEmail, estado: "activo" });
-    io.emit("panel_update", { email: tEmail, estado: "activo" });
+      // 4. ACTUALIZAR BD (Limpieza de estados activos)
+      // Importante: Limpiamos taxistaAsignado Y pasajeroAsignado
+      await Position.updateMany(
+        { email: { $in: [pEmail, tEmail] } },
+        {
+          $set: {
+            estado: "activo",
+            taxistaAsignado: null,
+            pasajeroAsignado: null
+          }
+        }
+      );
 
-    console.log(`✅ Viaje finalizado exitosamente entre ${tEmail} y ${pEmail}`);
+      const payload = {
+        pasajeroEmail: pEmail,
+        taxistaEmail: tEmail,
+        estado: "finalizado"
+      };
+
+      // 5. NOTIFICACIONES (Rooms + Panel)
+      // Usamos io.to().emit para que solo les llegue a ellos, y io.emit para el panel
+      io.to(pEmail).emit("trip_finished", payload);
+      io.to(tEmail).emit("trip_finished", payload);
+
+      io.emit("panel_update", { email: pEmail, estado: "activo" });
+      io.emit("panel_update", { email: tEmail, estado: "activo" });
+
+      console.log(`✅ Viaje finalizado y registrado con éxito.`);
+
+    } catch (error) {
+      console.error("❌ Error crítico al finalizar viaje e historial:", error);
+    }
   });
 
   // Al final de tu main.tsx o index.tsx
