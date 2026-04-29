@@ -198,86 +198,63 @@ app.post("/api/accept-trip-push", async (req: Request, res: Response) => {
 const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [], attempt: number = 1) => {
   if (!isAutoMode) return;
 
-  // 1. Limpieza absoluta del email
   const pEmail = pasajeroData.email.toLowerCase().trim();
 
-  if (pendingTimeouts.has(pEmail)) {
-    clearTimeout(pendingTimeouts.get(pEmail)!);
-    pendingTimeouts.delete(pEmail);
-  }
+  // 1. 🚩 NORMALIZACIÓN RADICAL: Aseguramos que todos sean minúsculas y sin espacios
+  const currentExcluidos = excludedEmails.map(e => e.toLowerCase().trim());
 
   if (attempt > MAX_RETRIES) {
-    console.log(`❌ Límite alcanzado para ${pEmail}`);
+    console.log(`❌ Máximos reintentos para ${pEmail}`);
     await Position.updateOne({ email: pEmail }, { $set: { estado: "activo" } });
-    io.to(pEmail).emit("no_taxis_available", { message: "Sin unidades disponibles." });
+    io.to(pEmail).emit("no_taxis_available");
     return;
   }
 
-  // 🚩 CAMBIO 1: Normalizar excluidos para evitar duplicados por minúsculas
-  const excluidosLimpios = excludedEmails.map(e => e.toLowerCase().trim());
-
-  // 2. BÚSQUEDA INMORTAL
+  // 2. 🚩 CONSULTA FILTRADA: Excluimos explícitamente a los del array
   const taxistasCandidatos = await Position.find({
     role: "taxista",
-    pushSubscription: { $exists: true, $ne: null },
-    // Solo taxistas realmente libres
-    estado: "activo",
-    email: { $nin: excluidosLimpios }
+    estado: "activo", // Solo los que están libres
+    email: { $nin: currentExcluidos }, // Que NO estén en la lista negra
+    pushSubscription: { $exists: true, $ne: null }
   }).lean() as IPosition[];
 
   if (taxistasCandidatos.length === 0) {
-    console.log(`📭 No hay más taxistas disponibles para ${pEmail}`);
-    // Si no hay nadie, pero no hemos llegado al límite, 
-    // podrías resetear la lista de excluidos o avisar al pasajero
-    io.to(pEmail).emit("no_taxis_available", { message: "Buscando conductores..." });
+    console.log(`📭 No hay más taxistas disponibles (excluidos: ${currentExcluidos.length})`);
+    io.to(pEmail).emit("no_taxis_available", { message: "Buscando más unidades..." });
     return;
   }
 
-  // 3. Selección por cercanía
+  // 3. Selección del más cercano (Tu lógica de Haversine)
   const elMasCercano = taxistasCandidatos.reduce((prev, curr) => {
-    const distPrev = calculateDistance(pasajeroData.lat, pasajeroData.lng, prev.lat, prev.lng);
-    const distCurr = calculateDistance(pasajeroData.lat, pasajeroData.lng, curr.lat, curr.lng);
-    return distPrev < distCurr ? prev : curr;
+    const d1 = calculateDistance(pasajeroData.lat, pasajeroData.lng, prev.lat, prev.lng);
+    const d2 = calculateDistance(pasajeroData.lat, pasajeroData.lng, curr.lat, curr.lng);
+    return d1 < d2 ? prev : curr;
   });
 
   const tEmail = elMasCercano.email.toLowerCase().trim();
-  console.log(`🎯 Intento ${attempt}: Tx-${elMasCercano.taxiNumber} por ${pEmail}`);
 
-  // 4. Bloqueo de estados
+  // Bloqueamos estados
   await Position.updateOne({ email: tEmail }, { $set: { estado: "asignado" } });
   await Position.updateOne({ email: pEmail }, { $set: { estado: "asignado" } });
 
-  // 🚩 CAMBIO 2: Asegurar que el payload lleve la dirección
-  // Si pasajeroData no la tiene, la buscamos en la BD o la generamos
-  const pPosActual = await Position.findOne({ email: pEmail }).lean();
-  const dataParaEnviar = {
-    ...pasajeroData,
-    pickupAddress: pPosActual?.pickupAddress || pasajeroData.pickupAddress || "Dirección en proceso...",
-    isNewOffer: true,
-    attempt
-  };
+  // Notificamos
+  io.to(tEmail).emit("pasajero_asignado", { ...pasajeroData, isNewOffer: true });
 
-  // 5. Notificación
-  io.to(tEmail).emit("pasajero_asignado", dataParaEnviar);
-  enviarNotificacionPush(elMasCercano.pushSubscription, dataParaEnviar, tEmail);
-
-  // 6. Temporizador de Cascada
+  // 4. 🚩 EL TIMEOUT CORREGIDO:
   const timeout = setTimeout(async () => {
     const tCheck = await Position.findOne({ email: tEmail }).lean();
 
+    // Si después de 22s sigue en "asignado", es que NO aceptó
     if (tCheck && tCheck.estado === "asignado") {
-      console.log(`⏳ Tx-${elMasCercano.taxiNumber} ignoró. Saltando a la siguiente unidad.`);
+      console.log(`⏰ Tx ${tEmail} ignoró. Agregando a excluidos y reintentando...`);
 
+      // A. Liberamos al taxista en la BD
+      await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
       io.to(tEmail).emit("dispatch_timeout");
 
-      // Liberar y añadir a excluidos
-      await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
-      io.emit("panel_update", { email: tEmail, estado: "activo" });
-
-      pendingTimeouts.delete(pEmail);
-
-      // 🚩 REINTENTO: Pasamos la lista de excluidos con el email actual
-      dispatchWithRetry(pasajeroData, [...excluidosLimpios, tEmail], attempt + 1);
+      // B. 🚩 REINTENTO: Pasamos el array actualizado con el nuevo ignorado
+      // Es vital usar una nueva referencia de array [...lista, nuevo]
+      dispatchWithRetry(pasajeroData, [...currentExcluidos, tEmail], attempt + 1);
     }
   }, 22000);
 
