@@ -197,7 +197,8 @@ app.post("/api/accept-trip-push", async (req: Request, res: Response) => {
 });
 const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [], attempt: number = 1) => {
   if (!isAutoMode) return;
-  // Forzamos que el email sea una versión limpia antes de usarlo como llave
+
+  // 1. Limpieza absoluta del email
   const pEmail = pasajeroData.email.toLowerCase().trim();
 
   if (pendingTimeouts.has(pEmail)) {
@@ -205,84 +206,83 @@ const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [
     pendingTimeouts.delete(pEmail);
   }
 
-  // 1. Límite de seguridad
   if (attempt > MAX_RETRIES) {
-    console.log(`❌ Límite alcanzado para ${pasajeroData.email}`);
-    await Position.updateOne({ email: pasajeroData.email }, { $set: { estado: "activo" } });
-    io.to(pasajeroData.email).emit("no_taxis_available", { message: "Sin unidades disponibles." });
+    console.log(`❌ Límite alcanzado para ${pEmail}`);
+    await Position.updateOne({ email: pEmail }, { $set: { estado: "activo" } });
+    io.to(pEmail).emit("no_taxis_available", { message: "Sin unidades disponibles." });
     return;
   }
 
-  // 2. 🛡️ BÚSQUEDA INMORTAL (Basada en Push, no en Socket)
-  // Buscamos taxistas que tengan suscripción, sin importar si el socket parpadeó
+  // 🚩 CAMBIO 1: Normalizar excluidos para evitar duplicados por minúsculas
+  const excluidosLimpios = excludedEmails.map(e => e.toLowerCase().trim());
+
+  // 2. BÚSQUEDA INMORTAL
   const taxistasCandidatos = await Position.find({
     role: "taxista",
-    pushSubscription: { $exists: true, $ne: null }, // 🚩 CRUCIAL: Debe tener llave Push
-    estado: { $nin: ["encurso", "ocupado", "asignado"] }, // Que no estén ocupados
-    email: { $nin: excludedEmails } // Que no sea uno que ya rechazó
+    pushSubscription: { $exists: true, $ne: null },
+    // Solo taxistas realmente libres
+    estado: "activo",
+    email: { $nin: excluidosLimpios }
   }).lean() as IPosition[];
 
   if (taxistasCandidatos.length === 0) {
-    console.log(`📭 No hay taxistas con Push activo para ${pasajeroData.email}`);
-    io.to(pasajeroData.email).emit("no_taxis_available", { message: "Buscando conductores..." });
+    console.log(`📭 No hay más taxistas disponibles para ${pEmail}`);
+    // Si no hay nadie, pero no hemos llegado al límite, 
+    // podrías resetear la lista de excluidos o avisar al pasajero
+    io.to(pEmail).emit("no_taxis_available", { message: "Buscando conductores..." });
     return;
   }
 
-  // 3. Selección por cercanía (Valles GPS)
+  // 3. Selección por cercanía
   const elMasCercano = taxistasCandidatos.reduce((prev, curr) => {
     const distPrev = calculateDistance(pasajeroData.lat, pasajeroData.lng, prev.lat, prev.lng);
     const distCurr = calculateDistance(pasajeroData.lat, pasajeroData.lng, curr.lat, curr.lng);
     return distPrev < distCurr ? prev : curr;
   });
 
-  console.log(`🎯 Intentando con Tx-${elMasCercano.taxiNumber} (Estado: ${elMasCercano.estado})`);
+  const tEmail = elMasCercano.email.toLowerCase().trim();
+  console.log(`🎯 Intento ${attempt}: Tx-${elMasCercano.taxiNumber} por ${pEmail}`);
 
-  // 4. Bloqueo de estados en BD
-  await Position.updateOne({ email: elMasCercano.email }, { $set: { estado: "asignado" } });
-  await Position.updateOne({ email: pasajeroData.email }, { $set: { estado: "asignado" } });
+  // 4. Bloqueo de estados
+  await Position.updateOne({ email: tEmail }, { $set: { estado: "asignado" } });
+  await Position.updateOne({ email: pEmail }, { $set: { estado: "asignado" } });
 
-  // 5. 🔔 NOTIFICACIÓN DUAL ESTRATÉGICA
+  // 🚩 CAMBIO 2: Asegurar que el payload lleve la dirección
+  // Si pasajeroData no la tiene, la buscamos en la BD o la generamos
+  const pPosActual = await Position.findOne({ email: pEmail }).lean();
+  const dataParaEnviar = {
+    ...pasajeroData,
+    pickupAddress: pPosActual?.pickupAddress || pasajeroData.pickupAddress || "Dirección en proceso...",
+    isNewOffer: true,
+    attempt
+  };
 
-  // A. Limpiamos la data (Extraemos el _doc de Mongoose si existe)
-  const dataParaEnviar = pasajeroData._doc ? pasajeroData._doc : pasajeroData;
+  // 5. Notificación
+  io.to(tEmail).emit("pasajero_asignado", dataParaEnviar);
+  enviarNotificacionPush(elMasCercano.pushSubscription, dataParaEnviar, tEmail);
 
-  // B. Socket: Enviamos con el flag 'isNewOffer' para que Yorchi vea el botón verde
-  io.to(elMasCercano.email).emit("pasajero_asignado", {
-    ...dataParaEnviar,
-    attempt,
-    isNewOffer: true // 🚩 ESTO evita que el viaje se acepte solo
-  });
-
-  // C. Push: Enviamos la misma data limpia para que la notificación no falle
-  // Cambiamos 'pasajeroData' por 'dataParaEnviar'
-  enviarNotificacionPush(elMasCercano.pushSubscription, dataParaEnviar, elMasCercano.email);
   // 6. Temporizador de Cascada
   const timeout = setTimeout(async () => {
-    const tCheck = await Position.findOne({ email: elMasCercano.email }).lean();
+    const tCheck = await Position.findOne({ email: tEmail }).lean();
 
     if (tCheck && tCheck.estado === "asignado") {
-      console.log(`⏳ Tx-${elMasCercano.taxiNumber} no respondió al Push/Socket. Saltando...`);
+      console.log(`⏳ Tx-${elMasCercano.taxiNumber} ignoró. Saltando a la siguiente unidad.`);
 
-      // Limpiamos la alerta en el frontend si es que el socket volvió
-      io.to(elMasCercano.email).emit("dispatch_timeout");
+      io.to(tEmail).emit("dispatch_timeout");
 
-      // Liberar al taxista para que vuelva a estar disponible
-      await Position.updateOne({ email: elMasCercano.email }, { $set: { estado: "activo" } });
+      // Liberar y añadir a excluidos
+      await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
+      io.emit("panel_update", { email: tEmail, estado: "activo" });
 
-      // Actualizar el Panel Central
-      io.emit("panel_update", { email: elMasCercano.email, estado: "activo" });
+      pendingTimeouts.delete(pEmail);
 
-      // IMPORTANTE: Limpiar el timeout antes de reintentar
-      pendingTimeouts.delete(pasajeroData.email);
-
-      // Reintento: Pasamos al siguiente más cercano
-      dispatchWithRetry(pasajeroData, [...excludedEmails, elMasCercano.email], attempt + 1);
+      // 🚩 REINTENTO: Pasamos la lista de excluidos con el email actual
+      dispatchWithRetry(pasajeroData, [...excluidosLimpios, tEmail], attempt + 1);
     }
   }, 22000);
 
   pendingTimeouts.set(pEmail, timeout);
 };
-
 // --- RUTAS HTTP: REGISTRO CON BLOQUEO DE SEGURIDAD ---
 app.post("/register", async (req: Request, res: Response) => {
   try {
