@@ -25,6 +25,7 @@ export interface Payload {
     lng: number | null;
 
     pickupAddress?: string;
+    destinationAddress?: string;
 
     // ✅ Usamos el tipo específico para evitar errores de dedo
     estado: ViajeEstado;

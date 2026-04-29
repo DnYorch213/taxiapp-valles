@@ -279,6 +279,31 @@ const handleAsignacion = useCallback((data: any) => {
         }
       }
     });
+
+    // --- Dentro del useEffect de Sockets ---
+
+socket.on("trip_status_update", (data) => {
+  console.log("🔄 Cambio de estado recibido:", data);
+  
+  if (data.estado === "encurso") {
+    setEstado("encurso");
+    detenerSonido();
+    setChatAbierto(false);
+
+    // 🚩 LIMPIEZA DE UBICACIÓN:
+    // Si la dirección de recogida venía vacía, le ponemos un texto de respaldo
+    // para que la UI deje de mostrar "Calculando ubicación..."
+    setPasajeroAsignado((prev: any) => ({
+      ...prev,
+      pickupAddress: prev?.pickupAddress || "Pasajero a bordo",
+      // Si el server mandó destino, lo actualizamos de una vez
+      destinationAddress: data.destinationAddress || prev?.destinationAddress 
+    }));
+
+    toast.info("¡Viaje iniciado! Rumbo al destino.");
+  }
+});
+
     socket.on("dispatch_timeout", () => {
       detenerSonido();
       setPasajeroAsignado(null);
@@ -320,6 +345,7 @@ const handleAsignacion = useCallback((data: any) => {
     return () => {
       socket.off("pasajero_asignado");
       socket.off("assignment_confirmed");
+      socket.off("trip_status_update");
       socket.off("dispatch_timeout");
       socket.off("trip_cancelled_by_passenger");
       socket.off("trip_finished");
@@ -393,8 +419,8 @@ const finalizarViaje = () => {
     taxistaEmail: tEmail.toLowerCase().trim() 
   });
 
-  setEstado("disponible");
-  setPasajeroAsignado(null);
+  /* setEstado("disponible");
+  setPasajeroAsignado(null); */
   setHistorialRuta([]); 
   toast.info("Servicio finalizado");
 };
@@ -543,18 +569,22 @@ return (
               </div>
             </div>
 
-            {/* CAJA DE DIRECCIÓN DE RECOGIDA */}
-            <div className={`mt-2 p-3 rounded-2xl flex items-start gap-3 ${estado === "asignado" ? "bg-[#0f172a]/10" : "bg-white/5"}`}>
-              <span className="text-xl">📍</span>
-              <div className="flex flex-col">
-                <span className={`text-[9px] font-black uppercase tracking-widest ${estado === "asignado" ? "text-[#0f172a]/70" : "text-slate-400"}`}>
-                  Punto de recogida:
-                </span>
-                <p className={`text-sm font-bold leading-tight ${estado === "asignado" ? "text-[#0f172a]" : "text-white"}`}>
-                  {pasajeroAsignado.pickupAddress || "Calculando ubicación..."}
-                </p>
-              </div>
-            </div>
+           {/* CAJA DE DIRECCIÓN */}
+<div className={`mt-2 p-3 rounded-2xl flex items-start gap-3 ${estado === "asignado" ? "bg-[#0f172a]/10" : "bg-white/5"}`}>
+  <span className="text-xl">{estado === "encurso" ? "🚖" : "📍"}</span>
+  <div className="flex flex-col">
+    <span className={`text-[9px] font-black uppercase tracking-widest ${estado === "asignado" ? "text-[#0f172a]/70" : "text-slate-400"}`}>
+      {estado === "encurso" ? "Destino:" : "Punto de recogida:"}
+    </span>
+    <p className={`text-sm font-bold leading-tight ${estado === "asignado" ? "text-[#0f172a]" : "text-white"}`}>
+      {/* 🚩 LÓGICA MEJORADA */}
+      {estado === "encurso" 
+        ? (pasajeroAsignado.destinationAddress || "Rumbo al destino...") 
+        : (pasajeroAsignado.pickupAddress || "Calculando ubicación...")
+      }
+    </p>
+  </div>
+</div>
 
             {/* Barra de tiempo si está asignado */}
             {estado === "asignado" && <TimerBar duration={15000} onFinish={rechazarViaje} />}
