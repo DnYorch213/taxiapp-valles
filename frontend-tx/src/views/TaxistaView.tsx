@@ -201,6 +201,19 @@ useGeolocation(
     }
   }, [userPosition?.email]);
 
+  // 🚩 REHIDRATACIÓN AUTOMÁTICA AL CARGAR
+useEffect(() => {
+  // Intentar rehidratar de inmediato
+  checkStatus();
+
+  // Si el socket tarda en conectar, reintentar al conectar
+  socket.on("connect", checkStatus);
+  
+  return () => {
+    socket.off("connect", checkStatus);
+  };
+}, [checkStatus]);
+
 const handleAsignacion = useCallback((data: any) => {
   console.log("📩 Nueva asignación recibida:", data);
 
@@ -367,7 +380,8 @@ const aceptarViaje = () => {
     excludedEmails 
   });
   
-  setEstado("encamino");
+  // No cambiamos el estado aquí, esperamos la confirmación del servidor
+  // para evitar problemas de sincronización en reconexiones o saltos.
 };
 
 const rechazarViaje = () => {
