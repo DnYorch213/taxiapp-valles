@@ -198,11 +198,14 @@ app.post("/api/accept-trip-push", async (req: Request, res: Response) => {
 const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [], attempt: number = 1) => {
   if (!isAutoMode) return;
 
-  // 1. Límite de seguridad
+  // 1. 🛡️ LIMPIEZA DE DATOS (Evita el bucle)
+  const pEmail = pasajeroData.email.toLowerCase().trim();
+  const currentExcluidos = [...new Set(excludedEmails.map(e => e.toLowerCase().trim()))];
+
   if (attempt > MAX_RETRIES) {
-    console.log(`❌ Límite alcanzado para ${pasajeroData.email}`);
-    await Position.updateOne({ email: pasajeroData.email }, { $set: { estado: "activo" } });
-    io.to(pasajeroData.email).emit("no_taxis_available", { message: "Sin unidades disponibles." });
+    console.log(`❌ Límite alcanzado para ${pEmail}`);
+    await Position.updateOne({ email: pEmail }, { $set: { estado: "activo" } });
+    io.to(pEmail).emit("no_taxis_available", { message: "Sin unidades disponibles." });
     return;
   }
 
@@ -211,13 +214,13 @@ const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [
   const taxistasCandidatos = await Position.find({
     role: "taxista",
     pushSubscription: { $exists: true, $ne: null }, // 🚩 CRUCIAL: Debe tener llave Push
-    estado: { $nin: ["encurso", "ocupado", "asignado"] }, // Que no estén ocupados
-    email: { $nin: excludedEmails } // Que no sea uno que ya rechazó
+    estado: "activo",
+    email: { $nin: currentExcluidos } // Que no sea uno que ya rechazó
   }).lean() as IPosition[];
 
   if (taxistasCandidatos.length === 0) {
-    console.log(`📭 No hay taxistas con Push activo para ${pasajeroData.email}`);
-    io.to(pasajeroData.email).emit("no_taxis_available", { message: "Buscando conductores..." });
+    console.log(`📭 No hay taxistas con Push activo para ${pEmail}`);
+    io.to(pEmail).emit("no_taxis_available", { message: "Buscando conductores..." });
     return;
   }
 
@@ -227,42 +230,51 @@ const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [
     const distCurr = calculateDistance(pasajeroData.lat, pasajeroData.lng, curr.lat, curr.lng);
     return distPrev < distCurr ? prev : curr;
   });
-
+  const tEmail = elMasCercano.email.toLowerCase().trim();
   console.log(`🎯 Intentando con Tx-${elMasCercano.taxiNumber} (Estado: ${elMasCercano.estado})`);
 
   // 4. Bloqueo de estados en BD
-  await Position.updateOne({ email: elMasCercano.email }, { $set: { estado: "asignado" } });
-  await Position.updateOne({ email: pasajeroData.email }, { $set: { estado: "asignado" } });
+  await Position.updateOne({ email: tEmail }, { $set: { estado: "asignado" } });
+  await Position.updateOne({ email: pEmail }, { $set: { estado: "asignado" } });
+
+  // 🚩 REPARACIÓN DEL FLUJO: Preparamos el payload completo
+  const fullPayload = {
+    ...pasajeroData,
+    email: pEmail, // Aseguramos que el email del pasajero vaya aquí
+    excludedEmails: currentExcluidos, // Se lo pasamos para que el taxista lo devuelva si rechaza
+    isNewOffer: true,
+    attempt
+  };
 
   // 5. 🔔 NOTIFICACIÓN DUAL ESTRATÉGICA
   // Enviamos por socket (si está conectado la recibe al instante)
-  io.to(elMasCercano.email).emit("pasajero_asignado", { ...pasajeroData, attempt });
+  io.to(tEmail).emit("pasajero_asignado", fullPayload);
 
   // Enviamos el PUSH (el "misil" que lo despierta si el socket murió hace 12 seg)
-  enviarNotificacionPush(elMasCercano.pushSubscription, pasajeroData, elMasCercano.email);
+  enviarNotificacionPush(elMasCercano.pushSubscription, fullPayload, tEmail);
 
   // 6. Temporizador de Cascada
   const timeout = setTimeout(async () => {
-    const tCheck = await Position.findOne({ email: elMasCercano.email }).lean();
+    const tCheck = await Position.findOne({ email: tEmail }).lean();
 
     if (tCheck && tCheck.estado === "asignado") {
       console.log(`⏳ Tx-${elMasCercano.taxiNumber} no respondió al Push/Socket. Saltando...`);
 
       // Limpiamos la alerta en el frontend si es que el socket volvió
-      io.to(elMasCercano.email).emit("dispatch_timeout");
+      io.to(tEmail).emit("dispatch_timeout");
 
       // Liberar al taxista para que vuelva a estar disponible
-      await Position.updateOne({ email: elMasCercano.email }, { $set: { estado: "activo" } });
+      await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
 
       // Actualizar el Panel Central
-      io.emit("panel_update", { email: elMasCercano.email, estado: "activo" });
+      io.emit("panel_update", { email: tEmail, estado: "activo" });
 
       // Reintento: Pasamos al siguiente más cercano
-      dispatchWithRetry(pasajeroData, [...excludedEmails, elMasCercano.email], attempt + 1);
+      dispatchWithRetry(pasajeroData, [...currentExcluidos, tEmail], attempt + 1);
     }
   }, 22000);
 
-  pendingTimeouts.set(elMasCercano.email, timeout);
+  pendingTimeouts.set(tEmail, timeout);
 };
 // --- RUTAS HTTP: REGISTRO CON BLOQUEO DE SEGURIDAD ---
 app.post("/register", async (req: Request, res: Response) => {
@@ -710,72 +722,81 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("taxi_response", async ({ requestEmail, accepted, excludedEmails = [] }) => {
-    const tEmail = socket.handshake.auth?.email || socket.handshake.query?.email;
+    // 1. Normalización de emails (Seguridad industrial)
+    const tEmailRaw = socket.handshake.auth?.email || socket.handshake.query?.email;
+    const tEmail = tEmailRaw?.toLowerCase().trim();
+    const pEmail = requestEmail?.toLowerCase().trim();
 
+    if (!tEmail || !pEmail) return;
+
+    // 🛡️ Limpieza de timeouts
     if (pendingTimeouts.has(tEmail)) {
       clearTimeout(pendingTimeouts.get(tEmail)!);
       pendingTimeouts.delete(tEmail);
     }
 
-    // --- CASO: EL TAXISTA RECHAZA EL VIAJE ---
+    // --- ❌ CASO: EL TAXISTA RECHAZA EL VIAJE ---
     if (!accepted) {
       await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
       const tPos = await Position.findOne({ email: tEmail });
       io.emit("panel_update", buildPayload(tPos, tPos, "activo"));
 
-      // Avisamos al pasajero para que limpie la UI del taxista que rechazó
-      io.to(requestEmail).emit("taxi_rejected_request");
+      io.to(pEmail).emit("taxi_rejected_request");
 
-      const pData = await Position.findOne({ email: requestEmail });
-      if (pData) dispatchWithRetry(pData, [...excludedEmails, tEmail], 1);
+      const pData = await Position.findOne({ email: pEmail });
+      if (pData) {
+        // Pasamos la lista negra actualizada al siguiente reintento
+        dispatchWithRetry(pData, [...excludedEmails, tEmail], 1);
+      }
       return;
     }
 
-    // --- CASO: EL TAXISTA ACEPTA EL VIAJE (Refactorizado) ---
+    // --- ✅ CASO: EL TAXISTA ACEPTA EL VIAJE ---
     try {
-      // 1. Sincronizamos estados en la Base de Datos (Ambos como "Asignado")
+      // 🚩 VINCULACIÓN CRUZADA (Faltaba guardar al pasajero en el taxista)
       await Position.updateOne(
         { email: tEmail },
-        { $set: { estado: "asignado" } }
+        { $set: { estado: "asignado", pasajeroAsignado: pEmail } }
       );
 
       await Position.updateOne(
-        { email: requestEmail },
-        {
-          $set: {
-            estado: "asignado",
-            taxistaAsignado: tEmail
-          }
-        }
+        { email: pEmail },
+        { $set: { estado: "asignado", taxistaAsignado: tEmail } }
       );
 
-      // 2. Obtenemos la posición actual del taxista para el mapa del pasajero
       const tPos = await Position.findOne({ email: tEmail });
-      const pPos = await Position.findOne({ email: requestEmail });
+      const pPos = await Position.findOne({ email: pEmail });
 
-      // 3. Construimos el Payload "Inmortal" para el Pasajero
+      // 3. Payload para el Pasajero
       const payloadParaPasajero = {
         accepted: true,
         tEmail: tEmail,
         name: tPos?.name || "Conductor",
         taxiNumber: tPos?.taxiNumber || "S/N",
-        estado: "asignado", // Coincide con el if de React
-        lat: tPos?.lat,     // 🚩 Crucial para que el marcador aparezca YA
-        lng: tPos?.lng,     // 🚩 Crucial para que el marcador aparezca YA
+        estado: "asignado",
+        lat: tPos?.lat,
+        lng: tPos?.lng,
         taxiData: buildPayload(tPos, tPos, "asignado")
       };
 
-      // 4. Enviamos la señal de éxito al Pasajero
-      io.to(requestEmail).emit("response_from_taxi", payloadParaPasajero);
+      io.to(pEmail).emit("response_from_taxi", payloadParaPasajero);
 
-      // 5. Actualizamos el Panel Administrativo
+      // 🚩 4. EL ESLABÓN PERDIDO: Confirmación al Taxista
+      // Sin esto, el taxista se queda en la pantalla de "Aceptar/Rechazar" para siempre
+      socket.emit("assignment_confirmed", {
+        success: true,
+        pasajero: buildPayload(pPos, pPos, "asignado")
+      });
+
+      // 5. Panel Administrativo
       io.emit("panel_update", buildPayload(tPos, tPos, "asignado"));
       io.emit("panel_update", buildPayload(pPos, pPos, "asignado"));
 
-      console.log(`✅ Viaje vinculado: [${tEmail}] recogerá a [${requestEmail}]`);
+      console.log(`✅ Viaje vinculado exitosamente: ${tEmail} -> ${pEmail}`);
 
     } catch (error) {
       console.error("❌ Error en la vinculación del viaje:", error);
+      socket.emit("error_message", "Hubo un error al procesar el viaje.");
     }
   });
 

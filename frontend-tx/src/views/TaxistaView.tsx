@@ -70,7 +70,8 @@ const TaxistaView: React.FC = () => {
   const estadoRef = useRef(estado);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [vistaActual, setVistaActual] = useState('mapa'); // 'mapa' o 'historial'
- 
+  const [isAccepting, setIsAccepting] = useState(false);
+
   // --- 🔔 FUNCIÓN DE SUSCRIPCIÓN (SÁCADA DEL USEEFFECT) ---
   const gestionarSuscripcion = async () => {
     const userEmail = userPosition?.email || localStorage.getItem("email");
@@ -279,8 +280,8 @@ const handleAsignacion = useCallback((data: any) => {
     socket.on("pasajero_asignado", handleAsignacion);
     // 🚩 ESTO ES LO QUE FALTA: Escuchar la confirmación oficial
     socket.on("assignment_confirmed", (data) => {
-      console.log("✅ Confirmación recibida del servidor:", data);
       if (data.success) {
+        console.log("✅ Confirmación recibida del servidor:", data);
         setEstado("encamino"); // Ahora sí, cambiamos la vista
         detenerSonido();
         toast.success("¡Viaje vinculado! Dirígete al pasajero.");
@@ -367,6 +368,9 @@ socket.on("trip_status_update", (data) => {
 
  // --- ACCIONES DEL TAXISTA ---
 const aceptarViaje = () => {
+  if (isAccepting) return;
+  setIsAccepting(true);
+  
   if (!pasajeroAsignado?.email) {
     console.error("❌ Error: No hay email de pasajero para aceptar.");
     return;

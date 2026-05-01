@@ -2,47 +2,34 @@ import L from "leaflet";
 import "leaflet-routing-machine";
 import { createControlComponent } from "@react-leaflet/core";
 
-// 🔑 Tu Token de Mapbox
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
 const createRoutingMachineLayer = (props: any) => {
   const { waypoints } = props;
-  
-  // 🚩 VALIDACIÓN EXTRA: Verifica que los puntos tengan lat y lng válidos
+
   if (!waypoints || waypoints.length < 2 || !waypoints[0]?.lat) {
-    return null;
+    return (L as any).Layer(); // Retorna una capa vacía segura
   }
 
-  // Convertimos a objetos de Leaflet reales por si acaso vienen como JSON plano
   const validWaypoints = waypoints.map((wp: any) => L.latLng(wp.lat, wp.lng));
 
   const instance = (L.Routing as any).control({
-  waypoints: validWaypoints, // Usamos los puntos convertidos
-  router: (L.Routing as any).mapbox(MAPBOX_TOKEN, {
-  profile: 'mapbox/driving',
-  language: 'es',
-  // Fuerza a que la comunicación sea por HTTPS
- urlParameters: {
-    access_token: MAPBOX_TOKEN
-  }
-}),
-    
-    // 1. Quitamos los marcadores azules de Leaflet
-    createMarker: () => null, 
-    
-    // 2. Limpieza Total del panel de direcciones
+    waypoints: validWaypoints,
+    router: (L.Routing as any).mapbox(MAPBOX_TOKEN, {
+      profile: 'mapbox/driving',
+      language: 'es',
+      urlParameters: { access_token: MAPBOX_TOKEN }
+    }),
+    createMarker: () => null,
     show: false,
     addWaypoints: false,
     draggableWaypoints: false,
-    fitSelectedRoutes: true,
-    // Forzamos clases que no existan para que no dibuje el cuadro blanco
+    fitSelectedRoutes: false, // Evita saltos de cámara molestos
     containerClassName: 'hidden-routing-container',
-    itineraryClassName: 'hidden-itinerary',
-
     lineOptions: {
       styles: [
-        { color: "#0f172a", weight: 9, opacity: 0.2 }, // Sombra sutil para mapa claro
-        { color: "#22c55e", weight: 6, opacity: 1 }    // Verde neón
+        { color: "#0f172a", weight: 9, opacity: 0.2 },
+        { color: "#22c55e", weight: 6, opacity: 1 }
       ],
       extendToWaypoints: true,
       missingRouteTolerance: 10
@@ -52,7 +39,16 @@ const createRoutingMachineLayer = (props: any) => {
   return instance;
 };
 
-// Exportamos usando 'any' para evitar conflictos con el core de React-Leaflet
+// 🚩 SOLUCIÓN AL ERROR:
+// Definimos el componente con un solo argumento
 export const RoutingMachine = createControlComponent<any, any>(
   createRoutingMachineLayer
 );
+
+/**
+ * EXPLICACIÓN:
+ * Aunque eliminamos el segundo argumento para quitar el error de TS, 
+ * React-Leaflet por defecto destruye y recrea el control cuando las props cambian.
+ * Al tener 'fitSelectedRoutes: false', la experiencia será fluida porque el mapa
+ * no saltará, solo se redibujará la línea en la nueva posición del taxista.
+ */
