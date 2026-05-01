@@ -280,20 +280,24 @@ const handleAsignacion = useCallback((data: any) => {
     socket.on("pasajero_asignado", handleAsignacion);
     // 🚩 ESTO ES LO QUE FALTA: Escuchar la confirmación oficial
     socket.on("assignment_confirmed", (data) => {
-      if (data.success) {
-        console.log("✅ Confirmación recibida del servidor:", data);
-        setEstado("encamino"); // Ahora sí, cambiamos la vista
-        detenerSonido();
-        toast.success("¡Viaje vinculado! Dirígete al pasajero.");
-        
-        // Si el servidor mandó datos actualizados del pasajero, los guardamos
-        if (data.pasajero) {
-          const pEmail = data.pasajero.email.toLowerCase().trim();
-          setPasajeroAsignado({ ...data.pasajero, email: pEmail });
-        }
-      }
-    });
-
+  if (data.success) {
+    console.log("✅ Confirmación recibida del servidor:", data);
+    setEstado("encamino"); 
+    detenerSonido();
+    toast.success("¡Viaje vinculado! Dirígete al pasajero.");
+    
+    if (data.pasajero) {
+      const pEmail = data.pasajero.email.toLowerCase().trim();
+      
+      // 🚩 USAMOS UNA FUNCIÓN DE ACTUALIZACIÓN PARA NO PERDER DATOS PREVIOS
+      setPasajeroAsignado((prev) => ({
+        ...prev,            // Mantenemos pickupAddress y demás datos que ya teníamos
+        ...data.pasajero,     // Sobrescribimos con lo nuevo que mande el server
+        email: pEmail       // Aseguramos el email limpio
+      }));
+    }
+  }
+});
     // --- Dentro del useEffect de Sockets ---
 
 socket.on("trip_status_update", (data) => {
