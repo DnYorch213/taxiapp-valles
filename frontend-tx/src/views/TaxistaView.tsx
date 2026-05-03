@@ -332,6 +332,7 @@ socket.on("trip_status_update", (data) => {
       setPasajeroAsignado(null);
       setEstado("disponible");
       setChatAbierto(false);
+      setIsAccepting(false);
       setHistorialRuta([]); // Limpiar rastro
     });
 
@@ -387,7 +388,11 @@ const aceptarViaje = () => {
     accepted: true, 
     excludedEmails 
   });
-  
+// 🚩 Segurito: Si en 5 segundos el servidor no confirmó, desbloqueamos
+  setTimeout(() => {
+    setIsAccepting(false);
+  }, 5000);
+    
   // No cambiamos el estado aquí, esperamos la confirmación del servidor
   // para evitar problemas de sincronización en reconexiones o saltos.
 };
@@ -639,9 +644,15 @@ return (
           <div className="p-6 pb-10">
             {estado === "asignado" && (
               <div className="grid grid-cols-5 gap-3">
-                <button onClick={aceptarViaje} className="col-span-3 py-5 bg-[#22c55e] text-[#0f172a] rounded-2xl font-black text-lg active:scale-95 transition-transform shadow-xl shadow-green-900/20">
-                  ACEPTAR
-                </button>
+                <button 
+  onClick={aceptarViaje} 
+  disabled={isAccepting}
+  className={`col-span-3 py-5 rounded-2xl font-black text-lg transition-transform ${
+    isAccepting ? "bg-gray-500 animate-pulse" : "bg-[#22c55e] text-[#0f172a]"
+  }`}
+>
+  {isAccepting ? "PROCESANDO..." : "ACEPTAR"}
+</button>
                 <button onClick={rechazarViaje} className="col-span-2 py-5 bg-slate-800 text-slate-400 rounded-2xl font-black text-[10px] uppercase tracking-widest">
                   Ignorar
                 </button>

@@ -92,9 +92,8 @@ function buildPayload(user: any, pos: any, estado: string, extra: any = {}) {
     lng: pos?.lng ?? null,
     // 🚩 AGREGAMOS ESTO: Si no viene en 'extra', lo buscamos en 'pos' o 'user'
     pushSubscription: extra.pushSubscription || pos?.pushSubscription || user?.pushSubscription || null,
-    pickupAddress: extra.pickupAddress || pos?.pickupAddress || "Dirección opcional",
-    destinationAddress: extra.destinationAddress || pos?.destinationAddress || "Destino no especificado",
-    estado: estado || pos?.estado || "activo",
+    pickupAddress: extra.pickupAddress || pos?.pickupAddress || user?.pickupAddress || "Calculando ubicación...",
+    destinationAddress: extra.destinationAddress || pos?.destinationAddress || user?.destinationAddress || "Destino no especificado", estado: estado || pos?.estado || "activo",
     timestamp: new Date().toISOString(),
     ...extra,
   };
@@ -268,9 +267,16 @@ const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [
 
       // Actualizar el Panel Central
       io.emit("panel_update", { email: tEmail, estado: "activo" });
+      // 🚩 CORRECCIÓN: Antes de reintentar, asegúrate de que pasajeroData tenga la dirección
+      // Si por alguna razón pasajeroData original no la tenía, la buscamos en la BD antes del salto
+      const pRefresh = await Position.findOne({ email: pEmail }).lean();
+      const dataParaSiguiente = {
+        ...pasajeroData,
+        pickupAddress: pRefresh?.pickupAddress || pasajeroData.pickupAddress // Mantenemos la dirección viva
+      };
 
-      // Reintento: Pasamos al siguiente más cercano
-      dispatchWithRetry(pasajeroData, [...currentExcluidos, tEmail], attempt + 1);
+      // Reintento con la data asegurada
+      dispatchWithRetry(dataParaSiguiente, [...currentExcluidos, tEmail], attempt + 1);
     }
   }, 22000);
 
@@ -683,41 +689,51 @@ io.on("connection", async (socket) => {
     console.log(`🕹️ Modo de despacho cambiado a: ${isAutoMode ? 'AUTOMÁTICO' : 'MANUAL'}`);
   });
 
-  // 🚕 SOLICITUD DE TAXI (Con Reverse Geocoding)
+  // --- DENTRO DE io.on("connection", (socket) => { ---
+
   socket.on("request_taxi", async (pasajeroData: any) => {
     const pEmail = pasajeroData.email.toLowerCase().trim();
 
     try {
-      // 1. 🚩 OBTENER DIRECCIÓN REAL: Evitamos el "Calculando ubicación..." en el taxista
+      // 1. Obtenemos la dirección real con tu servicio de geocoding
       const direccionReal = await reverseGeocode(pasajeroData.lat, pasajeroData.lng);
 
+      // 🚩 LA CORRECCIÓN CRUCIAL:
+      // Guardamos la dirección en la BD SIEMPRE. 
+      // No importa si es modo Auto o Manual, la persistencia es tu seguro de vida.
+      await Position.updateOne(
+        { email: pEmail },
+        {
+          $set: {
+            estado: isAutoMode ? "asignado" : "esperando", // Si es auto, ya nace asignándose
+            pickupAddress: direccionReal,
+            lat: pasajeroData.lat,
+            lng: pasajeroData.lng,
+            updatedAt: new Date()
+          }
+        },
+        { upsert: true } // Por si es un pasajero nuevo
+      );
+
+      // Preparamos el paquete de datos con la dirección ya inyectada
+      const dataConDireccion = {
+        ...pasajeroData,
+        pickupAddress: direccionReal,
+        email: pEmail
+      };
+
       if (isAutoMode) {
-        // MODO AUTO: Pasamos la dirección directamente al motor de reintentos
-        const dataConDireccion = { ...pasajeroData, pickupAddress: direccionReal };
+        // 🚀 MOTOR AUTOMÁTICO: Ahora lleva la dirección garantizada
         dispatchWithRetry(dataConDireccion, [], 1);
       } else {
-        // MODO MANUAL: Actualizamos la BD para que el panel administrativo vea la dirección
-        await Position.updateOne(
-          { email: pEmail },
-          {
-            $set: {
-              estado: "esperando",
-              pickupAddress: direccionReal
-            }
-          }
-        );
-
+        // 📢 MODO MANUAL: El Panel de Control ahora verá la dirección real
         const updatedP = await Position.findOne({ email: pEmail });
-
-        // Notificamos a todos los taxistas y al panel manual
-        io.emit("panel_update", buildPayload(updatedP, updatedP, "esperando", {
-          pickupAddress: direccionReal
-        }));
+        io.emit("panel_update", buildPayload(updatedP, updatedP, "esperando"));
 
         console.log(`📢 Solicitud manual en Valles: ${pEmail} está en ${direccionReal}`);
       }
     } catch (error) {
-      console.error("Error al procesar solicitud de taxi:", error);
+      console.error("❌ Error al procesar solicitud de taxi:", error);
     }
   });
 
@@ -885,7 +901,7 @@ io.on("connection", async (socket) => {
     if (tEmail) {
       await Position.updateOne(
         { email: tEmail },
-        { $set: { estado: "activo" } }
+        { $set: { estado: "activo", pasajeroAsignado: null } }
       );
 
       // 3. AVISO PRIVADO AL TAXISTA
@@ -923,17 +939,17 @@ io.on("connection", async (socket) => {
     }
 
     try {
-      // 1. RECUPERAR DATOS ACTUALES
+      // 1. RECUPERAR DATOS ACTUALES (Para nombres y coordenadas antes de limpiar)
       const pPos = await Position.findOne({ email: pEmail });
       const tPos = await Position.findOne({ email: tEmail });
 
-      // 2. 🚩 GEOPROCESAMIENTO (NUEVO)
-      // Obtenemos la dirección de donde está el taxi justo ahora (Destino)
+      // 2. GEOPROCESAMIENTO DE DIRECCIONES
+      // Obtenemos la dirección donde el taxista está físicamente terminando el viaje
       const direccionDestino = tPos
         ? await reverseGeocode(tPos.lat, tPos.lng)
         : "Destino no detectado";
 
-      // Si por alguna razón el origen no se guardó al inicio, lo recuperamos ahora
+      // Recuperamos el origen (priorizando lo que ya estaba en BD para no gastar cuota de API)
       const direccionOrigen = pPos?.pickupAddress || (pPos ? await reverseGeocode(pPos.lat, pPos.lng) : "Origen desconocido");
 
       // 3. GUARDAR EN EL HISTORIAL (Colección Trip)
@@ -944,48 +960,59 @@ io.on("connection", async (socket) => {
         taxistaName: tPos?.name || "Taxista",
         taxiNumber: tPos?.taxiNumber || "S/N",
         pickupAddress: direccionOrigen,
-        destinationAddress: direccionDestino, // 👈 DIRECCIÓN FINAL AGREGADA
+        destinationAddress: direccionDestino,
         estado: "finalizado",
         fecha: new Date()
       });
 
       await nuevoHistorial.save();
-      console.log(`📖 Historial guardado con direcciones: Tx ${tEmail} finalizó viaje.`);
+      console.log(`📖 Historial guardado: ${tEmail} terminó viaje en ${direccionDestino}`);
 
       // 4. ACTUALIZAR BD (Limpieza de estados activos)
+      // Usamos updateMany para poner a ambos en 'activo' y romper el vínculo
       await Position.updateMany(
         { email: { $in: [pEmail, tEmail] } },
         {
           $set: {
             estado: "activo",
             taxistaAsignado: null,
-            pasajeroAsignado: null
+            pasajeroAsignado: null,
+            // Opcional: limpiar pickupAddress del pasajero para el siguiente viaje
+            pickupAddress: null
           }
         }
       );
 
-      const payload = {
+      // 5. REFRESH DE DATOS PARA EL PANEL (Refactorizado)
+      // Buscamos los documentos ya actualizados para tener el "payload" limpio
+      const pUpdated = await Position.findOne({ email: pEmail });
+      const tUpdated = await Position.findOne({ email: tEmail });
+
+      const payloadFin = {
         pasajeroEmail: pEmail,
         taxistaEmail: tEmail,
         estado: "finalizado",
         pickupAddress: direccionOrigen,
-        destinationAddress: direccionDestino // Opcional: enviarlo al front también
+        destinationAddress: direccionDestino
       };
 
-      // 5. NOTIFICACIONES
-      io.to(pEmail).emit("trip_finished", payload);
-      io.to(tEmail).emit("trip_finished", payload);
+      // 6. NOTIFICACIONES
+      // Avisar a las apps móviles
+      io.to(pEmail).emit("trip_finished", payloadFin);
+      io.to(tEmail).emit("trip_finished", payloadFin);
 
-      io.emit("panel_update", { email: pEmail, estado: "activo" });
-      io.emit("panel_update", { email: tEmail, estado: "activo" });
+      // Avisar al Panel Admin con el objeto completo de buildPayload
+      // Esto evita que el icono del taxi o pasajero desaparezca o se quede "congelado"
+      if (pUpdated) io.emit("panel_update", buildPayload(pUpdated, pUpdated, "activo"));
+      if (tUpdated) io.emit("panel_update", buildPayload(tUpdated, tUpdated, "activo"));
 
-      console.log(`✅ Viaje finalizado con éxito en: ${direccionDestino}`);
+      console.log(`✅ Viaje finalizado con éxito y panel actualizado.`);
 
     } catch (error) {
       console.error("❌ Error crítico al finalizar viaje e historial:", error);
+      socket.emit("error_message", "Hubo un problema al cerrar el viaje.");
     }
   });
-
   // Al final de tu main.tsx o index.tsx
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
