@@ -1,6 +1,7 @@
 import axios from "axios";
 
-const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
+// 🚩 Coloca tu token aquí o en tu archivo .env
+const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
 const geoCache: Record<string, string> = {};
 
 export const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
@@ -10,35 +11,33 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<string> 
     if (geoCache[cacheKey]) return geoCache[cacheKey];
 
     try {
-        const res = await axios.get<any>(NOMINATIM_URL, {
+        // Mapbox usa: /geocoding/v5/mapbox.places/{longitude},{latitude}.json
+        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json`;
+
+        const res = await axios.get<any>(url, {
             params: {
-                lat,
-                lon: lng,
-                format: "json",
-                addressdetails: 1,
-            },
-            headers: {
-                "User-Agent": "TaxiAppValles/1.0 (tu-email@ejemplo.com)"
+                access_token: MAPBOX_TOKEN,
+                limit: 1,
+                language: 'es', // Direcciones en español
+                types: 'address,poi,neighborhood' // Prioriza calles y puntos de interés
             }
         });
 
-        const addr = res.data?.address;
+        const features = res.data?.features;
         let direccion = "Dirección desconocida";
 
-        if (addr) {
-            // Formateamos una dirección amigable para Valles
-            const calle = addr.road || addr.pedestrian || "";
-            const numero = addr.house_number || "";
-            const colonia = addr.suburb || addr.neighbourhood || "";
-
-            direccion = `${calle} ${numero}, ${colonia}`.trim().replace(/^,|,$/g, "");
-            if (!calle && !colonia) direccion = res.data.display_name.split(',')[0];
+        if (features && features.length > 0) {
+            // Mapbox ya devuelve la dirección formateada en 'place_name'
+            // Ejemplo: "Calle Hidalgo 123, Ciudad Valles, SLP, México"
+            direccion = features[0].place_name.split(', México')[0]; // Quitamos el país para que sea corto
         }
 
         geoCache[cacheKey] = direccion;
         return direccion;
-    } catch (err) {
-        console.error("❌ Error en Nominatim:", err);
-        return "Dirección no disponible";
+
+    } catch (err: any) {
+        console.error("❌ Error en Mapbox:", err.response?.data || err.message);
+        // Fallback para no detener la prueba de Yorchi y Kokito
+        return `Ubicación: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
     }
 };
