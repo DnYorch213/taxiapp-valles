@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { updateTaxistaStatus, getPendingTaxistas, getVerifiedTaxistas } from '../controllers/adminController';
+import { updateTaxistaStatus, getPendingTaxistas, getVerifiedTaxistas, getTripsByDriver, getAllTripsHistory } from '../controllers/adminController';
 // Aquí deberías importar tus middlewares de autenticación
 // import { authenticateToken, isAdmin } from '../middleware/auth'; 
 
@@ -13,6 +13,12 @@ router.put('/update-status/:id', updateTaxistaStatus);
 
 // Listar aprobados
 router.get('/verified', getVerifiedTaxistas);
+
+// backend-tx/src/routes/adminRoutes.ts
+
+router.get('/historial-viajes', getAllTripsHistory);
+
+router.get('/historial-viajes/:email', getTripsByDriver);
 
 
 export default router;

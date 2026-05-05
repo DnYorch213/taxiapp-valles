@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { User } from '../models/User';
+import { Trip } from '../models/Trip';
 
 // 1. Obtener todos los taxistas pendientes
 export const getPendingTaxistas = async (req: Request, res: Response) => {
@@ -69,5 +70,32 @@ export const getVerifiedTaxistas = async (req: Request, res: Response) => {
         res.json(verified);
     } catch (error) {
         res.status(500).json({ message: "Error al obtener historial", error });
+    }
+};
+
+// 4. Obtener todos los viajes finalizados (Historial General)
+export const getAllTripsHistory = async (req: Request, res: Response) => {
+    try {
+        const trips = await Trip.find({ status: 'completed' })
+            .sort({ endDate: -1 }); // Los más recientes primero
+
+        res.json(trips);
+    } catch (error) {
+        res.status(500).json({ message: "Error al obtener historial global", error });
+    }
+};
+
+// 5. Obtener viajes de un taxista específico (Filtro por Unidad)
+export const getTripsByDriver = async (req: Request, res: Response) => {
+    try {
+        const { email } = req.params;
+        const trips = await Trip.find({
+            driverEmail: email,
+            status: 'completed'
+        }).sort({ endDate: -1 });
+
+        res.json(trips);
+    } catch (error) {
+        res.status(500).json({ message: "Error al filtrar viajes", error });
     }
 };

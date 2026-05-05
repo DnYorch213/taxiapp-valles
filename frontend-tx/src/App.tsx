@@ -9,7 +9,7 @@ import { PrivateRoute } from "./components/PrivateRoute";
 import { TravelProvider, useTravel } from "./context/TravelContext";
 import { socket } from "./lib/socket";
 import AdminVerificacion from "./views/AdminVerificacion";
-// ✅ Eliminamos PanelSolicitudes si no lo vas a usar, para evitar errores de compilación
+import AdminHistoryPage from './components/AdminHistoryPage'; 
 
 if (typeof window !== "undefined") {
   (window as any).socket = socket;
@@ -50,6 +50,9 @@ const Navbar: React.FC = () => {
                 <Link to="/verificar-taxistas" className="text-[#22c55e] hover:underline font-black italic">
                   AUTORIZAR 🚖
                 </Link>
+                <Link to="/historial-viajes" className="text-[#22c55e] hover:underline font-black italic">
+                  HISTORIAL 🕒
+                </Link>
               </>
             )}
             <button
@@ -82,6 +85,7 @@ const App: React.FC = () => {
           
           {/* ✅ Esta es la ruta principal de administración ahora */}
           <Route path="/verificar-taxistas" element={<PrivateRoute role="admin"><AdminVerificacion /></PrivateRoute>} />
+          <Route path="/historial-viajes" element={<PrivateRoute role="admin"><AdminHistoryPage /></PrivateRoute>} />
         </Routes>
       </Router>
     </TravelProvider>

@@ -60,7 +60,7 @@ const posicionesValidas = useMemo(() => {
 const viajesEnCurso = useMemo(() =>
   posicionesValidas.filter(u => 
     // Quitamos la restricción de solo pasajero para ver también al taxista ocupado
-    ["asignado", "en camino", "aceptado", "viajando", "en curso", "ocupado"].includes(u.estado.toLowerCase())
+    ["asignado", "encamino", "aceptado", "viajando", "encurso", "ocupado"].includes(u.estado.toLowerCase())
   )
   .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()),
   [posicionesValidas]
@@ -94,7 +94,7 @@ const taxistasCercanos = useMemo(() => {
   // 🧹 LIMPIADOR: Si el pasajero seleccionado entra en un viaje por modo automático, lo soltamos del panel manual
   useEffect(() => {
     if (pasajeroSeleccionado) {
-      const estaOcupado = ["asignado", "en camino", "en curso", "viajando", "aceptado", "ocupado"].includes(pasajeroSeleccionado.estado.toLowerCase());
+      const estaOcupado = ["asignado", "encamino", "encurso", "viajando", "aceptado", "ocupado"].includes(pasajeroSeleccionado.estado.toLowerCase());
       if (estaOcupado) {
         setPasajeroSeleccionadoEmail(null);
       }
@@ -105,7 +105,7 @@ const taxistasCercanos = useMemo(() => {
 useEffect(() => {
   if (pasajeroSeleccionado) {
     const estadoActual = pasajeroSeleccionado.estado.toLowerCase();
-    const yaNoDisponible = ["asignado", "en camino", "en curso", "viajando", "aceptado"].includes(estadoActual);
+    const yaNoDisponible = ["asignado", "encamino", "encurso", "viajando", "aceptado"].includes(estadoActual);
     
     if (yaNoDisponible) {
       setPasajeroSeleccionadoEmail(null);
@@ -149,7 +149,7 @@ useEffect(() => {
         )}
 
         {posicionesValidas.map((u) => {
-          const estaEnViaje = ["asignado", "en camino", "en curso", "viajando", "aceptado", "ocupado"].includes(u.estado.toLowerCase());
+          const estaEnViaje = ["asignado", "encamino", "encurso", "viajando", "aceptado", "ocupado"].includes(u.estado.toLowerCase());
 
           return (
             <Marker 
