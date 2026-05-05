@@ -1,8 +1,7 @@
 import axios from "axios";
 
 // 🚩 Coloca tu token aquí o en tu archivo .env
-//const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
-const MAPBOX_TOKEN = "pk.eyJ1IjoiZG55b3JjaDIxMyIsImEiOiJjbW9xbW5xczIyN3hvMnJxOXJzdGI0Z2xtIn0.wuivStEPAlgABemwHjR4UA";
+const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
 const geoCache: Record<string, string> = {};
 
 export const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
@@ -28,9 +27,32 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<string> 
         let direccion = "Dirección desconocida";
 
         if (features && features.length > 0) {
-            // Mapbox ya devuelve la dirección formateada en 'place_name'
-            // Ejemplo: "Calle Hidalgo 123, Ciudad Valles, SLP, México"
-            direccion = features[0].place_name.split(', México')[0]; // Quitamos el país para que sea corto
+            const fullAddress = features[0].place_name;
+            const parts = fullAddress.split(',');
+
+            // 1. La calle siempre es el primer elemento
+            const calle = parts[0].trim();
+
+            // 2. Buscamos la ciudad (usualmente es la penúltima o antepenúltima antes de México/Estado)
+            // Filtramos para quitar códigos postales de cualquier parte
+            const cleanParts = parts
+                .map(p => p.replace(/\d{5}/g, '').trim()) // Quita CPs de 5 dígitos
+                .filter(p => p.toLowerCase() !== 'méxico' && p !== '');
+
+            if (cleanParts.length >= 2) {
+                // Tomamos la Calle y el último elemento disponible (que suele ser la Ciudad)
+                const ciudad = cleanParts[cleanParts.length - 1];
+
+                // Si hay un elemento intermedio (como la colonia), lo incluimos
+                if (cleanParts.length >= 3) {
+                    const colonia = cleanParts[1];
+                    direccion = `${calle}, ${colonia}, ${ciudad}`;
+                } else {
+                    direccion = `${calle}, ${ciudad}`;
+                }
+            } else {
+                direccion = cleanParts[0];
+            }
         }
 
         geoCache[cacheKey] = direccion;
