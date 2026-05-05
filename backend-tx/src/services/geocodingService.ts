@@ -1,7 +1,8 @@
 import axios from "axios";
 
 // 🚩 Coloca tu token aquí o en tu archivo .env
-const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
+//const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
+const MAPBOX_TOKEN = "pk.eyJ1IjoiZG55b3JjaDIxMyIsImEiOiJjbW9xbW5xczIyN3hvMnJxOXJzdGI0Z2xtIn0.wuivStEPAlgABemwHjR4UA";
 const geoCache: Record<string, string> = {};
 
 export const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
