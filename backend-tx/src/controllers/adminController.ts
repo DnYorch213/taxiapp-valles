@@ -76,12 +76,13 @@ export const getVerifiedTaxistas = async (req: Request, res: Response) => {
 // 4. Obtener todos los viajes finalizados (Historial General)
 export const getAllTripsHistory = async (req: Request, res: Response) => {
     try {
-        const trips = await Trip.find({ status: 'completed' })
-            .sort({ endDate: -1 }); // Los más recientes primero
+        // Cambiamos 'status' por 'estado'
+        const trips = await Trip.find({ estado: 'finalizado' })
+            .sort({ fecha: -1 }); // También cambiamos 'endDate' por 'fecha' aquí
 
         res.json(trips);
     } catch (error) {
-        res.status(500).json({ message: "Error al obtener historial global", error });
+        res.status(500).json({ message: "Error al obtener historial", error });
     }
 };
 
@@ -91,8 +92,8 @@ export const getTripsByDriver = async (req: Request, res: Response) => {
         const { email } = req.params;
         const trips = await Trip.find({
             driverEmail: email,
-            status: 'completed'
-        }).sort({ endDate: -1 });
+            estado: 'finalizado'
+        }).sort({ fecha: -1 });
 
         res.json(trips);
     } catch (error) {

@@ -3,16 +3,16 @@ import express from "express";
 import { Request, Response } from "express";
 import http from "http";
 import { Server } from "socket.io";
-import jwt from "jsonwebtoken";
-import bcrypt from "bcrypt";
 import cors from "cors";
 import { connectDB } from "./db";
 import { IPosition, Position } from "./models/Position";
 import { User } from "./models/User";
 import webpush from "web-push";
 import adminRoutes from "./routes/adminRoutes";
+import authRoutes from "./routes/authRoutes";
 import { Trip } from "./models/Trip";
 import { reverseGeocode } from "./services/geocodingService";
+
 dotenv.config();
 
 webpush.setVapidDetails(
@@ -27,7 +27,7 @@ const server = http.createServer(app);
 const isDev = process.env.NODE_ENV === 'development';
 
 const allowedOrigins = [
-  "https://taxiapp-valles.vercel.app", // Producción
+  process.env.FRONTEND_URL,
   "http://localhost:5173",            // Tu Vite local
   "http://127.0.0.1:5173"
 ];
@@ -48,7 +48,9 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(express.json());
+
 app.use("/api/admin", adminRoutes);
+app.use("/api/auth", authRoutes);
 
 const io = new Server(server, {
   cors: corsOptions,
@@ -124,15 +126,23 @@ const enviarNotificacionPush = async (subscription: any, pasajeroData: any, taxi
         body: `Pasajero: ${pasajeroData.name}\nDistancia: ${distanciaMetros}m`,
         icon: "/icon-192x192.png",
         vibrate: [200, 100, 200, 100, 200],
-        data: {
-          emailPasajero: pasajeroData.email,
-          emailTaxista: taxistaEmail,
-          url: "/taxista"
-        },
+        // Mantenemos las acciones aquí
         actions: [
           { action: "aceptar", title: "✅ ACEPTAR VIAJE" },
           { action: "rechazar", title: "❌ IGNORAR" }
-        ]
+        ],
+        // 💡 RECOMENDACIÓN: Pon la data también dentro de notification para el SW
+        data: {
+          emailPasajero: pasajeroData.email,
+          emailTaxista: taxistaEmail,
+          url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/taxista`
+        }
+      },
+      // 🚀 PRO-TIP: Algunos navegadores prefieren la data aquí afuera
+      data: {
+        emailPasajero: pasajeroData.email,
+        emailTaxista: taxistaEmail,
+        url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/taxista`
       }
     });
 
@@ -282,94 +292,6 @@ const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [
 
   pendingTimeouts.set(tEmail, timeout);
 };
-// --- RUTAS HTTP: REGISTRO CON BLOQUEO DE SEGURIDAD ---
-app.post("/register", async (req: Request, res: Response) => {
-  try {
-    const { name, email, password, role, taxiNumber } = req.body;
-
-    // 🛡️ 1. BLOQUEO DE ADMIN (Lo que ya pusimos)
-    if (role === "admin") {
-      return res.status(403).json({ message: "No puedes registrarte como administrador." });
-    }
-
-    // 📧 2. VALIDACIÓN DE FORMATO DE CORREO
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ message: "El formato de correo no es válido." });
-    }
-
-    // 🔑 3. VALIDACIÓN DE CONTRASEÑA (Mínimo 6 caracteres)
-    if (!password || password.length < 6) {
-      return res.status(400).json({ message: "La contraseña debe tener al menos 6 caracteres." });
-    }
-
-    // 📝 4. VALIDACIÓN DE NOMBRE (Mínimo 3 caracteres)
-    if (!name || name.trim().length < 3) {
-      return res.status(400).json({ message: "El nombre es demasiado corto." });
-    }
-
-    // 🚖 5. VALIDACIÓN DE NÚMERO DE TAXI (Específica para Cd. Valles)
-    if (role === "taxista") {
-      const numeroTaxi = parseInt(taxiNumber); // Convertimos a número para validar rango
-
-      if (!taxiNumber || taxiNumber.trim() === "") {
-        return res.status(400).json({ message: "El número de unidad es obligatorio." });
-      }
-
-      // Validamos que sea un número, que no exceda 3 dígitos y que esté en el rango de Valles (1-849)
-      if (isNaN(numeroTaxi) || numeroTaxi < 1 || numeroTaxi > 849) {
-        return res.status(400).json({
-          message: "Número de unidad inválido. Debe ser entre 1 y 849 (Rango local de Valles)."
-        });
-      }
-    }
-
-    // --- CONTINÚA TU LÓGICA NORMAL ---
-    const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(400).json({ message: "El correo ya existe" });
-
-    const hashed = await bcrypt.hash(password, 10);
-    const user = new User({
-      name: name.trim(),
-      email: email.toLowerCase().trim(), // Guardamos siempre en minúsculas para evitar errores
-      password: hashed,
-      role,
-      taxiNumber: role === "taxista" ? taxiNumber.trim() : undefined,
-      adminApproval: role === "taxista" ? "pendiente" : "aprobado"
-    });
-
-    await user.save();
-    res.status(201).json({ message: "Usuario registrado con éxito" });
-
-  } catch (err) {
-    res.status(500).json({ message: "Error en el servidor al registrar" });
-  }
-});
-
-app.post("/login", async (req: Request, res: Response) => {
-  try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(400).json({ message: "Credenciales inválidas" });
-    }
-
-    const lastPos = await Position.findOne({ email: user.email });
-    const token = jwt.sign({ email: user.email, name: user.name, role: user.role }, process.env.JWT_SECRET as string, { expiresIn: '30d' });
-
-    res.json({
-      token,
-      role: user.role,
-      name: user.name,
-      taxiNumber: user.taxiNumber,
-      email: user.email,
-      adminApproval: user.adminApproval,
-      lastCoords: lastPos ? { lat: lastPos.lat, lng: lastPos.lng } : null
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Error en login" });
-  }
-});
 
 app.post("/save-subscription", async (req: Request, res: Response) => {
   const { email, subscription } = req.body;

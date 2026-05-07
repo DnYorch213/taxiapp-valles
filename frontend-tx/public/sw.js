@@ -1,5 +1,8 @@
 // public/sw.js
-const API_BASE_URL = "https://taxiapp-valles.onrender.com";
+const API_BASE_URL =
+  self.location.hostname === "localhost"
+    ? "http://localhost:3001"
+    : "https://taxiapp-valles.onrender.com";
 // 1. ESCUCHAR LA NOTIFICACIÓN PUSH
 self.addEventListener("push", (event) => {
   let data = {};
@@ -17,8 +20,9 @@ self.addEventListener("push", (event) => {
   }
 
   // Extraemos emails de la data del backend para las acciones
-  const emailPasajero = data.data?.emailPasajero || "";
-  const emailTaxista = data.data?.emailTaxista || "";
+  const notificationData = data.data || data.notification?.data || {};
+  const emailPasajero = notificationData.emailPasajero || "";
+  const emailTaxista = notificationData.emailTaxista || "";
 
   const options = {
     body: data.body || "Tienes un nuevo servicio pendiente",

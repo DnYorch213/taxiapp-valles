@@ -3,8 +3,10 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
 // 🌐 URL dinámica para producción/desarrollo
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
-
+// 1. Asegura la URL base al inicio del archivo
+const API_URL = window.location.hostname === 'localhost' 
+    ? "http://localhost:3001" 
+    : import.meta.env.VITE_API_URL;
 interface RegisterResponse { 
   message: string;
 }
@@ -44,7 +46,7 @@ const RegisterView: React.FC = () => {
   }
 
   try {
-    const res = await axios.post<RegisterResponse>(`${API_URL}/register`, form);
+    const res = await axios.post<RegisterResponse>(`${API_URL}/api/auth/register`, form);
     alert("✅ " + res.data.message);
     navigate("/login");
   } catch (error: any) {

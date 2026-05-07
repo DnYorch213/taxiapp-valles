@@ -2,10 +2,12 @@ import React, { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { useTravel } from "../context/TravelContext";
-import { socket } from "../lib/socket";
+import { socket, connectSocket } from "../lib/socket";
+// Busca esta línea y cámbiala así:
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
-
+const API_URL = window.location.hostname === 'localhost' 
+    ? "http://localhost:3001" 
+    : import.meta.env.VITE_API_URL;
 interface LoginResponse {
   token: string;
   role: "pasajero" | "taxista" | "admin";
@@ -26,25 +28,25 @@ const LoginView: React.FC = () => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  // 🛠️ Función auxiliar para gestionar la sesión
-  const establishSession = (data: LoginResponse) => {
+ const establishSession = (data: LoginResponse) => {
     const { token, role, name, taxiNumber, email, lastCoords } = data;
+    const cleanEmail = email.toLowerCase().trim();
 
     // 1. Almacenamiento local
     localStorage.setItem("token", token);
-    localStorage.setItem("email", email.toLowerCase());
+    localStorage.setItem("email", cleanEmail);
     localStorage.setItem("role", role);
     localStorage.setItem("userName", name);
     if (taxiNumber) localStorage.setItem("taxiNumber", taxiNumber);
 
-    // 2. Sincronización de Socket
-    socket.auth = { email: email.toLowerCase(), token, role };
-    socket.disconnect().connect();
+    // 2. Sincronización de Socket (Usando tu nueva función)
+    // Esto es mucho más limpio y evita errores de conexión
+    connectSocket(cleanEmail, role);
 
     // 3. Estado global de posición
     setUserPosition({
-      email: email.toLowerCase(),
-      id: email.toLowerCase(),
+      email: cleanEmail,
+      id: cleanEmail,
       name,
       lat: lastCoords?.lat || 21.9850,
       lng: lastCoords?.lng || -99.0150,
@@ -59,7 +61,7 @@ const LoginView: React.FC = () => {
     setLoading(true);
 
     try {
-      const { data } = await axios.post<LoginResponse>(`${API_URL}/login`, {
+      const { data } = await axios.post<LoginResponse>(`${API_URL}/api/auth/login`, {
         ...form,
         email: form.email.toLowerCase().trim(),
       });
