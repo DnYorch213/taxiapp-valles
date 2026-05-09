@@ -273,15 +273,19 @@ return (
       {taxistaAsignado && (
         <div className="mx-6 -mt-8 relative z-[1001] p-3 bg-white border border-slate-100 rounded-[1.5rem] flex items-center gap-4 shadow-xl">
           <div className="h-10 w-10 bg-green-50 rounded-xl flex items-center justify-center text-lg">🚖</div>
-          <div className="flex-1">
-            <p className="text-[8px] font-black text-[#22c55e] uppercase">Unidad {taxistaAsignado.taxiNumber || 'ECO'}</p>
-            <p className="text-sm font-black text-slate-800 leading-tight">{taxistaAsignado.name}</p>
-          </div>
+          <div className="flex-1 flex items-baseline gap-2"> 
+  <p className="text-base font-black text-slate-800 leading-tight">
+    {taxistaAsignado.name}
+  </p>
+   <p className="text-[14px] font-black text-[#22c55e] whitespace-nowrap">
+    Taxi {taxistaAsignado.taxiNumber || 'ECO'}
+  </p>
+</div>
         </div>
       )}
 
       {/* SECCIÓN DE BOTONES: Reducción de padding vertical (p-5 y pb-10) */}
-      <div className="px-6 pt-5 pb-10 flex flex-col shrink-0 bg-white">
+      <div className="px-6 pt-5 pb-18 flex flex-col shrink-0 bg-white">
         <div className="mb-3">
           <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Servicio Valles</p>
           <h2 className="text-lg font-black text-slate-900 tracking-tighter leading-tight">

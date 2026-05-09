@@ -477,17 +477,7 @@ return (
  
   <div className="h-dvh bg-[#0f172a] flex flex-col overflow-hidden font-sans relative text-slate-100">
     <ToastContainer theme="dark" />
-
-    {/* BOTÓN HAMBURGUESA (Añadido) */}
-    <button 
-      onClick={() => setIsMenuOpen(true)}
-      className="fixed top-4 left-4 z-[1003] bg-[#1e293b] p-3 rounded-full shadow-2xl border border-white/10 active:scale-90 transition-transform"
-    >
-      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-      </svg>
-    </button>
-
+   
     {/* OVERLAY OSCURO */}
     {isMenuOpen && (
       <div 
@@ -532,13 +522,28 @@ return (
       </nav>
     </div>
 
-    {/* HEADER COMPACTO */}
-    <header className="w-full max-w-md mx-auto flex justify-end items-center py-3 px-6 shrink-0 bg-[#0f172a] z-[1002]">
-      <div className="flex items-center gap-2 bg-[#1e293b] px-3 py-1 rounded-full border border-white/5">
-        <div className={`h-1.5 w-1.5 rounded-full ${userPosition?.lat ? 'bg-[#22c55e]' : 'bg-red-500 animate-ping'}`}></div>
-        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">ECO-{user.taxiNumber}</span>
-      </div>
-    </header>
+   {/* HEADER COMPACTO CON BOTÓN INTEGRADO */}
+<header className="w-full max-w-md mx-auto flex justify-between items-center py-1 px-3 shrink-0 bg-[#0f172a] z-[1002]">
+  
+  {/* BOTÓN HAMBURGUESA (Ahora integrado) */}
+  <button 
+    onClick={() => setIsMenuOpen(true)}
+    className="bg-[#1e293b] p-2.5 rounded-full shadow-lg border border-white/10 active:scale-90 transition-transform"
+  >
+    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  </button>
+
+  {/* INDICADOR DE ESTADO (Lado derecho) */}
+  <div className="flex items-center gap-2 bg-[#1e293b] px-3 py-1 rounded-full border border-white/5">
+    <div className={`h-1.5 w-1.5 rounded-full ${userPosition?.lat ? 'bg-[#22c55e]' : 'bg-red-500 animate-ping'}`}></div>
+    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
+      ECO-{user.taxiNumber}
+    </span>
+  </div>
+
+</header>
 
     {/* CONTENIDO DINÁMICO (Cambia entre Mapa e Historial) */}
     <main className="flex-1 w-full relative bg-[#1e293b] overflow-hidden">
@@ -579,7 +584,7 @@ return (
       {pasajeroAsignado ? (
         <div className="flex flex-col">
           {/* 🚩 INFO DEL PASAJERO Y DIRECCIÓN */}
-      <div className="px-6 pt-8 pb-4">
+      <div className="px-6 pt-6 pb-2">
         <div className={`p-5 rounded-[2.5rem] transition-all duration-500 ${estado === "asignado" ? "bg-[#22c55e]" : "bg-[#0f172a]/50 border border-white/5"}`}>
           <div className="flex flex-col gap-3">
             
@@ -660,13 +665,13 @@ return (
             )}
 
             {estado === "encamino" && (
-              <button onClick={confirmarAbordo} className="w-full py-5 bg-white text-[#0f172a] rounded-2xl font-black text-lg flex items-center justify-center gap-3 border-b-4 border-slate-300 active:translate-y-1 transition-all">
+              <button onClick={confirmarAbordo} className="w-full py-3 bg-white text-[#0f172a] rounded-2xl font-black text-lg flex items-center justify-center gap-3 border-b-4 border-slate-300 active:translate-y-1 transition-all">
                 📍 CONFIRMAR ABORDO
               </button>
             )}
 
             {estado === "encurso" && (
-              <button onClick={finalizarViaje} className="w-full py-5 bg-red-600 text-white rounded-2xl font-black text-lg border-b-4 border-red-900 shadow-xl active:translate-y-1 transition-all">
+              <button onClick={finalizarViaje} className="w-full py-3 bg-red-600 text-white rounded-2xl font-black text-lg border-b-4 border-red-900 shadow-xl active:translate-y-1 transition-all">
                 🏁 FINALIZAR SERVICIO
               </button>
             )}

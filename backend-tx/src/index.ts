@@ -207,7 +207,12 @@ app.post("/api/accept-trip-push", async (req: Request, res: Response) => {
 const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [], attempt: number = 1) => {
   if (!isAutoMode) return;
 
-  // 1. 🛡️ LIMPIEZA DE DATOS (Evita el bucle)
+  // 1. 🛡️ VALIDACIÓN DE SEGURIDAD
+  if (!pasajeroData || !pasajeroData.email) {
+    console.error("⚠️ Error: Se intentó un reintento pero los datos del pasajero se perdieron.");
+    return;
+  }
+
   const pEmail = pasajeroData.email.toLowerCase().trim();
   const currentExcluidos = [...new Set(excludedEmails.map(e => e.toLowerCase().trim()))];
 
@@ -218,13 +223,12 @@ const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [
     return;
   }
 
-  // 2. 🛡️ BÚSQUEDA INMORTAL (Basada en Push, no en Socket)
-  // Buscamos taxistas que tengan suscripción, sin importar si el socket parpadeó
+  // 2. 🛡️ BÚSQUEDA DE TAXISTAS
   const taxistasCandidatos = await Position.find({
     role: "taxista",
-    pushSubscription: { $exists: true, $ne: null }, // 🚩 CRUCIAL: Debe tener llave Push
+    pushSubscription: { $exists: true, $ne: null },
     estado: "activo",
-    email: { $nin: currentExcluidos } // Que no sea uno que ya rechazó
+    email: { $nin: currentExcluidos }
   }).lean() as IPosition[];
 
   if (taxistasCandidatos.length === 0) {
@@ -233,33 +237,37 @@ const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [
     return;
   }
 
-  // 3. Selección por cercanía (Valles GPS)
+  // 3. Selección por cercanía
   const elMasCercano = taxistasCandidatos.reduce((prev, curr) => {
     const distPrev = calculateDistance(pasajeroData.lat, pasajeroData.lng, prev.lat, prev.lng);
     const distCurr = calculateDistance(pasajeroData.lat, pasajeroData.lng, curr.lat, curr.lng);
     return distPrev < distCurr ? prev : curr;
   });
+
   const tEmail = elMasCercano.email.toLowerCase().trim();
   console.log(`🎯 Intentando con Tx-${elMasCercano.taxiNumber} (Estado: ${elMasCercano.estado})`);
+
+  // --- 🚩 PUNTO CLAVE: ASEGURAR DIRECCIÓN UNA SOLA VEZ ---
+  if (!pasajeroData.pickupAddress || pasajeroData.pickupAddress.includes("Ubicación:")) {
+    console.log("🔄 Generando dirección con colonia para el despacho...");
+    pasajeroData.pickupAddress = await reverseGeocode(pasajeroData.lat, pasajeroData.lng);
+  }
 
   // 4. Bloqueo de estados en BD
   await Position.updateOne({ email: tEmail }, { $set: { estado: "asignado" } });
   await Position.updateOne({ email: pEmail }, { $set: { estado: "asignado" } });
 
-  // 🚩 REPARACIÓN DEL FLUJO: Preparamos el payload completo
+  // 5. Preparar Payload y Notificar
   const fullPayload = {
     ...pasajeroData,
-    email: pEmail, // Aseguramos que el email del pasajero vaya aquí
-    excludedEmails: currentExcluidos, // Se lo pasamos para que el taxista lo devuelva si rechaza
+    email: pEmail,
+    pickupAddress: pasajeroData.pickupAddress,
+    excludedEmails: currentExcluidos,
     isNewOffer: true,
     attempt
   };
 
-  // 5. 🔔 NOTIFICACIÓN DUAL ESTRATÉGICA
-  // Enviamos por socket (si está conectado la recibe al instante)
   io.to(tEmail).emit("pasajero_asignado", fullPayload);
-
-  // Enviamos el PUSH (el "misil" que lo despierta si el socket murió hace 12 seg)
   enviarNotificacionPush(elMasCercano.pushSubscription, fullPayload, tEmail);
 
   // 6. Temporizador de Cascada
@@ -267,25 +275,26 @@ const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [
     const tCheck = await Position.findOne({ email: tEmail }).lean();
 
     if (tCheck && tCheck.estado === "asignado") {
-      console.log(`⏳ Tx-${elMasCercano.taxiNumber} no respondió al Push/Socket. Saltando...`);
+      console.log(`⏳ Tx-${elMasCercano.taxiNumber} no respondió. Saltando...`);
 
-      // Limpiamos la alerta en el frontend si es que el socket volvió
-      io.to(tEmail).emit("dispatch_timeout");
-
-      // Liberar al taxista para que vuelva a estar disponible
-      await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
-
-      // Actualizar el Panel Central
-      io.emit("panel_update", { email: tEmail, estado: "activo" });
-      // 🚩 CORRECCIÓN: Antes de reintentar, asegúrate de que pasajeroData tenga la dirección
-      // Si por alguna razón pasajeroData original no la tenía, la buscamos en la BD antes del salto
       const pRefresh = await Position.findOne({ email: pEmail }).lean();
+
+      // 🛑 Validar si el pasajero sigue ahí antes de seguir la cascada
+      if (!pRefresh || pRefresh.estado === "activo") {
+        console.log(`🛑 El pasajero ${pEmail} ya no busca viaje. Cancelando.`);
+        await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
+        return;
+      }
+
+      io.to(tEmail).emit("dispatch_timeout");
+      await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
+      io.emit("panel_update", { email: tEmail, estado: "activo" });
+
       const dataParaSiguiente = {
         ...pasajeroData,
-        pickupAddress: pRefresh?.pickupAddress || pasajeroData.pickupAddress // Mantenemos la dirección viva
+        pickupAddress: pRefresh.pickupAddress || pasajeroData.pickupAddress
       };
 
-      // Reintento con la data asegurada
       dispatchWithRetry(dataParaSiguiente, [...currentExcluidos, tEmail], attempt + 1);
     }
   }, 22000);
