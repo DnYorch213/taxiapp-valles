@@ -11,10 +11,11 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { RoutingMachine } from "../components/RoutingMachine";
 import { taxistaIcon, pasajeroIcon } from "../utils/icons";
+import RotatedMarker from "../components/RotatedMarker";
 
 const PasajeroView: React.FC = () => {
   const { userPosition, setUserPosition } = useTravel();
-  const [taxiPos, setTaxiPos] = useState<{lat: number, lng: number} | null>(null);
+  const [taxiPos, setTaxiPos] = useState<{lat: number, lng: number, heading: number} | null>(null);
   const [estado, setEstado] = useState<Payload['estado'] | "encamino" | "encurso" | "finalizado" | "buscando">("disponible");
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
   const [chatAbierto, setChatAbierto] = useState(false);
@@ -38,7 +39,7 @@ useEffect(() => {
     },
     (pos) => {
       if (pos.lat && pos.lng) {
-        setUserPosition({ ...userPosition, lat: pos.lat, lng: pos.lng } as any);
+        setUserPosition({ ...userPosition, lat: pos.lat, lng: pos.lng, heading: pos.heading } as any);
       }
     }
   );
@@ -80,7 +81,7 @@ socket.on("response_from_taxi", (data) => {
 
       // Seteamos la posición para el marcador del mapa
       if (data.lat && data.lng) {
-        setTaxiPos({ lat: data.lat, lng: data.lng });
+        setTaxiPos({ lat: data.lat, lng: data.lng, heading: data.heading });
       }
 
       toast.success(`¡La Unidad ${data.taxiNumber} (${data.name}) va en camino!`, {
@@ -97,15 +98,15 @@ socket.on("response_from_taxi", (data) => {
       const emailEntrante = (data.tEmail || data.email || data.taxistaEmail)?.toLowerCase().trim();
 
       if (emailAsignado && emailEntrante === emailAsignado) {
-        setTaxiPos({ lat: data.lat, lng: data.lng });
+        setTaxiPos({ lat: data.lat, lng: data.lng, heading: data.heading });
       }
     });
 
     // 🚩 RASTRO EN VIVO (Cuando el pasajero ya está a bordo)
-    socket.on("update_trip_path", (data: { lat: number, lng: number }) => {
+    socket.on("update_trip_path", (data: { lat: number, lng: number, heading: number }) => {
       setHistorialRuta((prev) => [...prev, [data.lat, data.lng]]);
       // También actualizamos la posición del taxi para que el marcador se mueva con la línea
-      setTaxiPos({ lat: data.lat, lng: data.lng });
+      setTaxiPos({ lat: data.lat, lng: data.lng, heading: data.heading });
     });
 
     // INICIO DE VIAJE (CONFIRMAR ABORDO)
@@ -232,9 +233,9 @@ return (
               <Marker position={[userPosition.lat, userPosition.lng]} icon={pasajeroIcon} />
             )}
             {taxiPos && (estado === "asignado" || estado === "encamino" || estado === "encurso") && (
-              <Marker position={[taxiPos.lat, taxiPos.lng]} icon={taxistaIcon}>
+              <RotatedMarker position={[taxiPos.lat, taxiPos.lng]} icon={taxistaIcon} rotationAngle={taxiPos.heading || 0}>
                 <Popup>Unidad {taxistaAsignado?.taxiNumber}</Popup>
-              </Marker>
+              </RotatedMarker>
             )}
             {taxiPos && (estado === "asignado" || estado === "encamino") && (
               <RoutingMachine 
@@ -274,10 +275,10 @@ return (
         <div className="mx-6 -mt-8 relative z-[1001] p-3 bg-white border border-slate-100 rounded-[1.5rem] flex items-center gap-4 shadow-xl">
           <div className="h-10 w-10 bg-green-50 rounded-xl flex items-center justify-center text-lg">🚖</div>
           <div className="flex-1 flex items-baseline gap-2"> 
-  <p className="text-base font-black text-slate-800 leading-tight">
+  <p className="text-[14px] font-black text-slate-800 leading-tight">
     {taxistaAsignado.name}
   </p>
-   <p className="text-[14px] font-black text-[#22c55e] whitespace-nowrap">
+   <p className="text-[16px] font-black text-[#22c55e] whitespace-nowrap">
     Taxi {taxistaAsignado.taxiNumber || 'ECO'}
   </p>
 </div>

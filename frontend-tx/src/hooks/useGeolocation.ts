@@ -23,7 +23,7 @@ export const useGeolocation = (user: UserData, onRegistered?: (pos: Position) =>
 
         const watchId = navigator.geolocation.watchPosition(
             (pos) => {
-                const { latitude, longitude } = pos.coords;
+                const { latitude, longitude, heading } = pos.coords;
                 if (latitude === 0 || longitude === 0) return;
 
                 let lat = latitude;
@@ -42,6 +42,7 @@ export const useGeolocation = (user: UserData, onRegistered?: (pos: Position) =>
                     taxiNumber: userRef.current.role === "taxista" ? userRef.current.taxiNumber : undefined,
                     lat,
                     lng,
+                    heading: heading || 0,
                     estado: userRef.current.estado as EstadoUsuario || "activo",
                 };
 

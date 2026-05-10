@@ -18,6 +18,7 @@ export interface Position {
   id?: string;
   lat: number | null;
   lng: number | null;
+  heading?: number | null;
   name?: string;
   role: Rol;
   taxiNumber?: string;

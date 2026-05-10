@@ -2,10 +2,10 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { MapContainer, TileLayer, Marker, Polyline } from "react-leaflet"; // 🚩 Importamos Polyline
 import { toast, ToastContainer } from "react-toastify";
 import L from 'leaflet';
-import axios from "axios";
+import axios, { head } from "axios";
 import "react-toastify/dist/ReactToastify.css";
 import "leaflet/dist/leaflet.css";
-
+import RotatedMarker from "../components/RotatedMarker";
 import { socket } from "../lib/socket";
 import { useTravel } from "../context/TravelContext";
 import { useGeolocation } from "../hooks/useGeolocation";
@@ -158,7 +158,7 @@ useGeolocation(
 
     // 1. Actualización local
     if (userPosition) {
-      setUserPosition({ ...userPosition, lat: pos.lat, lng: pos.lng });
+      setUserPosition({ ...userPosition, lat: pos.lat, lng: pos.lng, heading: pos.heading });
     }
 
     const estadoActual = estadoRef.current;
@@ -174,13 +174,15 @@ useGeolocation(
         socket.emit("update_trip_path", {
           pasajeroEmail: pasajeroAsignado?.email,
           lat: pos.lat,
-          lng: pos.lng
+          lng: pos.lng,
+          heading: pos.heading,
         });
       } else {
         // --- MODO APROXIMACIÓN (Asignado/EnCamino): Emitimos movimiento normal ---
         socket.emit("taxi_moved", {
           lat: pos.lat,
           lng: pos.lng,
+          heading: pos.heading,
           email: userPosition?.email || localStorage.getItem("email"),
           taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber"),
           role: "taxista"
@@ -554,8 +556,8 @@ return (
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             {puntosRuta.length > 0 && <RoutingMachine waypoints={puntosRuta} />}
             {estado === "encurso" && <Polyline positions={historialRuta} pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} />}
-            <Marker position={[userPosition.lat!, userPosition.lng!]} icon={taxistaIcon} />
-            {pasajeroAsignado?.lat && estado !== "encurso" && <Marker position={[pasajeroAsignado.lat!, pasajeroAsignado.lng!]} icon={pasajeroIcon} />}
+            <RotatedMarker position={[userPosition.lat!, userPosition.lng!]} icon={taxistaIcon} rotationAngle={userPosition.heading || 0} />
+            {pasajeroAsignado?.lat && estado !== "encurso" && <Marker position={[pasajeroAsignado.lat!, pasajeroAsignado.lng!]} icon={pasajeroIcon}/>}
           </MapContainer>
         ) : (
           <div className="h-full w-full flex items-center justify-center text-slate-500 text-[10px] font-black uppercase italic animate-pulse">🛰️ Sincronizando GPS...</div>

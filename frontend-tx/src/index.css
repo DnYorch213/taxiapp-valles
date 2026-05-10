@@ -34,3 +34,8 @@
 .leaflet-top.leaflet-right .leaflet-routing-container {
     display: none !important;
 }
+
+/* Estilo para que el giro no sea brusco */
+.taxi-orientado {
+  transition: transform 0.5s ease-in-out;
+}
