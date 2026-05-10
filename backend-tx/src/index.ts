@@ -700,19 +700,39 @@ io.on("connection", async (socket) => {
 
     // --- ✅ CASO: EL TAXISTA ACEPTA EL VIAJE ---
     try {
-      // 🚩 VINCULACIÓN CRUZADA (Faltaba guardar al pasajero en el taxista)
+      // 🛡️ EL CANDADO ATÓMICO: 
+      // Intentamos actualizar al PASAJERO solo si su estado sigue siendo "buscando"
+      const pPosActualizado = await Position.findOneAndUpdate(
+        {
+          email: pEmail,
+          estado: "buscando" // 🚩 Solo si nadie más lo ha tomado
+        },
+        {
+          $set: {
+            estado: "asignado",
+            taxistaAsignado: tEmail
+          }
+        },
+        { new: true } // Obtenemos los datos frescos si tuvo éxito
+      );
+
+      // ❌ Si pPosActualizado es null, significa que ya no está "buscando" (perdiste la carrera)
+      if (!pPosActualizado) {
+        console.log(`🚫 LATE: El taxista ${tEmail} llegó tarde para el pasajero ${pEmail}`);
+
+        // Avisamos al taxista que ya se lo ganaron
+        return socket.emit("trip_already_taken", {
+          message: "¡Lo sentimos! Otro compañero aceptó este viaje primero."
+        });
+      }
+
+      // ✅ SI PASÓ EL CANDADO: Ahora vinculamos al taxista
       await Position.updateOne(
         { email: tEmail },
         { $set: { estado: "asignado", pasajeroAsignado: pEmail } }
       );
 
-      await Position.updateOne(
-        { email: pEmail },
-        { $set: { estado: "asignado", taxistaAsignado: tEmail } }
-      );
-
       const tPos = await Position.findOne({ email: tEmail });
-      const pPos = await Position.findOne({ email: pEmail });
 
       // 3. Payload para el Pasajero
       const payloadParaPasajero = {
@@ -728,18 +748,17 @@ io.on("connection", async (socket) => {
 
       io.to(pEmail).emit("response_from_taxi", payloadParaPasajero);
 
-      // 🚩 4. EL ESLABÓN PERDIDO: Confirmación al Taxista
-      // Sin esto, el taxista se queda en la pantalla de "Aceptar/Rechazar" para siempre
+      // 4. Confirmación al Taxista ganador
       socket.emit("assignment_confirmed", {
         success: true,
-        pasajero: buildPayload(pPos, pPos, "asignado")
+        pasajero: buildPayload(pPosActualizado, pPosActualizado, "asignado")
       });
 
       // 5. Panel Administrativo
       io.emit("panel_update", buildPayload(tPos, tPos, "asignado"));
-      io.emit("panel_update", buildPayload(pPos, pPos, "asignado"));
+      io.emit("panel_update", buildPayload(pPosActualizado, pPosActualizado, "asignado"));
 
-      console.log(`✅ Viaje vinculado exitosamente: ${tEmail} -> ${pEmail}`);
+      console.log(`✅ Viaje vinculado EXCLUSIVAMENTE: ${tEmail} -> ${pEmail}`);
 
     } catch (error) {
       console.error("❌ Error en la vinculación del viaje:", error);

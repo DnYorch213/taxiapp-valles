@@ -59,13 +59,16 @@ const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ durati
 const TaxistaView: React.FC = () => {
   const { userPosition, setUserPosition } = useTravel();
   const [estado, setEstado] = useState<"disponible" | "asignado" | "encurso" | "encamino" | "finalizado">("disponible");
+  const [viajeSolicitado, setViajeSolicitado] = useState<Payload | null>(null);
   const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(null);
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
   const [chatAbierto, setChatAbierto] = useState(false);
   
   // 🚩 ESTADO PARA EL RASTRO DEL VIAJE
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
-  
+  // 🚩 ESTADO PARA LA LÍNEA QUE SE VA BORRANDO (Hacia el pasajero)
+const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const estadoRef = useRef(estado);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -280,6 +283,7 @@ const handleAsignacion = useCallback((data: any) => {
     if (!socket) return;
 
     socket.on("pasajero_asignado", handleAsignacion);
+
     // 🚩 ESTO ES LO QUE FALTA: Escuchar la confirmación oficial
     socket.on("assignment_confirmed", (data) => {
   if (data.success) {
@@ -287,7 +291,8 @@ const handleAsignacion = useCallback((data: any) => {
     setEstado("encamino"); 
     detenerSonido();
     toast.success("¡Viaje vinculado! Dirígete al pasajero.");
-    
+    setIsAccepting(false);
+    setViajeSolicitado(null);
     if (data.pasajero) {
       const pEmail = data.pasajero.email.toLowerCase().trim();
       
@@ -300,7 +305,23 @@ const handleAsignacion = useCallback((data: any) => {
     }
   }
 });
-    // --- Dentro del useEffect de Sockets ---
+    
+// 🚩 AQUÍ PONES EL CANDADO DEL LADO DEL CLIENTE
+    socket.on("trip_already_taken", (data: { message: string }) => {
+        // 1. Avisamos al chofer con un mensaje claro
+        toast.info(data.message, {
+            position: "top-center",
+            autoClose: 4000,
+            icon: <span>⏳</span>
+        });
+
+        // 2. IMPORTANTE: Limpiamos el estado para que la solicitud desaparezca
+        // y el taxista pueda recibir nuevas alertas de inmediato.
+        setViajeSolicitado(null); 
+        setEstado("disponible"); 
+        
+        // Si usas algún contador o sonido de alerta, deténlo aquí
+    });
 
 socket.on("trip_status_update", (data) => {
   console.log("🔄 Cambio de estado recibido:", data);
@@ -373,6 +394,31 @@ socket.on("trip_status_update", (data) => {
     };
   }, [handleAsignacion, checkStatus, detenerSonido]);
 
+  useEffect(() => {
+  // Solo borramos línea si vamos HACIA el pasajero
+  if (userPosition && estado === "encamino" && geometriaRuta.length > 0) {
+    const posTaxi = L.latLng(userPosition.lat!, userPosition.lng!);
+    
+    // Buscamos el punto de la ruta más cercano al taxi
+    let indiceMasCercano = 0;
+    let distanciaMinima = Infinity;
+
+    geometriaRuta.forEach((punto, index) => {
+      const d = posTaxi.distanceTo(punto);
+      if (d < distanciaMinima) {
+        distanciaMinima = d;
+        indiceMasCercano = index;
+      }
+    });
+
+    // 🚩 Si el taxi avanzó, borramos los puntos de atrás
+    // Usamos un margen de 15 metros para que sea fluido
+    if (indiceMasCercano > 0) {
+      setGeometriaRuta(prev => prev.slice(indiceMasCercano));
+    }
+  }
+}, [userPosition, estado]); // Se dispara cada que el taxi se mueve
+
  // --- ACCIONES DEL TAXISTA ---
 const aceptarViaje = () => {
   if (isAccepting) return;
@@ -427,9 +473,10 @@ const confirmarAbordo = () => {
 
   setEstado("encurso");
   setChatAbierto(false);
+  setGeometriaRuta([]); // Limpiamos la ruta de aproximación
   
   if (userPosition?.lat) {
-    setHistorialRuta([[userPosition.lat, userPosition.lng!]]);
+    setHistorialRuta([[userPosition.lat!, userPosition.lng!]]);
   }
 };
 
@@ -454,16 +501,7 @@ const finalizarViaje = () => {
   toast.info("Servicio finalizado");
 };
 
-  // --- MAPA & RUTA ---
-  const puntosRuta = useMemo(() => {
-    // 🚩 Solo usamos RoutingMachine para ir a buscar al pasajero (EnCamino)
-    if (estado === "encamino" && pasajeroAsignado?.lat && userPosition?.lat) {
-      return [L.latLng(userPosition.lat!, userPosition.lng!), L.latLng(pasajeroAsignado.lat!, pasajeroAsignado.lng!)];
-    }
-    return [];
-  }, [pasajeroAsignado, userPosition, estado]);
-
-  // --- OBJETO DE USUARIO PARA EL MENÚ LATERAL ---
+   // --- OBJETO DE USUARIO PARA EL MENÚ LATERAL ---
   const user = {
     name: localStorage.getItem("userName") || userPosition?.name || "Taxista",
     email: userPosition?.email || localStorage.getItem("email") || "",
@@ -554,7 +592,31 @@ return (
         userPosition?.lat ? (
           <MapContainer center={[userPosition.lat!, userPosition.lng!]} zoom={15} className="h-full w-full" zoomControl={false}>
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-            {puntosRuta.length > 0 && <RoutingMachine waypoints={puntosRuta} />}
+           {/* --- DENTRO DEL MAPA --- */}
+
+{/* 1. La RoutingMachine: Solo para CALCULAR la ruta inicial */}
+{estado === "encamino" && pasajeroAsignado?.lat && userPosition?.lat && userPosition?.lng && pasajeroAsignado?.lng && geometriaRuta.length === 0 && (
+  <RoutingMachine 
+    waypoints={[
+      L.latLng(userPosition.lat!, userPosition.lng!), 
+      L.latLng(pasajeroAsignado.lat!, pasajeroAsignado.lng!)
+    ]} 
+    onRouteFound={(coords: L.LatLng[]) => setGeometriaRuta(coords)} 
+  />
+)}
+
+{/* 2. La Polyline: Es la que el taxista ve y la que se va "borrando" */}
+{estado === "encamino" && geometriaRuta.length > 0 && (
+  <Polyline 
+    positions={geometriaRuta} 
+    pathOptions={{ 
+      color: '#3b82f6', 
+      weight: 6, 
+      opacity: 0.8,
+      lineJoin: 'round' 
+    }} 
+  />
+)}
             {estado === "encurso" && <Polyline positions={historialRuta} pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} />}
             <RotatedMarker position={[userPosition.lat!, userPosition.lng!]} icon={taxistaIcon} rotationAngle={userPosition.heading || 0} />
             {pasajeroAsignado?.lat && estado !== "encurso" && <Marker position={[pasajeroAsignado.lat!, pasajeroAsignado.lng!]} icon={pasajeroIcon}/>}
