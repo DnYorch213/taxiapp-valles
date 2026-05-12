@@ -10,7 +10,8 @@ export interface IPosition extends Document {
     estado: string;
     taxistaAsignado?: string | null;
     pasajeroAsignado?: string | null; // 👈 AGREGADO
-    pickupAddress?: string;           // 👈 AGREGADO
+    pickupAddress?: string;
+    destinationAddress?: string;    // 👈 AGREGADO
     pushSubscription?: {
         endpoint: string;
         keys: {
@@ -57,6 +58,10 @@ const PositionSchema = new Schema<IPosition>({
         trim: true
     },
     pickupAddress: {    // 👈 AGREGADO
+        type: String,
+        default: ""
+    },
+    destinationAddress: {    // 👈 AGREGADO
         type: String,
         default: ""
     },

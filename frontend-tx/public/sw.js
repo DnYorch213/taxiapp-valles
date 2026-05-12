@@ -69,7 +69,11 @@ self.addEventListener("notificationclick", (event) => {
         pasajeroEmail: notificationData.emailPasajero,
       }),
     })
-      .then(() => abrirOEnfocarApp("/taxista"))
+      .then(() => {
+        // 🚩 Abrir la app con parámetros del viaje
+        const targetUrl = `/taxista?pasajero=${notificationData.emailPasajero}&taxista=${notificationData.emailTaxista}`;
+        return abrirOEnfocarApp(targetUrl);
+      })
       .catch((err) => {
         console.error("Error al aceptar vía Push:", err);
         return abrirOEnfocarApp("/taxista");

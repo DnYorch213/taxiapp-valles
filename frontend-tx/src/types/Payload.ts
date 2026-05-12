@@ -30,6 +30,17 @@ export interface Payload {
     // ✅ Usamos el tipo específico para evitar errores de dedo
     estado: ViajeEstado;
 
+    // Campos para asignaciones
+    taxistaAsignado?: string | null;
+    pasajeroAsignado?: string | null;
+    pushSubscription?: {
+        endpoint: string;
+        keys: {
+            auth: string;
+            p256dh: string;
+        };
+    } | null;
+    attempt?: number; // Para reintentos de envío de notificaciones
     timestamp: string;
     updatedAt?: string | Date;
 
