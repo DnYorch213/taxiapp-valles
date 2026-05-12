@@ -40,31 +40,30 @@ const PanelCentral: React.FC = () => {
 
   const CENTER_VALLES: [number, number] = [21.9850, -99.0150];
 
-const posicionesValidas = useMemo(() => {
-  console.log("📡 Posiciones recibidas en Panel:", positions); // <-- Añade este log temporal
+ const posicionesValidas = useMemo(() => {
+  console.log("📡 Posiciones recibidas en Panel:", positions);
   return positions.filter(p => 
-    esPosicionValida(p.lat, p.lng) && 
-    p.estado.toLowerCase() !== "desconectado"
+    esPosicionValida(p.lat, p.lng) &&
+    !["desconectado", "cancelado", "inactivo"].includes(p.estado.toLowerCase())
   );
 }, [positions]);
 
- const pasajerosEspera = useMemo(() => 
+const pasajerosEspera = useMemo(() => 
   posicionesValidas.filter(u => 
     u.role === "pasajero" && 
-    // Agregamos "buscando" e "inactivo" para que el monitor siempre los vea si están online
-    ["activo", "esperando", "solicitando", "pendiente", "buscando", "inactivo"].includes(u.estado.toLowerCase())
+    ["activo", "esperando", "solicitando", "pendiente", "buscando"].includes(u.estado.toLowerCase())
   ),
   [posicionesValidas]
 );
 
 const viajesEnCurso = useMemo(() =>
   posicionesValidas.filter(u => 
-    // Quitamos la restricción de solo pasajero para ver también al taxista ocupado
     ["asignado", "encamino", "aceptado", "viajando", "encurso", "ocupado"].includes(u.estado.toLowerCase())
   )
   .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()),
   [posicionesValidas]
 );
+
 
   const taxistasOnline = useMemo(() => 
     posicionesValidas.filter(u => u.role === "taxista" && u.estado.toLowerCase() !== "desconectado"),
@@ -77,41 +76,38 @@ const viajesEnCurso = useMemo(() =>
     [posicionesValidas, pasajeroSeleccionadoEmail]
   );
 
-  // 🎯 Obtener los 3 taxistas más cercanos al pasajero seleccionado
-const taxistasCercanos = useMemo(() => {
+  const taxistasCercanos = useMemo(() => {
   if (!pasajeroSeleccionado || !pasajeroSeleccionado.lat || !pasajeroSeleccionado.lng) return [];
 
   return [...taxistasOnline]
-    .filter(t => t.estado.toLowerCase() === "activo") // Solo los que pueden atender
+    .filter(t => !["desconectado", "cancelado", "inactivo"].includes(t.estado.toLowerCase()))
     .sort((a, b) => {
       const distA = getDistanceKm(pasajeroSeleccionado.lat!, pasajeroSeleccionado.lng!, a.lat!, a.lng!);
       const distB = getDistanceKm(pasajeroSeleccionado.lat!, pasajeroSeleccionado.lng!, b.lat!, b.lng!);
       return distA - distB;
     })
-    .slice(0, 3); // Solo tomamos los 3 mejores
+    .slice(0, 3);
 }, [taxistasOnline, pasajeroSeleccionado]);
 
-  // 🧹 LIMPIADOR: Si el pasajero seleccionado entra en un viaje por modo automático, lo soltamos del panel manual
-  useEffect(() => {
-    if (pasajeroSeleccionado) {
-      const estaOcupado = ["asignado", "encamino", "encurso", "viajando", "aceptado", "ocupado"].includes(pasajeroSeleccionado.estado.toLowerCase());
-      if (estaOcupado) {
-        setPasajeroSeleccionadoEmail(null);
-      }
+useEffect(() => {
+  if (pasajeroSeleccionado) {
+    const estaOcupado = ["asignado", "encamino", "encurso", "viajando", "aceptado", "ocupado"].includes(pasajeroSeleccionado.estado.toLowerCase());
+    if (estaOcupado) {
+      setPasajeroSeleccionadoEmail(null);
     }
-  }, [pasajeroSeleccionado]);
+  }
+}, [pasajeroSeleccionado]);
 
-  // 🧹 Efecto para deseleccionar pasajeros que dejan de estar disponibles
 useEffect(() => {
   if (pasajeroSeleccionado) {
     const estadoActual = pasajeroSeleccionado.estado.toLowerCase();
-    const yaNoDisponible = ["asignado", "encamino", "encurso", "viajando", "aceptado"].includes(estadoActual);
-    
+    const yaNoDisponible = ["asignado", "encamino", "encurso", "viajando", "aceptado", "ocupado", "cancelado"].includes(estadoActual);
     if (yaNoDisponible) {
       setPasajeroSeleccionadoEmail(null);
     }
   }
 }, [pasajeroSeleccionado]);
+
 
   // 🚀 ASIGNACIÓN MANUAL
   const ejecutarAsignacionManual = useCallback((emailTaxista: string) => {

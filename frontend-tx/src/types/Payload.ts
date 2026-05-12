@@ -32,4 +32,8 @@ export interface Payload {
 
     timestamp: string;
     updatedAt?: string | Date;
+
+    // Campos específicos para asignaciones
+    pasajeroEmail?: string;
+    taxistaEmail?: string;
 }

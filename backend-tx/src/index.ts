@@ -279,12 +279,13 @@ const dispatchWithRetry = async (pasajeroData: any, excludedEmails: string[] = [
 
       const pRefresh = await Position.findOne({ email: pEmail }).lean();
 
-      // 🛑 Validar si el pasajero sigue ahí antes de seguir la cascada
-      if (!pRefresh || pRefresh.estado === "activo") {
-        console.log(`🛑 El pasajero ${pEmail} ya no busca viaje. Cancelando.`);
+      if (!pRefresh || ["activo", "cancelado", "inactivo"].includes(pRefresh.estado)) {
+        console.log(`🛑 El pasajero ${pEmail} ya no busca viaje. Cancelando cascada.`);
         await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
+        io.emit("panel_update", { email: pEmail, estado: "cancelado" }); // Limpieza en panel
         return;
       }
+
 
       io.to(tEmail).emit("dispatch_timeout");
       await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
@@ -620,8 +621,6 @@ io.on("connection", async (socket) => {
     console.log(`🕹️ Modo de despacho cambiado a: ${isAutoMode ? 'AUTOMÁTICO' : 'MANUAL'}`);
   });
 
-  // --- DENTRO DE io.on("connection", (socket) => { ---
-
   socket.on("request_taxi", async (pasajeroData: any) => {
     const pEmail = pasajeroData.email.toLowerCase().trim();
 
@@ -629,24 +628,25 @@ io.on("connection", async (socket) => {
       // 1. Obtenemos la dirección real con tu servicio de geocoding
       const direccionReal = await reverseGeocode(pasajeroData.lat, pasajeroData.lng);
 
-      // 🚩 LA CORRECCIÓN CRUCIAL:
-      // Guardamos la dirección en la BD SIEMPRE. 
-      // No importa si es modo Auto o Manual, la persistencia es tu seguro de vida.
+      // 🚩 CORRECCIÓN CRUCIAL:
+      // Siempre guardamos al pasajero en estado "buscando"
       await Position.updateOne(
         { email: pEmail },
         {
           $set: {
-            estado: isAutoMode ? "asignado" : "esperando", // Si es auto, ya nace asignándose
+            estado: "buscando",   // 👈 clave para que el candado funcione
             pickupAddress: direccionReal,
             lat: pasajeroData.lat,
             lng: pasajeroData.lng,
             updatedAt: new Date()
           }
         },
-        { upsert: true } // Por si es un pasajero nuevo
+        { upsert: true }
       );
 
-      // Preparamos el paquete de datos con la dirección ya inyectada
+      console.log(`🟢 Pasajero ${pEmail} guardado en estado BUSCANDO (${isAutoMode ? 'auto' : 'manual'})`);
+
+      // 2. Preparamos el paquete de datos con la dirección ya inyectada
       const dataConDireccion = {
         ...pasajeroData,
         pickupAddress: direccionReal,
@@ -654,12 +654,12 @@ io.on("connection", async (socket) => {
       };
 
       if (isAutoMode) {
-        // 🚀 MOTOR AUTOMÁTICO: Ahora lleva la dirección garantizada
+        // 🚀 MOTOR AUTOMÁTICO: ahora sí se asigna desde "buscando"
         dispatchWithRetry(dataConDireccion, [], 1);
       } else {
-        // 📢 MODO MANUAL: El Panel de Control ahora verá la dirección real
+        // 📢 MODO MANUAL: el panel verá al pasajero en "buscando"
         const updatedP = await Position.findOne({ email: pEmail });
-        io.emit("panel_update", buildPayload(updatedP, updatedP, "esperando"));
+        io.emit("panel_update", buildPayload(updatedP, updatedP, "buscando"));
 
         console.log(`📢 Solicitud manual en Valles: ${pEmail} está en ${direccionReal}`);
       }
@@ -713,7 +713,7 @@ io.on("connection", async (socket) => {
             taxistaAsignado: tEmail
           }
         },
-        { new: true } // Obtenemos los datos frescos si tuvo éxito
+        { returnDocument: "after" } // Obtenemos los datos frescos si tuvo éxito
       );
 
       // ❌ Si pPosActualizado es null, significa que ya no está "buscando" (perdiste la carrera)
@@ -845,7 +845,7 @@ io.on("connection", async (socket) => {
     // Quitamos el 'taxistaAsignado' y regresamos a 'activo'
     await Position.updateOne(
       { email: pEmail },
-      { $set: { estado: "activo", taxistaAsignado: null } }
+      { $set: { estado: "cancelado", taxistaAsignado: null } }
     );
 
     if (tEmail) {
@@ -871,7 +871,7 @@ io.on("connection", async (socket) => {
     });
 
     // 5. ACTUALIZACIÓN PANEL ADMIN (Monitor de Ciudad Valles)
-    io.emit("panel_update", { email: pEmail, estado: "activo" });
+    io.emit("panel_update", { email: pEmail, estado: "cancelado" });
     if (tEmail) {
       io.emit("panel_update", { email: tEmail, estado: "activo" });
     }

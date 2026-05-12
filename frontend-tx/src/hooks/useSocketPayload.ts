@@ -22,12 +22,13 @@ export function useSocketPayload() {
         socket.on("panel_update", (data: Payload) => {
             setPanelUpdate(data);
             setPositions((prev) => {
-                // 🚀 MEJORA: Si viene desconectado, lo eliminamos del estado inmediatamente
-                if (data.estado?.toLowerCase() === "desconectado") {
+                const estado = data.estado?.toLowerCase();
+
+                // 🚀 Limpieza inmediata de cancelados, inactivos o desconectados
+                if (["desconectado", "cancelado", "inactivo"].includes(estado)) {
                     return prev.filter((u) => u.email !== data.email);
                 }
 
-                // Lógica normal para los que siguen activos
                 const exists = prev.some((u) => u.email === data.email);
                 const sanitized = {
                     ...data,
@@ -39,6 +40,12 @@ export function useSocketPayload() {
                     ? prev.map((u) => (u.email === data.email ? { ...u, ...sanitized } : u))
                     : [...prev, sanitized];
             });
+        });
+
+        // Manejo explícito de trip_finished
+        socket.on("trip_finished", (data: Payload) => {
+            setTripStatus(data);
+            setPositions((prev) => prev.filter((u) => u.email !== data.pasajeroEmail));
         });
 
         socket.on("taxista_asignado", (data: Payload) => setTaxistaAsignado(data));
@@ -79,6 +86,7 @@ export function useSocketPayload() {
             socket.off("pasajero_asignado");
             socket.off("trip_cancelled_panel");
             socket.off("response_from_taxi");
+            socket.off("trip_finished");
             socket.off("end_trip");
         };
     }, []);
