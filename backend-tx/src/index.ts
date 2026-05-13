@@ -292,6 +292,12 @@ const dispatchWithRetry = async (
     { $set: { estado: "asignado", pasajeroAsignado: pEmail } }
   );
 
+  // 🚩 Nuevo: marcar al pasajero como preasignado
+  await Position.updateOne(
+    { email: pEmail },
+    { $set: { estado: "preasignado" } }
+  );
+
   const pCheck = await Position.findOne({ email: pEmail }).lean();
   console.log(`🔍 Estado pasajero ${pEmail} antes de oferta: ${pCheck?.estado}`);
 
@@ -750,7 +756,7 @@ io.on("connection", async (socket) => {
       const pPosActualizado = await Position.findOneAndUpdate(
         {
           email: pEmail,
-          estado: "buscando"
+          estado: { $in: ["buscando", "preasignado"] }
         },
         {
           $set: {
