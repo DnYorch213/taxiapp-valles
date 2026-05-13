@@ -540,6 +540,28 @@ io.on("connection", async (socket) => {
     }
   });
 
+  // 🚩 REHIDRATACIÓN DE VIAJE
+  socket.on("rehydrate_trip", async ({ pasajero, taxista }) => {
+    try {
+      const pPos = await Position.findOne({ email: pasajero });
+      const tPos = await Position.findOne({ email: taxista });
+
+      if (pPos && tPos && ["encamino", "encurso"].includes(pPos.estado)) {
+        socket.emit("assignment_confirmed", {
+          success: true,
+          pasajero: buildPayload(pPos, pPos, pPos.estado)
+        });
+
+        console.log(`🔄 Rehidratación exitosa: ${taxista} retomó viaje con ${pasajero}`);
+      } else {
+        console.log(`⚠️ No se encontró viaje activo para rehidratar: ${taxista} / ${pasajero}`);
+      }
+    } catch (err) {
+      console.error("❌ Error en rehidratación:", err);
+    }
+  });
+
+
   // --- 💬 SISTEMA DE CHAT PRIVADO ---
   socket.on("send_message", ({ toEmail, message, fromName }) => {
     if (!toEmail || !message) return;

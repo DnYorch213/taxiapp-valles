@@ -94,26 +94,17 @@ function abrirOEnfocarApp(targetPath) {
   const urlToOpen = new URL(targetPath, self.location.origin).href;
 
   return clients
-    .matchAll({
-      type: "window",
-      includeUncontrolled: true,
-    })
+    .matchAll({ type: "window", includeUncontrolled: true })
     .then((windowClients) => {
       for (let client of windowClients) {
-        const clientUrl = new URL(client.url);
-
-        if (clientUrl.origin === self.location.origin) {
-          // Si ya está en la ruta, foco. Si no, navega.
-          if (clientUrl.pathname.includes(targetPath) && "focus" in client) {
-            return client.focus();
-          }
-          if ("navigate" in client) {
-            client.navigate(urlToOpen);
-            return client.focus();
-          }
+        if (client.url === urlToOpen && "focus" in client) {
+          return client.focus();
+        }
+        if ("navigate" in client) {
+          client.navigate(urlToOpen);
+          return client.focus();
         }
       }
-      // Si no hay pestañas abiertas de nuestra app, abre una nueva
       if (clients.openWindow) {
         return clients.openWindow(urlToOpen);
       }

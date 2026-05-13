@@ -75,6 +75,19 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   const [vistaActual, setVistaActual] = useState('mapa'); // 'mapa' o 'historial'
   const [isAccepting, setIsAccepting] = useState(false);
 
+  // 🚩 REHIDRATACIÓN DESDE QUERY PARAMS
+useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  const pasajero = params.get("pasajero");
+  const taxista = params.get("taxista");
+
+  if (pasajero && taxista) {
+    console.log("🔄 Rehidratando viaje desde notificación:", pasajero, taxista);
+    socket.emit("rehydrate_trip", { pasajero, taxista });
+  }
+}, []);
+
+
   // --- 🔔 FUNCIÓN DE SUSCRIPCIÓN (SÁCADA DEL USEEFFECT) ---
   const gestionarSuscripcion = async () => {
     const userEmail = userPosition?.email || localStorage.getItem("email");
@@ -345,6 +358,15 @@ socket.on("trip_status_update", (data) => {
   }
 });
 
+    // 🚩 Listener de rehidratación
+  socket.on("rehydrate_trip_result", (data) => {
+    if (data.success) {
+      setEstado(data.estado); 
+      setPasajeroAsignado(data.pasajero);
+      toast.success("¡Viaje rehidratado con éxito!");
+    }
+  });
+
     socket.on("dispatch_timeout", () => {
       detenerSonido();
       setPasajeroAsignado(null);
@@ -389,6 +411,7 @@ socket.on("trip_status_update", (data) => {
       socket.off("assignment_confirmed");
       socket.off("trip_status_update");
       socket.off("dispatch_timeout");
+      socket.off("rehydrate_trip_result");
       socket.off("trip_cancelled_by_passenger");
       socket.off("trip_finished");
     };
