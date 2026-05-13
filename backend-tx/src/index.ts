@@ -746,36 +746,32 @@ io.on("connection", async (socket) => {
 
     // --- ✅ CASO: EL TAXISTA ACEPTA EL VIAJE ---
     try {
-      // 🛡️ EL CANDADO ATÓMICO: 
-      // Intentamos actualizar al PASAJERO solo si su estado sigue siendo "buscando"
+      // 🛡️ CANDADO ATÓMICO: solo si el pasajero sigue en "buscando"
       const pPosActualizado = await Position.findOneAndUpdate(
         {
           email: pEmail,
-          estado: "buscando" // 🚩 Solo si nadie más lo ha tomado
+          estado: "buscando"
         },
         {
           $set: {
-            estado: "asignado",
+            estado: "encamino", // 🚩 sincronizamos aquí
             taxistaAsignado: tEmail
           }
         },
-        { returnDocument: "after" } // Obtenemos los datos frescos si tuvo éxito
+        { returnDocument: "after" }
       );
 
-      // ❌ Si pPosActualizado es null, significa que ya no está "buscando" (perdiste la carrera)
       if (!pPosActualizado) {
         console.log(`🚫 LATE: El taxista ${tEmail} llegó tarde para el pasajero ${pEmail}`);
-
-        // Avisamos al taxista que ya se lo ganaron
         return socket.emit("trip_already_taken", {
           message: "¡Lo sentimos! Otro compañero aceptó este viaje primero."
         });
       }
 
-      // ✅ SI PASÓ EL CANDADO: Ahora vinculamos al taxista
+      // ✅ Vinculamos al taxista en el mismo estado
       await Position.updateOne(
         { email: tEmail },
-        { $set: { estado: "asignado", pasajeroAsignado: pEmail } }
+        { $set: { estado: "encamino", pasajeroAsignado: pEmail } }
       );
 
       const tPos = await Position.findOne({ email: tEmail });
@@ -783,13 +779,13 @@ io.on("connection", async (socket) => {
       // 3. Payload para el Pasajero
       const payloadParaPasajero = {
         accepted: true,
-        tEmail: tEmail,
+        tEmail,
         name: tPos?.name || "Conductor",
         taxiNumber: tPos?.taxiNumber || "S/N",
-        estado: "asignado",
+        estado: "encamino",
         lat: tPos?.lat,
         lng: tPos?.lng,
-        taxiData: buildPayload(tPos, tPos, "asignado")
+        taxiData: buildPayload(tPos, tPos, "encamino")
       };
 
       io.to(pEmail).emit("response_from_taxi", payloadParaPasajero);
@@ -797,12 +793,12 @@ io.on("connection", async (socket) => {
       // 4. Confirmación al Taxista ganador
       socket.emit("assignment_confirmed", {
         success: true,
-        pasajero: buildPayload(pPosActualizado, pPosActualizado, "asignado")
+        pasajero: buildPayload(pPosActualizado, pPosActualizado, "encamino")
       });
 
       // 5. Panel Administrativo
-      io.emit("panel_update", buildPayload(tPos, tPos, "asignado"));
-      io.emit("panel_update", buildPayload(pPosActualizado, pPosActualizado, "asignado"));
+      io.emit("panel_update", buildPayload(tPos, tPos, "encamino"));
+      io.emit("panel_update", buildPayload(pPosActualizado, pPosActualizado, "encamino"));
 
       console.log(`✅ Viaje vinculado EXCLUSIVAMENTE: ${tEmail} -> ${pEmail}`);
 
