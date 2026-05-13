@@ -778,7 +778,7 @@ io.on("connection", async (socket) => {
       const pPosActualizado = await Position.findOneAndUpdate(
         {
           email: pEmail,
-          estado: { $in: ["buscando", "preasignado"] }
+          estado: { $in: ["buscando", "preasignado", "encamino", "asignado"] }
         },
         {
           $set: {
