@@ -190,10 +190,14 @@ app.post("/api/accept-trip-push", async (req: Request, res: Response) => {
       clearTimeout(pendingTimeouts.get(tEmail)!);
       pendingTimeouts.delete(tEmail);
     }
+    if (pendingTimeouts.has(pEmail)) {
+      clearTimeout(pendingTimeouts.get(pEmail)!);
+      pendingTimeouts.delete(pEmail);
+    }
 
     // 2. Vincular en BD con estados consistentes
-    await Position.updateOne({ email: tEmail }, { $set: { estado: "encurso", pasajeroAsignado: pEmail } });
-    await Position.updateOne({ email: pEmail }, { $set: { estado: "encurso", taxistaAsignado: tEmail } });
+    await Position.updateOne({ email: tEmail }, { $set: { estado: "encamino", pasajeroAsignado: pEmail } });
+    await Position.updateOne({ email: pEmail }, { $set: { estado: "encamino", taxistaAsignado: tEmail } });
 
     const tPos = await Position.findOne({ email: tEmail });
     const pPos = await Position.findOne({ email: pEmail });
@@ -216,12 +220,13 @@ app.post("/api/accept-trip-push", async (req: Request, res: Response) => {
         name: pPos?.name || "Pasajero",
         pickupAddress: pPos?.pickupAddress || "Calculando ubicación...",
         destinationAddress: pPos?.destinationAddress || "Destino no especificado"
-      }
+      },
+      estado: "encamino"
     });
 
     // 5. Actualizar Panel Admin con payloads completos
-    io.emit("panel_update", buildPayload(tPos, tPos, "encurso", { pasajeroAsignado: pEmail }));
-    io.emit("panel_update", buildPayload(pPos, pPos, "encurso", { taxistaAsignado: tEmail }));
+    io.emit("panel_update", buildPayload(tPos, tPos, "encamino", { pasajeroAsignado: pEmail }));
+    io.emit("panel_update", buildPayload(pPos, pPos, "encamino", { taxistaAsignado: tEmail }));
 
     console.log(`✅ Viaje vinculado: ${tEmail} -> ${pEmail}`);
     res.status(200).json({ success: true });
@@ -774,12 +779,18 @@ io.on("connection", async (socket) => {
 
     // --- ✅ CASO: EL TAXISTA ACEPTA EL VIAJE ---
     try {
+      // 📊 Estado actual del pasajero justo al aceptar
+      const pEstadoActual = await Position.findOne({ email: pEmail });
+      console.log("📊 Estado pasajero justo al aceptar:", pEstadoActual?.estado);
+
       // 🛡️ CANDADO ATÓMICO: solo si el pasajero sigue en "buscando"
       const pPosActualizado = await Position.findOneAndUpdate(
         {
-          email: pEmail,
-          estado: { $in: ["buscando", "preasignado", "encamino", "asignado"] }
+          email: pEmail, estado: {
+            $in: ["buscando", "preasignado", "asignado", "encamino"]
+          }
         },
+
         {
           $set: {
             estado: "encamino", // 🚩 sincronizamos aquí
@@ -825,8 +836,8 @@ io.on("connection", async (socket) => {
       });
 
       // 5. Panel Administrativo
-      io.emit("panel_update", buildPayload(tPos, tPos, "encamino"));
-      io.emit("panel_update", buildPayload(pPosActualizado, pPosActualizado, "encamino"));
+      io.emit("panel_update", buildPayload(tPos, tPos, "encamino", { pasajeroAsignado: pEmail }));
+      io.emit("panel_update", buildPayload(pPosActualizado, pPosActualizado, "encamino", { taxistaAsignado: tEmail }));
 
       console.log(`✅ Viaje vinculado EXCLUSIVAMENTE: ${tEmail} -> ${pEmail}`);
 
