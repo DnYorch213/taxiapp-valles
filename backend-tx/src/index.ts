@@ -255,7 +255,7 @@ const dispatchWithRetry = async (
 
   if (attempt > MAX_RETRIES) {
     console.log(`❌ Límite alcanzado para ${pEmail}`);
-    await Position.updateOne({ email: pEmail }, { $set: { estado: "activo" } });
+    await Position.updateOne({ email: pEmail }, { $set: { estado: "cancelado" } });
     io.to(pEmail).emit("no_taxis_available", { message: "Sin unidades disponibles." });
     return;
   }
@@ -998,20 +998,28 @@ io.on("connection", async (socket) => {
       await nuevoHistorial.save();
       console.log(`📖 Historial guardado: ${tEmail} terminó viaje en ${direccionDestino}`);
 
-      // 4. ACTUALIZAR BD (Limpieza de estados activos)
-      // Usamos updateMany para poner a ambos en 'activo' y romper el vínculo
-      await Position.updateMany(
-        { email: { $in: [pEmail, tEmail] } },
+      // 4. ACTUALIZAR BD (Limpieza de estados)
+      await Position.updateOne(
+        { email: tEmail },
         {
           $set: {
-            estado: "activo",
+            estado: "activo", // taxista vuelve a estar disponible
+            pasajeroAsignado: null
+          }
+        }
+      );
+
+      await Position.updateOne(
+        { email: pEmail },
+        {
+          $set: {
+            estado: "cancelado", // pasajero queda cancelado
             taxistaAsignado: null,
-            pasajeroAsignado: null,
-            // Opcional: limpiar pickupAddress del pasajero para el siguiente viaje
             pickupAddress: null
           }
         }
       );
+
 
       // 5. REFRESH DE DATOS PARA EL PANEL (Refactorizado)
       // Buscamos los documentos ya actualizados para tener el "payload" limpio

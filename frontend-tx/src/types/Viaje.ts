@@ -6,7 +6,7 @@ export interface Viaje {
   pickupAddress: string;
   lat: number | null;
   lng: number | null;
-  estado: "pendiente" | "en camino" | "finalizado" | "cancelado" | "asignado" | "aceptado" | "rechazado" | "terminado" | "desconectado";
+  estado: "pendiente" | "encamino" | "finalizado" | "cancelado" | "asignado" | "aceptado" | "rechazado" | "terminado" | "desconectado";
   role: "pasajero" | "taxista" | "admin";
   timestamp?: string;      // opcional
 }
