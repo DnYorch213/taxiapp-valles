@@ -104,7 +104,7 @@ function buildPayload(user: any, pos: any, estado: string, extra: any = {}) {
     destinationAddress: extra.destinationAddress || pos?.destinationAddress || user?.destinationAddress || "Destino no especificado",
 
     // 🚩 Estado con prioridad clara
-    estado: estado ?? pos?.estado ?? "activo",
+    estado: estado ?? pos?.estado ?? "cancelado",
 
     timestamp: new Date().toISOString(),
     ...extra,
@@ -490,7 +490,7 @@ io.on("connection", async (socket) => {
 
     // 7. EMISIONES INICIALES (Mapa y Modo de Despacho)
     const allPositions = await Position.find();
-    socket.emit("positions", allPositions.map(p => buildPayload(p, p, p.estado || "activo")));
+    socket.emit("positions", allPositions.map(p => buildPayload(p, p, p.estado || (p.role === "taxista" ? "activo" : "buscando"))));
     socket.emit("dispatch_mode_changed", { auto: isAutoMode });
 
     // 8. 🚀 RECUPERACIÓN CRÍTICA (Rehidratación)
@@ -601,7 +601,9 @@ io.on("connection", async (socket) => {
             lat: data.lat,          // Solo latitud
             lng: data.lng,          // Solo longitud
             name: finalName,        // Nombre validado
-            estado: data.estado || currentDoc?.estado || "activo",
+            estado: data.estado
+              || currentDoc?.estado
+              || (data.role === "taxista" ? "activo" : "buscando"),
             updatedAt: new Date()   // Fecha de movimiento
             // 💡 NOTA: Al no poner 'pushSubscription' aquí, Mongo NO lo toca.
           }
@@ -1041,7 +1043,7 @@ io.on("connection", async (socket) => {
 
       // Avisar al Panel Admin con el objeto completo de buildPayload
       // Esto evita que el icono del taxi o pasajero desaparezca o se quede "congelado"
-      if (pUpdated) io.emit("panel_update", buildPayload(pUpdated, pUpdated, "activo"));
+      if (pUpdated) io.emit("panel_update", buildPayload(pUpdated, pUpdated, "finalizado"));
       if (tUpdated) io.emit("panel_update", buildPayload(tUpdated, tUpdated, "activo"));
 
       console.log(`✅ Viaje finalizado con éxito y panel actualizado.`);
