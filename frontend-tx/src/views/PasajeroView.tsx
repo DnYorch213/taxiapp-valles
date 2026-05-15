@@ -16,7 +16,7 @@ import RotatedMarker from "../components/RotatedMarker";
 const PasajeroView: React.FC = () => {
   const { userPosition, setUserPosition } = useTravel();
   const [taxiPos, setTaxiPos] = useState<{lat: number, lng: number, heading: number} | null>(null);
-  const [estado, setEstado] = useState<Payload['estado'] | "encamino" | "encurso" | "finalizado" | "buscando">("disponible");
+  const [estado, setEstado] = useState<Payload['estado'] | "encamino" | "encurso" | "finalizado" | "buscando">("activo");
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
   const [chatAbierto, setChatAbierto] = useState(false);
   
@@ -186,14 +186,14 @@ socket.on("response_from_taxi", (data) => {
       pasajeroEmail: userPosition?.email,
       taxistaEmail: taxistaAsignado?.email,
     });
-    setEstado("disponible");
+    setEstado("activo");
     setTaxistaAsignado(null);
     setTaxiPos(null);
     setHistorialRuta([]);
   };
 
   const resetearApp = () => {
-    setEstado("disponible");
+    setEstado("activo");
     setTaxistaAsignado(null);
     setTaxiPos(null);
     setHistorialRuta([]);
@@ -261,7 +261,7 @@ return (
         {/* Badge de estado flotante */}
         <div className="absolute top-4 right-4 z-[1000]">
           <div className={`px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all duration-500 ${
-            estado === 'disponible' 
+            estado === 'encurso' 
               ? 'bg-slate-800/80 text-slate-100 backdrop-blur-md' 
               : 'bg-[#22c55e] text-white animate-pulse'
           }`}>
@@ -290,7 +290,7 @@ return (
         <div className="mb-3">
           <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Servicio Valles</p>
           <h2 className="text-lg font-black text-slate-900 tracking-tighter leading-tight">
-            {estado === 'disponible' && "¿A dónde vamos hoy?"}
+            {estado === 'activo' && "¿A dónde vamos hoy?"}
             {estado === 'buscando' && "Buscando unidad..."}
             {(estado === 'asignado' || estado === 'encamino') && "Tu taxi viene en camino"}
             {estado === 'encurso' && "¡Buen viaje por Valles!"}
@@ -300,14 +300,14 @@ return (
         <div className="space-y-3">
           <button
             onClick={solicitarTaxi}
-            disabled={estado !== "disponible"} 
+            disabled={estado !== "activo"} 
             className={`w-full py-5 rounded-[1.2rem] font-black transition-all transform active:scale-95 shadow-xl tracking-widest text-xs ${
-              estado === "disponible"
+              estado === "activo"
                 ? "bg-[#22c55e] text-white shadow-green-900/20" 
                 : "bg-slate-800 text-slate-500 cursor-not-allowed opacity-50"
             }`}
           >
-            {estado === "disponible" ? "SOLICITAR TRANSPORTE" : "VIAJE ACTIVO"}
+            {estado === "activo" ? "SOLICITAR TRANSPORTE" : "VIAJE ACTIVO"}
           </button>
 
           {(estado === "buscando" || estado === "asignado" || estado === "encamino") && (

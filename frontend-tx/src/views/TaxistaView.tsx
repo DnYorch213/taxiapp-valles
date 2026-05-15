@@ -58,7 +58,7 @@ const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ durati
 
 const TaxistaView: React.FC = () => {
   const { userPosition, setUserPosition } = useTravel();
-  const [estado, setEstado] = useState<"disponible" | "asignado" | "encurso" | "encamino" | "finalizado">("disponible");
+  const [estado, setEstado] = useState<"activo" | "asignado" | "encurso" | "encamino" | "finalizado">("activo");
   const [viajeSolicitado, setViajeSolicitado] = useState<Payload | null>(null);
   const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(null);
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
@@ -331,7 +331,7 @@ const handleAsignacion = useCallback((data: any) => {
         // 2. IMPORTANTE: Limpiamos el estado para que la solicitud desaparezca
         // y el taxista pueda recibir nuevas alertas de inmediato.
         setViajeSolicitado(null); 
-        setEstado("disponible"); 
+        setEstado("activo"); // Volvemos a estado inicial para que pueda recibir nuevas ofertas
         
         // Si usas algún contador o sonido de alerta, deténlo aquí
     });
@@ -370,12 +370,12 @@ socket.on("trip_status_update", (data) => {
     socket.on("dispatch_timeout", () => {
       detenerSonido();
       setPasajeroAsignado(null);
-      setEstado("disponible");
+      setEstado("activo");
     });
     socket.on("trip_cancelled_by_passenger", () => {
       detenerSonido();
       setPasajeroAsignado(null);
-      setEstado("disponible");
+      setEstado("activo");
       setChatAbierto(false);
       setIsAccepting(false);
       setHistorialRuta([]); // Limpiar rastro
@@ -399,7 +399,7 @@ socket.on("trip_status_update", (data) => {
 
   // 3. 🕒 ESPERA DE CORTESÍA: Dejamos la info en pantalla 5 segundos
   setTimeout(() => {
-    setEstado("disponible");
+    setEstado("activo");
     setPasajeroAsignado(null);
   }, 5000); 
 });
@@ -477,7 +477,7 @@ const rechazarViaje = () => {
     excludedEmails 
   });
   setPasajeroAsignado(null);
-  setEstado("disponible");
+  setEstado("activo");
 };
 
 const confirmarAbordo = () => {
@@ -508,7 +508,7 @@ const finalizarViaje = () => {
   const pEmail = pasajeroAsignado?.email;
 
   if (!tEmail || !pEmail) {
-    setEstado("disponible");
+    setEstado("activo");
     setPasajeroAsignado(null);
     return;
   }
@@ -518,7 +518,7 @@ const finalizarViaje = () => {
     taxistaEmail: tEmail.toLowerCase().trim() 
   });
 
-  /* setEstado("disponible");
+  /* setEstado("activo");
   setPasajeroAsignado(null); */
   setHistorialRuta([]); 
   toast.info("Servicio finalizado");
@@ -658,7 +658,7 @@ return (
       {/* Badge de estado (Solo mostrar en el mapa) */}
       {vistaActual === 'mapa' && (
         <div className="absolute top-4 right-4 z-[1000] bg-[#1e293b]/90 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 flex items-center gap-3">
-          <div className={`h-2.5 w-2.5 rounded-full ${estado === "disponible" ? "bg-[#22c55e]" : "bg-orange-500 animate-ping"}`}></div>
+          <div className={`h-2.5 w-2.5 rounded-full ${estado === "activo" ? "bg-[#22c55e]" : "bg-orange-500 animate-ping"}`}></div>
           <span className="text-[11px] font-black text-white uppercase tracking-widest">{estado}</span>
         </div>
       )}

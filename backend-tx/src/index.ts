@@ -465,7 +465,7 @@ io.on("connection", async (socket) => {
 
     // 5. DETERMINAR ESTADO REAL
     const currentDoc = await Position.findOne({ email });
-    let nuevoEstado = "activo";
+    let nuevoEstado = role === "taxista" ? "activo" : "buscando";
 
     // Si soy taxista y tengo un viaje vinculado
     if (viajeActivo) {
@@ -704,19 +704,24 @@ io.on("connection", async (socket) => {
 
       // 🚩 CORRECCIÓN CRUCIAL:
       // Siempre guardamos al pasajero en estado "buscando"
-      await Position.updateOne(
+      const updatedP = await Position.findOneAndUpdate(
         { email: pEmail },
         {
           $set: {
-            estado: "buscando",   // 👈 clave para que el candado funcione
+            estado: "buscando",
             pickupAddress: direccionReal,
             lat: pasajeroData.lat,
             lng: pasajeroData.lng,
             updatedAt: new Date()
           }
         },
-        { upsert: true }
+        { upsert: true, returnDocument: "after" }
       );
+
+      if (updatedP) {
+        io.emit("panel_update", buildPayload(updatedP, updatedP, updatedP.estado));
+      }
+
 
       console.log(`🟢 Pasajero ${pEmail} guardado en estado BUSCANDO (${isAutoMode ? 'auto' : 'manual'})`);
 
@@ -789,9 +794,12 @@ io.on("connection", async (socket) => {
       const pPosActualizado = await Position.findOneAndUpdate(
         {
           email: pEmail, estado: {
-            $in: ["buscando", "preasignado", "asignado", "encamino"]
+            $in: ["buscando", "preasignado", "asignado", "encamino",
+              "encurso", "cancelado", "activo"]
+
           }
         },
+
 
         {
           $set: {
