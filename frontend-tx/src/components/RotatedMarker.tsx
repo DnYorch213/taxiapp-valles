@@ -17,8 +17,11 @@ const RotatedMarker = ({ rotationAngle = 0, ...props }: RotatedMarkerProps) => {
         // Aquí ocurre la magia: rotamos la imagen del taxi
         element.style.transformOrigin = "center";
         element.style.transition = "transform 0.3s ease"; // Para que gire suave
-        element.style.transform += ` rotate(${rotationAngle}deg)`;
-      }
+ // 🚩 Reemplazamos el transform completo
+      element.style.setProperty(
+        "transform",
+        `rotate(${rotationAngle}deg)`
+      );}
     }
   }, [rotationAngle]);
 
