@@ -844,6 +844,9 @@ io.on("connection", async (socket) => {
         success: true,
         pasajero: buildPayload(pPosActualizado, pPosActualizado, "encamino")
       });
+      // 🚩 Avisar a ambos que están en camino
+      io.to(tEmail).emit("trip_status_update", { estado: "encamino" });
+      io.to(pEmail).emit("trip_status_update", { estado: "encamino" });
 
       // 5. Panel Administrativo
       io.emit("panel_update", buildPayload(tPos, tPos, "encamino", { pasajeroAsignado: pEmail }));

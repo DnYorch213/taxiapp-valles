@@ -35,7 +35,7 @@
     display: none !important;
 }
 
-/* Estilo para que el giro no sea brusco */
-.taxi-orientado {
+.taxi-orientado img {
+  transform-origin: center center;
   transition: transform 0.5s ease-in-out;
 }

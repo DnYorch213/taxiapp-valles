@@ -10,20 +10,12 @@ export const pasajeroIcon = L.icon({
   shadowSize: [41, 41]
 });
 
-// 📍 Ícono del pasajero
-/* export const pasajeroIcon = L.icon({
-  iconUrl: "/icons/pasajero.png", // asegúrate de tener esta imagen en public/icons/
-  iconSize: [32, 32],
-  iconAnchor: [16, 32],
-  popupAnchor: [0, -32],
-  className: "leaflet-pasajero-icon",
-}); */
 
 // 🚖 Ícono del taxista
 export const taxistaIcon = L.icon({
   iconUrl: "/icons/taxista.png", // asegúrate de tener esta imagen en public/icons/
-  iconSize: [32, 32],
-  iconAnchor: [16, 32],
-  popupAnchor: [0, -32],
+  iconSize: [40, 40],
+  iconAnchor: [20, 20],
+  popupAnchor: [0, -20],
   className: "taxi-orientado",
 });
