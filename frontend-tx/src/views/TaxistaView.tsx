@@ -14,6 +14,7 @@ import { ChatBox } from "../components/ChatBox";
 import { HistorialViajes } from "../components/HistorialViajes";
 import { RoutingMachine } from "../components/RoutingMachine";
 import { taxistaIcon, pasajeroIcon } from "../utils/icons";
+import { useHeading } from "../hooks/useHeading";
 
 // --- UTILIDADES ---
 function urlBase64ToUint8Array(base64String: string) {
@@ -174,7 +175,7 @@ useGeolocation(
 
     // 1. Actualización local
     if (userPosition) {
-      setUserPosition({ ...userPosition, lat: pos.lat, lng: pos.lng, heading: pos.heading });
+      setUserPosition({ ...userPosition, lat: pos.lat, lng: pos.lng });
     }
 
     const estadoActual = estadoRef.current;
@@ -191,14 +192,12 @@ useGeolocation(
           pasajeroEmail: pasajeroAsignado?.email,
           lat: pos.lat,
           lng: pos.lng,
-          heading: pos.heading,
         });
       } else {
         // --- MODO APROXIMACIÓN (Asignado/EnCamino): Emitimos movimiento normal ---
         socket.emit("taxi_moved", {
           lat: pos.lat,
           lng: pos.lng,
-          heading: pos.heading,
           email: userPosition?.email || localStorage.getItem("email"),
           taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber"),
           role: "taxista"
@@ -641,7 +640,24 @@ return (
   />
 )}
             {estado === "encurso" && <Polyline positions={historialRuta} pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} />}
-            <RotatedMarker position={[userPosition.lat!, userPosition.lng!]} icon={taxistaIcon} rotationAngle={userPosition.heading || 0} />
+
+{/* 🚖 Aquí calculas el heading */}
+    {(() => {
+     const heading = useHeading(
+  { lat: userPosition.lat!, lng: userPosition.lng! },
+  geometriaRuta.length > 0 ? geometriaRuta[0] : null,   // siguiente punto
+  pasajeroAsignado ? { lat: pasajeroAsignado.lat!, lng: pasajeroAsignado.lng! } : null, // destino final
+  estado
+);
+
+      return (
+        <RotatedMarker
+          position={[userPosition.lat!, userPosition.lng!]}
+          icon={taxistaIcon}
+          rotationAngle={heading}
+        />
+      );
+    })()}            
             {pasajeroAsignado?.lat && estado !== "encurso" && <Marker position={[pasajeroAsignado.lat!, pasajeroAsignado.lng!]} icon={pasajeroIcon}/>}
           </MapContainer>
         ) : (

@@ -9,21 +9,26 @@ interface RotatedMarkerProps extends MarkerProps {
 const RotatedMarker = ({ rotationAngle = 0, ...props }: RotatedMarkerProps) => {
   const markerRef = useRef<L.Marker>(null);
 
-  useEffect(() => {
-    const marker = markerRef.current;
-    if (marker) {
-      const element = marker.getElement();
-      if (element) {
-        // Aquí ocurre la magia: rotamos la imagen del taxi
-        element.style.transformOrigin = "center";
-        element.style.transition = "transform 0.3s ease"; // Para que gire suave
- // 🚩 Reemplazamos el transform completo
-      element.style.setProperty(
-        "transform",
-        `rotate(${rotationAngle}deg)`
-      );}
+ useEffect(() => {
+  const marker = markerRef.current;
+  if (marker) {
+    const element = marker.getElement();
+    if (element) {
+      element.style.transformOrigin = "center";
+      element.style.transition = "transform 0.3s ease";
+
+      // 🚩 Tomamos el transform actual (que incluye translate)
+      const currentTransform = element.style.transform || "";
+
+      // 🚩 Eliminamos cualquier rotación previa
+      const baseTransform = currentTransform.replace(/rotate\([^)]*\)/, "").trim();
+
+      // 🚩 Aplicamos translate + nueva rotación
+      element.style.transform = `${baseTransform} rotate(${rotationAngle}deg)`;
     }
-  }, [rotationAngle]);
+  }
+}, [rotationAngle]);
+
 
   return <Marker ref={markerRef} {...props} />;
 };
