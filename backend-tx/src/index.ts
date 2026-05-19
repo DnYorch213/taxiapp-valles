@@ -460,7 +460,7 @@ io.on("connection", async (socket) => {
     const viajeActivo = await Position.findOne({
       role: "pasajero",
       taxistaAsignado: email,
-      estado: { $in: ["asignado", "encurso", "ocupado"] }
+      estado: { $in: ["asignado", "encurso", "encamino"] }
     });
 
     // 5. DETERMINAR ESTADO REAL
@@ -469,9 +469,12 @@ io.on("connection", async (socket) => {
 
     // Si soy taxista y tengo un viaje vinculado
     if (viajeActivo) {
-      nuevoEstado = (currentDoc?.estado === "encurso" || currentDoc?.estado === "ocupado")
-        ? currentDoc.estado
-        : "asignado";
+      nuevoEstado =
+        currentDoc?.estado === "encurso"
+          ? "encurso"
+          : currentDoc?.estado === "encamino"
+            ? "encamino"
+            : "asignado";
     }
 
 
@@ -626,7 +629,7 @@ io.on("connection", async (socket) => {
     // OJO: Tu consulta usa "Asignado", "EnCurso", "Ocupado" (Case sensitive)
     const pasajeroRelacionado = await Position.findOne({
       taxistaAsignado: email,
-      estado: { $in: ["asignado", "encurso", "ocupado", "encamino"] }
+      estado: { $in: ["asignado", "encurso", "encamino"] }
     });
 
     if (pasajeroRelacionado) {
@@ -634,13 +637,13 @@ io.on("connection", async (socket) => {
       io.to(pasajeroRelacionado.email).emit("taxi_moved", {
         lat: Number(lat),
         lng: Number(lng),
-        email: email,      // Enviamos ambos por seguridad
         tEmail: email,
-        taxiNumber: taxiNumber || pasajeroRelacionado.taxiNumber
+        taxiNumber: taxiNumber || pasajeroRelacionado.taxiNumber,
+        estado: pasajeroRelacionado.estado
       });
 
       // Log para que veas en la terminal si el puente se cruza
-      console.log(`📡 Movimiento enviado de Tx[${email}] a Psj[${pasajeroRelacionado.email}]`);
+      console.log(`📡 Movimiento Tx[${email}] → Psj[${pasajeroRelacionado.email}] (estado: ${pasajeroRelacionado.estado})`);
     }
   });
   // 🔄 REPRODUCIR ESTADO (Optimizado para Rehidratación y Notificaciones)
@@ -652,7 +655,7 @@ io.on("connection", async (socket) => {
         // Buscamos si este taxista tiene algún pasajero vinculado en cualquier estado activo
         const pasajero = await Position.findOne({
           taxistaAsignado: cleanEmail,
-          estado: { $in: ["asignado", "encurso", "ocupado", "encamino"] }
+          estado: { $in: ["asignado", "encurso", "encamino"] }
         });
 
         if (pasajero) {
