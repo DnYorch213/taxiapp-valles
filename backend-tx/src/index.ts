@@ -736,20 +736,14 @@ io.on("connection", async (socket) => {
       };
 
       if (isAutoMode) {
-        // 🚀 MOTOR AUTOMÁTICO: ahora sí se asigna desde "buscando"
+        // 🚀 MOTOR AUTOMÁTICO
         dispatchWithRetry(dataConDireccion, [], 1);
       } else {
-        // 📢 MODO MANUAL: el panel verá al pasajero en "buscando"
-        await Position.updateOne(
-          { email: pEmail },
-          { $set: { estado: "buscando" } }
-        );
-
-        const updatedP = await Position.findOne({ email: pEmail });
+        // 📢 MODO MANUAL
         io.emit("panel_update", buildPayload(updatedP, updatedP, "buscando"));
-
         console.log(`📢 Solicitud manual en Valles: ${pEmail} está en ${direccionReal}`);
       }
+
     } catch (error) {
       console.error("❌ Error en request_taxi:", error);
       socket.emit("error_message", "Hubo un error al solicitar el taxi. Intenta de nuevo.");
