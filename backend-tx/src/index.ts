@@ -1000,7 +1000,7 @@ io.on("connection", async (socket) => {
         { email: pEmail },
         {
           $set: {
-            estado: "cancelado", // pasajero queda cancelado
+            estado: "finalizado", // pasajero queda finalizado
             taxistaAsignado: null,
             pickupAddress: null
           }

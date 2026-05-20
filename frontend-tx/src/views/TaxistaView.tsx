@@ -64,7 +64,7 @@ const TaxistaView: React.FC = () => {
   const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(null);
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
   const [chatAbierto, setChatAbierto] = useState(false);
-  const [taxiPos, setTaxiPos] = useState<{ lat: number; lng: number; heading: number } | null>(null);
+  const [taxiPos, setTaxiPos] = useState<{ lat: number; lng: number; heading: number; taxiNumber?: string } | null>(null);
 
   // 🚩 ESTADO PARA EL RASTRO DEL VIAJE
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
@@ -174,16 +174,22 @@ useGeolocation(
   (pos) => {
     if (pos.lat === null || pos.lng === null) return;
 
-    setTaxiPos((prev) => {
-  if (pos.lat === null || pos.lng === null) return prev; // 🚩 no actualices si vienen nulos
+   setTaxiPos((prev) => {
+  if (pos.lat === null || pos.lng === null) return prev;
   const heading = calcularHeading(
     prev ? { lat: prev.lat, lng: prev.lng } : null,
     { lat: pos.lat, lng: pos.lng },
     pasajeroAsignado ? { lat: pasajeroAsignado.lat!, lng: pasajeroAsignado.lng! } : null,
     estado
   );
-  return { lat: pos.lat, lng: pos.lng, heading };
+  return {
+    lat: pos.lat,
+    lng: pos.lng,
+    heading,
+    taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "S/N"
+  };
 });
+
 
     // 1. Actualización local
     if (userPosition) {
@@ -677,7 +683,7 @@ return (
     icon={taxistaIcon} 
     rotationAngle={taxiPos.heading || 0} 
   >
-    <Popup>Unidad {userPosition?.taxiNumber}</Popup>
+    <Popup>Unidad {taxiPos.taxiNumber}</Popup>
   </RotatedMarker>
 )}
 
