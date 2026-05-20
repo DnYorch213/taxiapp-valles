@@ -427,12 +427,15 @@ socket.on("trip_status_update", (data) => {
     };
   }, [handleAsignacion, checkStatus, detenerSonido]);
 
-  useEffect(() => {
-  // Solo borramos línea si vamos HACIA el pasajero
+ useEffect(() => {
+  console.log("🔄 useEffect disparado");
+  console.log("👉 Estado actual:", estado);
+  console.log("👉 Longitud geometriaRuta:", geometriaRuta.length);
+  console.log("👉 userPosition:", userPosition?.lat, userPosition?.lng);
+
   if (userPosition && estado === "encamino" && geometriaRuta.length > 0) {
     const posTaxi = L.latLng(userPosition.lat!, userPosition.lng!);
-    
-    // Buscamos el punto de la ruta más cercano al taxi
+
     let indiceMasCercano = 0;
     let distanciaMinima = Infinity;
 
@@ -444,13 +447,19 @@ socket.on("trip_status_update", (data) => {
       }
     });
 
-    // 🚩 Si el taxi avanzó, borramos los puntos de atrás
-    // Usamos un margen de 15 metros para que sea fluido
+    console.log("👉 índice más cercano:", indiceMasCercano);
+    console.log("👉 distancia mínima:", distanciaMinima);
+
     if (indiceMasCercano > 0) {
+      console.log("✅ Avance detectado, borrando puntos hasta índice:", indiceMasCercano);
       setGeometriaRuta(prev => prev.slice(indiceMasCercano));
+    } else {
+      console.log("⚠️ No se detectó avance suficiente, no se borran puntos");
     }
+  } else {
+    console.log("⚠️ Condiciones no cumplidas: estado !== 'encamino' o geometriaRuta vacía");
   }
-}, [userPosition, estado]); // Se dispara cada que el taxi se mueve
+}, [userPosition, estado]);
 
  // --- ACCIONES DEL TAXISTA ---
 const aceptarViaje = () => {

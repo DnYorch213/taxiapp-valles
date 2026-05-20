@@ -756,60 +756,40 @@ io.on("connection", async (socket) => {
     }
   });
 
-
   socket.on("taxi_response", async ({ requestEmail, accepted, excludedEmails = [] }) => {
-    // 1. Normalización de emails (Seguridad industrial)
     const tEmailRaw = socket.handshake.auth?.email || socket.handshake.query?.email;
     const tEmail = tEmailRaw?.toLowerCase().trim();
     const pEmail = requestEmail?.toLowerCase().trim();
-
     if (!tEmail || !pEmail) return;
 
-    // 🛡️ Limpieza de timeouts
     if (pendingTimeouts.has(tEmail)) {
       clearTimeout(pendingTimeouts.get(tEmail)!);
       pendingTimeouts.delete(tEmail);
     }
 
-    // --- ❌ CASO: EL TAXISTA RECHAZA EL VIAJE ---
+    // --- ❌ RECHAZO ---
     if (!accepted) {
       await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
       const tPos = await Position.findOne({ email: tEmail });
       io.emit("panel_update", buildPayload(tPos, tPos, "activo"));
-
       io.to(pEmail).emit("taxi_rejected_request");
 
       const pData = await Position.findOne({ email: pEmail });
       if (pData) {
-        // Pasamos la lista negra actualizada al siguiente reintento
         dispatchWithRetry(pData, [...excludedEmails, tEmail], 1);
       }
       return;
     }
 
-    // --- ✅ CASO: EL TAXISTA ACEPTA EL VIAJE ---
+    // --- ✅ ACEPTACIÓN ---
     try {
-      // 📊 Estado actual del pasajero justo al aceptar
       const pEstadoActual = await Position.findOne({ email: pEmail });
       console.log("📊 Estado pasajero justo al aceptar:", pEstadoActual?.estado);
 
-      // 🛡️ CANDADO ATÓMICO: solo si el pasajero sigue en "buscando"
+      // 🚩 Candado más estricto: solo si estaba buscando o preasignado
       const pPosActualizado = await Position.findOneAndUpdate(
-        {
-          email: pEmail, estado: {
-            $in: ["buscando", "preasignado", "asignado", "encamino",
-              "encurso", "cancelado", "activo"]
-
-          }
-        },
-
-
-        {
-          $set: {
-            estado: "encamino", // 🚩 sincronizamos aquí
-            taxistaAsignado: tEmail
-          }
-        },
+        { email: pEmail, estado: { $in: ["buscando", "preasignado"] } },
+        { $set: { estado: "encamino", taxistaAsignado: tEmail } },
         { returnDocument: "after" }
       );
 
@@ -827,8 +807,8 @@ io.on("connection", async (socket) => {
       );
 
       const tPos = await Position.findOne({ email: tEmail });
+      console.log("📡 Estado taxista al aceptar:", tPos?.estado);
 
-      // 3. Payload para el Pasajero
       const payloadParaPasajero = {
         accepted: true,
         tEmail,
@@ -842,21 +822,18 @@ io.on("connection", async (socket) => {
 
       io.to(pEmail).emit("response_from_taxi", payloadParaPasajero);
 
-      // 4. Confirmación al Taxista ganador
       socket.emit("assignment_confirmed", {
         success: true,
         pasajero: buildPayload(pPosActualizado, pPosActualizado, "encamino")
       });
-      // 🚩 Avisar a ambos que están en camino
+
       io.to(tEmail).emit("trip_status_update", { estado: "encamino" });
       io.to(pEmail).emit("trip_status_update", { estado: "encamino" });
 
-      // 5. Panel Administrativo
       io.emit("panel_update", buildPayload(tPos, tPos, "encamino", { pasajeroAsignado: pEmail }));
       io.emit("panel_update", buildPayload(pPosActualizado, pPosActualizado, "encamino", { taxistaAsignado: tEmail }));
 
       console.log(`✅ Viaje vinculado EXCLUSIVAMENTE: ${tEmail} -> ${pEmail}`);
-
     } catch (error) {
       console.error("❌ Error en la vinculación del viaje:", error);
       socket.emit("error_message", "Hubo un error al procesar el viaje.");
