@@ -632,7 +632,12 @@ return (
       {vistaActual === 'mapa' ? (
         /* VISTA DEL MAPA (Tu código actual) */
         userPosition?.lat ? (
-          <MapContainer center={[userPosition.lat!, userPosition.lng!]} zoom={15} className="h-full w-full" zoomControl={false}>
+<MapContainer 
+  center={taxiPos ? [taxiPos.lat, taxiPos.lng] : [userPosition.lat!, userPosition.lng!]} 
+  zoom={15} 
+  className="h-full w-full" 
+  zoomControl={false}
+>
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
            {/* --- DENTRO DEL MAPA --- */}
 

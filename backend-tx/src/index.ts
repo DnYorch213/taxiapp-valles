@@ -629,7 +629,7 @@ io.on("connection", async (socket) => {
     // OJO: Tu consulta usa "Asignado", "EnCurso", "Ocupado" (Case sensitive)
     const pasajeroRelacionado = await Position.findOne({
       taxistaAsignado: email,
-      estado: { $in: ["asignado", "encurso", "encamino"] }
+      estado: { $in: ["encurso", "encamino"] }
     });
 
     if (pasajeroRelacionado) {
