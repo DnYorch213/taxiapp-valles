@@ -12,10 +12,11 @@ import "leaflet/dist/leaflet.css";
 import { RoutingMachine } from "../components/RoutingMachine";
 import { taxistaIcon, pasajeroIcon } from "../utils/icons";
 import RotatedMarker from "../components/RotatedMarker";
+import { calcularHeading } from "../utils/heading"; // Función para calcular el heading entre dos puntos
 
 const PasajeroView: React.FC = () => {
   const { userPosition, setUserPosition } = useTravel();
-  const [taxiPos, setTaxiPos] = useState<{lat: number, lng: number, heading: number} | null>(null);
+const [taxiPos, setTaxiPos] = useState<{ lat: number; lng: number; heading: number } | null>(null);
   const [estado, setEstado] = useState<Payload['estado'] | "encamino" | "encurso" | "finalizado" | "buscando">("activo");
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
   const [chatAbierto, setChatAbierto] = useState(false);
@@ -39,7 +40,7 @@ useEffect(() => {
     },
     (pos) => {
       if (pos.lat && pos.lng) {
-        setUserPosition({ ...userPosition, lat: pos.lat, lng: pos.lng, heading: pos.heading } as any);
+        setUserPosition({ ...userPosition, lat: pos.lat, lng: pos.lng } as any);
       }
     }
   );
@@ -81,7 +82,7 @@ socket.on("response_from_taxi", (data) => {
 
       // Seteamos la posición para el marcador del mapa
       if (data.lat && data.lng) {
-        setTaxiPos({ lat: data.lat, lng: data.lng, heading: data.heading });
+        setTaxiPos({ lat: data.lat, lng: data.lng, heading: 0 });
       }
 
       toast.success(`¡La Unidad ${data.taxiNumber} (${data.name}) va en camino!`, {
@@ -91,22 +92,28 @@ socket.on("response_from_taxi", (data) => {
     }, 100);
   }
 });
-   // MOVIMIENTO DEL TAXI antes de abordar (Usando la Ref para comparar)
-    socket.on("taxi_moved", (data: any) => {
-      // 🚩 Aquí usamos la Ref.current para el valor más fresco
-      const emailAsignado = taxistaAsignadoRef.current?.email?.toLowerCase().trim();
-      const emailEntrante = (data.tEmail || data.email || data.taxistaEmail)?.toLowerCase().trim();
+   socket.on("taxi_moved", (data: any) => {
+  const emailAsignado = taxistaAsignadoRef.current?.email?.toLowerCase().trim();
+  const emailEntrante = (data.tEmail || data.email || data.taxistaEmail)?.toLowerCase().trim();
 
-      if (emailAsignado && emailEntrante === emailAsignado) {
-        setTaxiPos({ lat: data.lat, lng: data.lng, heading: data.heading });
-      }
+  if (emailAsignado && emailEntrante === emailAsignado) {
+    setTaxiPos((prev) => {
+      const heading = calcularHeading(
+        prev ? { lat: prev.lat, lng: prev.lng } : null,
+        { lat: data.lat, lng: data.lng },
+        userPosition ? { lat: userPosition.lat!, lng: userPosition.lng! } : null,
+        estado
+      );
+      return { lat: data.lat, lng: data.lng, heading };
     });
+  }
+});
 
     // 🚩 RASTRO EN VIVO (Cuando el pasajero ya está a bordo)
-    socket.on("update_trip_path", (data: { lat: number, lng: number, heading: number }) => {
+    socket.on("update_trip_path", (data: { lat: number, lng: number }) => {
       setHistorialRuta((prev) => [...prev, [data.lat, data.lng]]);
       // También actualizamos la posición del taxi para que el marcador se mueva con la línea
-      setTaxiPos({ lat: data.lat, lng: data.lng, heading: data.heading });
+      setTaxiPos({ lat: data.lat, lng: data.lng, heading: 0 });
     });
 
     // INICIO DE VIAJE (CONFIRMAR ABORDO)
@@ -118,6 +125,14 @@ socket.on("response_from_taxi", (data) => {
         if (taxiPos) setHistorialRuta([[taxiPos.lat, taxiPos.lng]]);
         toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
       }
+      if (data.estado === "finalizado") {
+    setEstado("finalizado");
+    setHistorialRuta([]);
+    setTaxistaAsignado(null);
+    setTaxiPos(null);
+    setChatAbierto(false);
+    toast.success("¡Viaje finalizado!");
+  }
     });
 
     socket.on("trip_finished", (data: { pasajeroEmail: string }) => {
@@ -232,11 +247,16 @@ return (
             {estado !== "encurso" && (
               <Marker position={[userPosition.lat, userPosition.lng]} icon={pasajeroIcon} />
             )}
-            {taxiPos && (estado === "asignado" || estado === "encamino" || estado === "encurso") && (
-              <RotatedMarker position={[taxiPos.lat, taxiPos.lng]} icon={taxistaIcon} rotationAngle={taxiPos.heading || 0}>
-                <Popup>Unidad {taxistaAsignado?.taxiNumber}</Popup>
-              </RotatedMarker>
-            )}
+           {taxiPos && (estado === "asignado" || estado === "encamino" || estado === "encurso") && (
+  <RotatedMarker 
+    position={[taxiPos.lat, taxiPos.lng]} 
+    icon={taxistaIcon} 
+    rotationAngle={taxiPos.heading || 0} // 🚩 aquí aplicamos la rotación
+  >
+    <Popup>Unidad {taxistaAsignado?.taxiNumber}</Popup>
+  </RotatedMarker>
+)}
+
             {taxiPos && (estado === "asignado" || estado === "encamino") && (
               <RoutingMachine 
                 waypoints={[

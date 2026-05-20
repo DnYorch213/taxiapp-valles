@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { MapContainer, TileLayer, Marker, Polyline } from "react-leaflet"; // 🚩 Importamos Polyline
+import { MapContainer, TileLayer, Marker, Polyline, Popup } from "react-leaflet"; // 🚩 Importamos Polyline
 import { toast, ToastContainer } from "react-toastify";
 import L from 'leaflet';
 import axios, { head } from "axios";
@@ -14,7 +14,7 @@ import { ChatBox } from "../components/ChatBox";
 import { HistorialViajes } from "../components/HistorialViajes";
 import { RoutingMachine } from "../components/RoutingMachine";
 import { taxistaIcon, pasajeroIcon } from "../utils/icons";
-import { useHeading } from "../hooks/useHeading";
+import { calcularHeading } from "../utils/heading"; // Función para calcular el heading entre dos puntos
 
 // --- UTILIDADES ---
 function urlBase64ToUint8Array(base64String: string) {
@@ -64,7 +64,8 @@ const TaxistaView: React.FC = () => {
   const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(null);
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
   const [chatAbierto, setChatAbierto] = useState(false);
-  
+  const [taxiPos, setTaxiPos] = useState<{ lat: number; lng: number; heading: number } | null>(null);
+
   // 🚩 ESTADO PARA EL RASTRO DEL VIAJE
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
   // 🚩 ESTADO PARA LA LÍNEA QUE SE VA BORRANDO (Hacia el pasajero)
@@ -173,6 +174,17 @@ useGeolocation(
   (pos) => {
     if (pos.lat === null || pos.lng === null) return;
 
+    setTaxiPos((prev) => {
+  if (pos.lat === null || pos.lng === null) return prev; // 🚩 no actualices si vienen nulos
+  const heading = calcularHeading(
+    prev ? { lat: prev.lat, lng: prev.lng } : null,
+    { lat: pos.lat, lng: pos.lng },
+    pasajeroAsignado ? { lat: pasajeroAsignado.lat!, lng: pasajeroAsignado.lng! } : null,
+    estado
+  );
+  return { lat: pos.lat, lng: pos.lng, heading };
+});
+
     // 1. Actualización local
     if (userPosition) {
       setUserPosition({ ...userPosition, lat: pos.lat, lng: pos.lng });
@@ -266,28 +278,27 @@ const handleAsignacion = useCallback((data: any) => {
       setEstado("asignado"); 
       reproducirAlerta();
     } 
-    else if (estadoServidor === "encurso" || estadoServidor === "ocupado") {
-      /**
-       * CASO B: Viaje ya iniciado
-       */
-      setEstado("encurso");
-      detenerSonido();
-    } 
-    else if (estadoServidor === "asignado") {
-      /**
-       * CASO C: Reconexión (El taxista ya había aceptado previamente)
-       * Como no es 'isNewOffer', lo mandamos directo a la vista de navegación.
-       */
-      setEstado("encamino"); 
-      detenerSonido();
-    } 
-    else {
-      /**
-       * CASO D: Backup de seguridad
-       */
-      setEstado("asignado"); 
-      reproducirAlerta();
-    }
+   else if (estadoServidor === "encurso") {
+  // CASO B: Viaje ya iniciado
+  setEstado("encurso");
+  detenerSonido();
+} 
+else if (estadoServidor === "encamino") {
+  // CASO C: Taxista en camino al pasajero
+  setEstado("encamino");
+  detenerSonido();
+} 
+else if (estadoServidor === "asignado") {
+  // CASO D: Reconexión (ya aceptó pero aún no se mueve)
+  setEstado("asignado");
+  detenerSonido();
+} 
+else {
+  // Backup de seguridad
+  setEstado("asignado"); 
+  reproducirAlerta();
+}
+
   }, 10);
 }, [detenerSonido, reproducirAlerta]);
 
@@ -639,25 +650,24 @@ return (
     }} 
   />
 )}
-            {estado === "encurso" && <Polyline positions={historialRuta} pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} />}
+   {estado === "encurso" && (
+  <Polyline 
+    positions={historialRuta} 
+    pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} 
+  />
+)}
 
-{/* 🚖 Aquí calculas el heading */}
-    {(() => {
-     const heading = useHeading(
-  { lat: userPosition.lat!, lng: userPosition.lng! },
-  geometriaRuta.length > 0 ? geometriaRuta[0] : null,   // siguiente punto
-  pasajeroAsignado ? { lat: pasajeroAsignado.lat!, lng: pasajeroAsignado.lng! } : null, // destino final
-  estado
-);
+{taxiPos && (
+  <RotatedMarker 
+    position={[taxiPos.lat, taxiPos.lng]} 
+    icon={taxistaIcon} 
+    rotationAngle={taxiPos.heading || 0} 
+  >
+    <Popup>Unidad {userPosition?.taxiNumber}</Popup>
+  </RotatedMarker>
+)}
 
-      return (
-        <RotatedMarker
-          position={[userPosition.lat!, userPosition.lng!]}
-          icon={taxistaIcon}
-          rotationAngle={heading}
-        />
-      );
-    })()}            
+            
             {pasajeroAsignado?.lat && estado !== "encurso" && <Marker position={[pasajeroAsignado.lat!, pasajeroAsignado.lng!]} icon={pasajeroIcon}/>}
           </MapContainer>
         ) : (
