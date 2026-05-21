@@ -791,6 +791,7 @@ io.on("connection", async (socket) => {
         { $set: { estado: "encamino", taxistaAsignado: tEmail } },
         { returnDocument: "after" }
       );
+      console.log("📊 Estado pasajero actualizado:", pPosActualizado?.estado);
 
       if (!pPosActualizado) {
         console.log(`🚫 LATE: El taxista ${tEmail} llegó tarde para el pasajero ${pEmail}`);
