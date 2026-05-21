@@ -3,6 +3,7 @@ import { Rol } from "./Positions";
 
 // Definimos los estados como un tipo aparte para poder reutilizarlo
 export type ViajeEstado =
+    | "pendiente"
     | "buscando"
     | "preasignado"
     | "asignado"

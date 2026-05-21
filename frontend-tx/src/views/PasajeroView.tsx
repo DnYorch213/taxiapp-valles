@@ -16,7 +16,7 @@ import { calcularHeading } from "../utils/heading"; // Función para calcular el
 
 const PasajeroView: React.FC = () => {
   const { userPosition, setUserPosition, taxiPos, setTaxiPos } = useTravel();
-  const [estado, setEstado] = useState<Payload['estado'] | "encamino" | "encurso" | "finalizado" | "buscando">("buscando");
+  const [estado, setEstado] = useState<Payload['estado'] | "encamino" | "pendiente" | "encurso" | "finalizado" | "buscando">("pendiente");
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
   const [chatAbierto, setChatAbierto] = useState(false);
   
@@ -200,14 +200,14 @@ socket.on("response_from_taxi", (data) => {
       pasajeroEmail: userPosition?.email,
       taxistaEmail: taxistaAsignado?.email,
     });
-    setEstado("buscando");
+    setEstado("pendiente");
     setTaxistaAsignado(null);
     setTaxiPos(null);
     setHistorialRuta([]);
   };
 
   const resetearApp = () => {
-    setEstado("buscando");
+    setEstado("pendiente");
     setTaxistaAsignado(null);
     setTaxiPos(null);
     setHistorialRuta([]);
@@ -317,7 +317,7 @@ return (
         <div className="mb-3">
           <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Servicio Valles</p>
           <h2 className="text-lg font-black text-slate-900 tracking-tighter leading-tight">
-            {estado === 'activo' && "¿A dónde vamos hoy?"}
+            {estado === 'pendiente' && "¿A dónde vamos hoy?"}
             {estado === 'buscando' && "Buscando unidad..."}
             {(estado === 'asignado' || estado === 'encamino') && "Tu taxi viene en camino"}
             {estado === 'encurso' && "¡Buen viaje por Valles!"}
@@ -327,14 +327,14 @@ return (
         <div className="space-y-3">
           <button
             onClick={solicitarTaxi}
-            disabled={estado !== "activo"} 
+            disabled={estado !== "pendiente"} 
             className={`w-full py-5 rounded-[1.2rem] font-black transition-all transform active:scale-95 shadow-xl tracking-widest text-xs ${
-              estado === "activo"
+              estado === "pendiente"
                 ? "bg-[#22c55e] text-white shadow-green-900/20" 
                 : "bg-slate-800 text-slate-500 cursor-not-allowed opacity-50"
             }`}
           >
-            {estado === "activo" ? "SOLICITAR TRANSPORTE" : "VIAJE ACTIVO"}
+            {estado === "pendiente" ? "SOLICITAR TRANSPORTE" : "VIAJE ACTIVO"}
           </button>
 
           {(estado === "buscando" || estado === "asignado" || estado === "encamino") && (
