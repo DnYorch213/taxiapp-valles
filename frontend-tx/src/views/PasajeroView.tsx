@@ -15,9 +15,8 @@ import RotatedMarker from "../components/RotatedMarker";
 import { calcularHeading } from "../utils/heading"; // Función para calcular el heading entre dos puntos
 
 const PasajeroView: React.FC = () => {
-  const { userPosition, setUserPosition } = useTravel();
-const [taxiPos, setTaxiPos] = useState<{ lat: number; lng: number; heading: number } | null>(null);
-  const [estado, setEstado] = useState<Payload['estado'] | "encamino" | "encurso" | "finalizado" | "buscando">("activo");
+  const { userPosition, setUserPosition, taxiPos, setTaxiPos } = useTravel();
+  const [estado, setEstado] = useState<Payload['estado'] | "encamino" | "encurso" | "finalizado" | "buscando">("buscando");
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
   const [chatAbierto, setChatAbierto] = useState(false);
   
@@ -126,7 +125,7 @@ socket.on("response_from_taxi", (data) => {
         toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
       }
       if (data.estado === "finalizado") {
-    setEstado("finalizado");
+    setEstado("buscando");
     setHistorialRuta([]);
     setTaxistaAsignado(null);
     setTaxiPos(null);
@@ -140,7 +139,7 @@ socket.on("response_from_taxi", (data) => {
       const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
 
       if (emailRecibido === miEmail || !data.pasajeroEmail) { 
-        setEstado("finalizado"); 
+        setEstado("buscando"); 
         setTaxistaAsignado(null);
         setTaxiPos(null);
         setHistorialRuta([]); // Limpiar rastro
@@ -201,14 +200,14 @@ socket.on("response_from_taxi", (data) => {
       pasajeroEmail: userPosition?.email,
       taxistaEmail: taxistaAsignado?.email,
     });
-    setEstado("activo");
+    setEstado("buscando");
     setTaxistaAsignado(null);
     setTaxiPos(null);
     setHistorialRuta([]);
   };
 
   const resetearApp = () => {
-    setEstado("activo");
+    setEstado("buscando");
     setTaxistaAsignado(null);
     setTaxiPos(null);
     setHistorialRuta([]);
@@ -238,40 +237,48 @@ return (
       <div className="flex-1 min-h-[200px] w-full relative bg-slate-100">
         {userPosition?.lat && userPosition?.lng ? (
           <MapContainer
-            center={[userPosition.lat, userPosition.lng]}
-            zoom={15}
-            className="h-full w-full"
-            zoomControl={false}
-          >
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-            {estado !== "encurso" && (
-              <Marker position={[userPosition.lat, userPosition.lng]} icon={pasajeroIcon} />
-            )}
-           {taxiPos && (estado === "asignado" || estado === "encamino" || estado === "encurso") && (
-  <RotatedMarker 
-    position={[taxiPos.lat, taxiPos.lng]} 
-    icon={taxistaIcon} 
-    rotationAngle={taxiPos.heading || 0} // 🚩 aquí aplicamos la rotación
-  >
-    <Popup>Unidad {taxistaAsignado?.taxiNumber}</Popup>
-  </RotatedMarker>
-)}
+  center={[userPosition.lat, userPosition.lng]} // 🚩 pasajero centrado en su ubicación
+  zoom={15}
+  className="h-full w-full"
+  zoomControl={false}
+>
+  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-            {taxiPos && (estado === "asignado" || estado === "encamino") && (
-              <RoutingMachine 
-                waypoints={[
-                  L.latLng(taxiPos.lat, taxiPos.lng),
-                  L.latLng(userPosition.lat, userPosition.lng)
-                ]} 
-              />
-            )}
-            {estado === "encurso" && historialRuta.length > 0 && (
-              <Polyline 
-                positions={historialRuta} 
-                pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} 
-              />
-            )}
-          </MapContainer>
+  {/* marcador del pasajero */}
+  {estado !== "encurso" && (
+    <Marker position={[userPosition.lat, userPosition.lng]} icon={pasajeroIcon} />
+  )}
+
+  {/* marcador del taxi */}
+  {taxiPos && (estado === "asignado" || estado === "encamino" || estado === "encurso") && (
+    <RotatedMarker 
+      position={[taxiPos.lat, taxiPos.lng]} 
+      icon={taxistaIcon} 
+      rotationAngle={taxiPos.heading || 0}
+    >
+      <Popup>Unidad {taxistaAsignado?.taxiNumber}</Popup>
+    </RotatedMarker>
+  )}
+
+  {/* ruta taxi → pasajero */}
+  {taxiPos && (estado === "asignado" || estado === "encamino") && (
+    <RoutingMachine 
+      waypoints={[
+        L.latLng(taxiPos.lat, taxiPos.lng),
+        L.latLng(userPosition.lat, userPosition.lng)
+      ]} 
+    />
+  )}
+
+  {/* rastro del viaje */}
+  {estado === "encurso" && historialRuta.length > 0 && (
+    <Polyline 
+      positions={historialRuta} 
+      pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} 
+    />
+  )}
+</MapContainer>
+
         ) : (
           <div className="flex items-center justify-center h-full text-slate-400 font-black text-[10px] uppercase tracking-widest animate-pulse">
             Buscando tu ubicación...

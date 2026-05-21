@@ -58,13 +58,12 @@ const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ durati
 };
 
 const TaxistaView: React.FC = () => {
-  const { userPosition, setUserPosition } = useTravel();
+  const { userPosition, taxiPos, setTaxiPos } = useTravel();
   const [estado, setEstado] = useState<"activo" | "asignado" | "encurso" | "encamino" | "finalizado">("activo");
   const [viajeSolicitado, setViajeSolicitado] = useState<Payload | null>(null);
   const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(null);
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
   const [chatAbierto, setChatAbierto] = useState(false);
-  const [taxiPos, setTaxiPos] = useState<{ lat: number; lng: number; heading: number; taxiNumber?: string } | null>(null);
 
   // 🚩 ESTADO PARA EL RASTRO DEL VIAJE
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
@@ -188,13 +187,7 @@ useGeolocation(
     heading,
     taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "S/N"
   };
-});
-
-
-    // 1. Actualización local
-    if (userPosition) {
-      setUserPosition({ ...userPosition, lat: pos.lat, lng: pos.lng });
-    }
+});   
 
     const estadoActual = estadoRef.current;
     
@@ -206,21 +199,21 @@ useGeolocation(
         const nuevaCoord: L.LatLngExpression = [pos.lat, pos.lng];
         setHistorialRuta((prev) => [...prev, nuevaCoord]);
         
-        socket.emit("update_trip_path", {
-          pasajeroEmail: pasajeroAsignado?.email,
-          lat: pos.lat,
-          lng: pos.lng,
-        });
-      } else {
-        // --- MODO APROXIMACIÓN (Asignado/EnCamino): Emitimos movimiento normal ---
-        socket.emit("taxi_moved", {
-          lat: pos.lat,
-          lng: pos.lng,
-          email: userPosition?.email || localStorage.getItem("email"),
-          taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber"),
-          role: "taxista"
-        });
-      }
+       socket.emit("update_trip_path", {
+  pasajeroEmail: pasajeroAsignado?.email,
+  lat: pos.lat,
+  lng: pos.lng,
+});
+} else {
+  // --- MODO APROXIMACIÓN (Asignado/EnCamino): Emitimos movimiento normal ---
+  socket.emit("taxi_moved", {
+    lat: taxiPos?.lat || pos.lat,
+    lng: taxiPos?.lng || pos.lng,
+    email: userPosition?.email || localStorage.getItem("email"),
+    taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber"),
+    role: "taxista"
+  });
+}
     }
   }
 );
@@ -437,10 +430,10 @@ socket.on("trip_status_update", (data) => {
   console.log("🔄 useEffect disparado");
   console.log("👉 Estado actual:", estado);
   console.log("👉 Longitud geometriaRuta:", geometriaRuta.length);
-  console.log("👉 userPosition:", userPosition?.lat, userPosition?.lng);
+  console.log("👉 taxiPos:", taxiPos?.lat, taxiPos?.lng);
 
-  if (userPosition && estado === "encamino" && geometriaRuta.length > 0) {
-    const posTaxi = L.latLng(userPosition.lat!, userPosition.lng!);
+  if (taxiPos && estado === "encamino" && geometriaRuta.length > 0) {
+    const posTaxi = L.latLng(taxiPos.lat!, taxiPos.lng!);
 
     let indiceMasCercano = 0;
     let distanciaMinima = Infinity;
@@ -465,7 +458,8 @@ socket.on("trip_status_update", (data) => {
   } else {
     console.log("⚠️ Condiciones no cumplidas: estado !== 'encamino' o geometriaRuta vacía");
   }
-}, [userPosition, estado]);
+}, [taxiPos, estado]); // 🚩 ahora dependemos de taxiPos
+
 
  // --- ACCIONES DEL TAXISTA ---
 const aceptarViaje = () => {
@@ -523,9 +517,10 @@ const confirmarAbordo = () => {
   setChatAbierto(false);
   setGeometriaRuta([]); // Limpiamos la ruta de aproximación
   
-  if (userPosition?.lat) {
-    setHistorialRuta([[userPosition.lat!, userPosition.lng!]]);
-  }
+  if (taxiPos?.lat && taxiPos?.lng) {
+  setHistorialRuta([[taxiPos.lat, taxiPos.lng]]);
+}
+
 };
 
 const finalizarViaje = () => {
@@ -625,7 +620,7 @@ return (
 
   {/* INDICADOR DE ESTADO (Lado derecho) */}
   <div className="flex items-center gap-2 bg-[#1e293b] px-3 py-1 rounded-full border border-white/5">
-    <div className={`h-1.5 w-1.5 rounded-full ${userPosition?.lat ? 'bg-[#22c55e]' : 'bg-red-500 animate-ping'}`}></div>
+  <div className={`h-1.5 w-1.5 rounded-full ${taxiPos?.lat && taxiPos?.lng ? 'bg-[#22c55e]' : 'bg-red-500 animate-ping'}`}></div>
     <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
       ECO-{user.taxiNumber}
     </span>
@@ -637,26 +632,27 @@ return (
     <main className="flex-1 w-full relative bg-[#1e293b] overflow-hidden">
       {vistaActual === 'mapa' ? (
         /* VISTA DEL MAPA (Tu código actual) */
-        userPosition?.lat ? (
-<MapContainer 
-  center={taxiPos ? [taxiPos.lat, taxiPos.lng] : [userPosition.lat!, userPosition.lng!]} 
-  zoom={15} 
-  className="h-full w-full" 
-  zoomControl={false}
->
+       taxiPos?.lat ? (
+  <MapContainer 
+    center={[taxiPos.lat, taxiPos.lng]} 
+    zoom={15} 
+    className="h-full w-full" 
+    zoomControl={false}
+  >
+
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
            {/* --- DENTRO DEL MAPA --- */}
 
-{/* 1. La RoutingMachine: Solo para CALCULAR la ruta inicial */}
-{estado === "encamino" && pasajeroAsignado?.lat && userPosition?.lat && userPosition?.lng && pasajeroAsignado?.lng && geometriaRuta.length === 0 && (
+{estado === "encamino" && pasajeroAsignado?.lat && taxiPos?.lat && taxiPos?.lng && pasajeroAsignado?.lng && geometriaRuta.length === 0 && (
   <RoutingMachine 
     waypoints={[
-      L.latLng(userPosition.lat!, userPosition.lng!), 
+      L.latLng(taxiPos.lat!, taxiPos.lng!), 
       L.latLng(pasajeroAsignado.lat!, pasajeroAsignado.lng!)
     ]} 
     onRouteFound={(coords: L.LatLng[]) => setGeometriaRuta(coords)} 
   />
 )}
+
 
 {/* 2. La Polyline: Es la que el taxista ve y la que se va "borrando" */}
 {estado === "encamino" && geometriaRuta.length > 0 && (
@@ -820,7 +816,7 @@ return (
       )}
     </div>
   </div>
-);
+ );
 };
 
 export default TaxistaView;

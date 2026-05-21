@@ -15,7 +15,8 @@ interface TravelContextType {
   setTaxistasActivos: (taxistas: Position[]) => void;
   pasajerosActivos: Position[];
   setPasajerosActivos: (pasajeros: Position[]) => void;
-  logout: () => void;
+  taxiPos: { lat: number; lng: number; heading?: number; taxiNumber?: string } | null;
+  setTaxiPos: React.Dispatch<React.SetStateAction<{ lat: number; lng: number; heading?: number; taxiNumber?: string } | null>>;  logout: () => void;
 }
 
 interface DecodedToken extends JwtPayload {
@@ -47,8 +48,8 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return {
           email: decoded.email,
           name: decoded.name || "Usuario",
-          lat: 0,
-          lng: 0,
+          lat: null,
+          lng: null,
           role: decoded.role,
           taxiNumber: decoded.role === "taxista" ? decoded.taxiNumber : undefined,
         };
@@ -64,6 +65,7 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isTripActive, setIsTripActive] = useState(false);
   const [taxistasActivos, setTaxistasActivos] = useState<Position[]>([]);
   const [pasajerosActivos, setPasajerosActivos] = useState<Position[]>([]);
+  const [taxiPos, setTaxiPos] = useState<{ lat: number; lng: number; heading?: number; taxiNumber?: string } | null>(null);
 
   // 🛰️ EFECTO "DESPERTADOR": Revive la app cuando el usuario regresa tras mucho tiempo
   useEffect(() => {
@@ -79,16 +81,22 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           socket.connect();
         }
 
-        // 2. Reportar posición de inmediato si ya tenemos coordenadas
-        if (userPosition.lat !== 0 && userPosition.lng !== 0) {
-          socket.emit("position", userPosition);
-        }
-      }
-    };
+    // 2. Reportar posición de inmediato si ya tenemos coordenadas reales (taxiPos)
+    if (taxiPos?.lat && taxiPos?.lng) {
+      socket.emit("position", {
+        ...userPosition, // identidad
+        lat: taxiPos.lat,
+        lng: taxiPos.lng
+      });
+    }
+    }
+  };
 
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [userPosition]);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+}, 
+[userPosition, taxiPos]);
+
 
   // 🚪 CIERRE DE SESIÓN LIMPIO
   const logout = () => {
@@ -101,6 +109,7 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setPasajerosActivos([]);
     window.location.href = "/login"; // Limpieza total de estados de navegación
   };
+
 
   return (
     <TravelContext.Provider
@@ -116,12 +125,15 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         pasajerosActivos,
         setPasajerosActivos,
         logout,
+        taxiPos,
+        setTaxiPos,
       }}
     >
       {children}
     </TravelContext.Provider>
   );
 };
+
 
 export const useTravel = (): TravelContextType => {
   const context = useContext(TravelContext);
@@ -130,3 +142,4 @@ export const useTravel = (): TravelContextType => {
   }
   return context;
 };
+

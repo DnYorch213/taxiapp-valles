@@ -623,29 +623,34 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("taxi_moved", async (data) => {
-    const { email, lat, lng, taxiNumber } = data; // Extraemos todo lo que venga del taxista
+    const { email, taxiNumber } = data;
 
-    // 1. Buscamos al pasajero que tiene a este taxista asignado
-    // OJO: Tu consulta usa "Asignado", "EnCurso", "Ocupado" (Case sensitive)
+    // 1. Recuperar posición actual del taxista
+    const tPos = await Position.findOne({ email });
+    if (!tPos) return;
+
+    // 2. Buscar pasajero asignado en estados válidos
     const pasajeroRelacionado = await Position.findOne({
       taxistaAsignado: email,
       estado: { $in: ["encurso", "encamino"] }
     });
 
     if (pasajeroRelacionado) {
-      // 🎯 ENVIAR AL PASAJERO EL PAYLOAD EXACTO
+      // 🎯 Emitir al pasajero con coordenadas reales del taxista
       io.to(pasajeroRelacionado.email).emit("taxi_moved", {
-        lat: Number(lat),
-        lng: Number(lng),
+        lat: tPos.lat,
+        lng: tPos.lng,
         tEmail: email,
-        taxiNumber: taxiNumber || pasajeroRelacionado.taxiNumber,
+        taxiNumber: tPos.taxiNumber || taxiNumber || "S/N",
         estado: pasajeroRelacionado.estado
       });
 
-      // Log para que veas en la terminal si el puente se cruza
-      console.log(`📡 Movimiento Tx[${email}] → Psj[${pasajeroRelacionado.email}] (estado: ${pasajeroRelacionado.estado})`);
+      console.log(
+        `📡 Movimiento Tx[${email}] → Psj[${pasajeroRelacionado.email}] (estado: ${pasajeroRelacionado.estado})`
+      );
     }
   });
+
   // 🔄 REPRODUCIR ESTADO (Optimizado para Rehidratación y Notificaciones)
   socket.on("reproducir_estado_viaje", async ({ email, role }) => {
     try {
@@ -909,11 +914,21 @@ io.on("connection", async (socket) => {
     }
 
     // 2. DESVINCULACIÓN Y RESET EN BD
-    // Quitamos el 'taxistaAsignado' y regresamos a 'activo'
+    // Quitamos el 'taxistaAsignado' y regresamos a 'buscando' para que el pasajero pueda recibir nuevas ofertas
     await Position.updateOne(
       { email: pEmail },
-      { $set: { estado: "cancelado", taxistaAsignado: null } }
+      {
+        $set: {
+          estado: "buscando",   // 🚩 en lugar de "cancelado"
+          taxistaAsignado: null,
+          updatedAt: new Date()
+        }
+      }
     );
+
+    io.emit("panel_update", { email: pEmail, estado: "buscando" });
+    console.log(`🔄 Pasajero ${pEmail} regresado a BUSCANDO tras cancelación`);
+
 
     if (tEmail) {
       await Position.updateOne(
@@ -934,11 +949,11 @@ io.on("connection", async (socket) => {
     io.emit("trip_finished", {
       pasajeroEmail: pEmail,
       taxistaEmail: tEmail,
-      estado: "cancelado"
+      estado: "buscando"
     });
 
     // 5. ACTUALIZACIÓN PANEL ADMIN (Monitor de Ciudad Valles)
-    io.emit("panel_update", { email: pEmail, estado: "cancelado" });
+    io.emit("panel_update", { email: pEmail, estado: "buscando" });
     if (tEmail) {
       io.emit("panel_update", { email: tEmail, estado: "activo" });
     }
@@ -1082,21 +1097,22 @@ io.on("connection", async (socket) => {
     if (email) {
       console.log(`📡 Socket cerrado para: ${email} | Razón: ${reason}`);
 
-      // 🚩 EL CAMBIO CLAVE:
-      // NO actualizamos la base de datos a "desconectado". 
-      // Jorge se queda en el mapa con su último estado y ubicación.
-
-      // Solo registramos que el socketId ya no es válido para no intentar enviar por ahí
       try {
+        // 🚩 CAMBIO CLAVE:
+        // Ahora sí actualizamos la BD a "desconectado"
         await Position.updateOne(
-          { email: email },
-          { $set: { socketId: null, updatedAt: new Date() } }
+          { email },
+          { $set: { estado: "desconectado", socketId: null, updatedAt: new Date() } }
         );
 
-        // OPCIONAL: Podrías emitir un evento para que el Admin vea que su icono
-        // está "gris" pero sigue ahí, aunque para tu caso es mejor que siga viéndose activo.
-        console.log(`✅ ${email} sigue inmortal en el mapa de Valles.`);
+        // Avisamos al panel para que el icono se marque como desconectado
+        io.emit("panel_update", {
+          email,
+          estado: "desconectado",
+          force: true
+        });
 
+        console.log(`🚪 ${email} marcado como desconectado y removido del mapa`);
       } catch (error) {
         console.error("Error en disconnect pasivo:", error);
       }
