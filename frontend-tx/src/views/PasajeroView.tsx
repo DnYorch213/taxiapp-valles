@@ -4,7 +4,7 @@ import "react-toastify/dist/ReactToastify.css";
 import { socket } from "../lib/socket";
 import { useTravel } from "../context/TravelContext";
 import { useGeolocation } from "../hooks/useGeolocation";
-import { Payload } from "../types/Payload";
+import { Payload, ViajeEstado } from "../types/Payload";
 import { ChatBox } from "../components/ChatBox";
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet"; // 🚩 Importamos Polyline
 import L from "leaflet";
@@ -16,7 +16,7 @@ import { calcularHeading } from "../utils/heading"; // Función para calcular el
 
 const PasajeroView: React.FC = () => {
   const { userPosition, setUserPosition, taxiPos, setTaxiPos } = useTravel();
-  const [estado, setEstado] = useState<Payload['estado'] | "encamino" | "pendiente" | "encurso" | "finalizado" | "buscando">("pendiente");
+  const [estado, setEstado] = useState<ViajeEstado>("pendiente");
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
   const [chatAbierto, setChatAbierto] = useState(false);
   
