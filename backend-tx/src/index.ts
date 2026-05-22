@@ -104,7 +104,7 @@ function buildPayload(user: any, pos: any, estado: string, extra: any = {}) {
     destinationAddress: extra.destinationAddress || pos?.destinationAddress || user?.destinationAddress || "Destino no especificado",
 
     // 🚩 Estado con prioridad clara
-    estado: estado ?? pos?.estado ?? "cancelado",
+    estado: estado ?? pos?.estado ?? "pendiente",
 
     timestamp: new Date().toISOString(),
     ...extra,
@@ -319,22 +319,24 @@ const dispatchWithRetry = async (
   io.to(tEmail).emit("pasajero_asignado", fullPayload);
   enviarNotificacionPush(elMasCercano.pushSubscription, fullPayload, tEmail);
 
-  // 6. Temporizador de Cascada
+  // 6. Temporizador de Cascada con log de tiempo de respuesta
+  const startTime = Date.now();
+
   const timeout = setTimeout(async () => {
     const tCheck = await Position.findOne({ email: tEmail }).lean();
 
     if (tCheck && tCheck.estado === "asignado") {
-      console.log(`⏳ Tx-${elMasCercano.taxiNumber} no respondió. Saltando...`);
+      const elapsed = Date.now() - startTime;
+      console.log(`⏳ Tx-${elMasCercano.taxiNumber} no respondió en ${elapsed}ms. Saltando...`);
 
       const pRefresh = await Position.findOne({ email: pEmail }).lean();
 
       if (!pRefresh || pRefresh.estado === "cancelado" || pRefresh.estado === "inactivo") {
         console.log(`🛑 El pasajero ${pEmail} ya no busca viaje. Cancelando cascada.`);
         await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
-        io.emit("panel_update", { email: pEmail, estado: "cancelado" });
+        io.emit("panel_update", { email: pEmail, estado: "inactivo" });
         return;
       }
-
 
       io.to(tEmail).emit("dispatch_timeout");
       await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
@@ -347,7 +349,7 @@ const dispatchWithRetry = async (
 
       dispatchWithRetry(dataParaSiguiente, [...currentExcluidos, tEmail], attempt + 1);
     }
-  }, 22000);
+  }, 30000); // 🚩 Timeout extendido a 30s
 
   pendingTimeouts.set(tEmail, timeout);
 };
