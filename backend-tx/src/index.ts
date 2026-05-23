@@ -322,24 +322,27 @@ const dispatchWithRetry = async (
   // 6. Temporizador de Cascada con log de tiempo de respuesta
   const startTime = Date.now();
 
+  // En tu archivo de despacho:
   const timeout = setTimeout(async () => {
     const elapsed = Date.now() - startTime;
     console.log(`### DEBUG: Tiempo transcurrido ${elapsed}ms para Tx-${elMasCercano.taxiNumber}`);
 
     const tCheck = await Position.findOne({ email: tEmail }).lean();
 
+    // Si el estado sigue siendo "asignado", significa que pasaron los 30s y NUNCA le dio al botón
     if (tCheck && tCheck.estado === "asignado") {
-      console.error(`🚫 LATE: ${tEmail} aceptó después de ${elapsed}ms, pasajero ${pEmail} ya no estaba disponible.`);
+      console.log(`⏳ TIMEOUT: El taxista ${tEmail} NO respondió tras ${elapsed}ms. Pasando al siguiente.`);
 
       const pRefresh = await Position.findOne({ email: pEmail }).lean();
 
       if (!pRefresh || pRefresh.estado === "cancelado" || pRefresh.estado === "inactivo") {
-        console.warn(`🛑 El pasajero ${pEmail} ya no busca viaje. Cancelando cascada.`);
+        console.warn(`🛑 El pasajero ${pEmail} ya no busca viaje o canceló. Abortando cascada.`);
         await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
         io.emit("panel_update", { email: pEmail, estado: pRefresh?.estado || "inactivo" });
         return;
       }
 
+      // Notificar al taxista que perdió la oportunidad por tiempo
       io.to(tEmail).emit("dispatch_timeout");
       await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
       io.emit("panel_update", { email: tEmail, estado: "activo" });
@@ -349,9 +352,10 @@ const dispatchWithRetry = async (
         pickupAddress: pRefresh.pickupAddress || pasajeroData.pickupAddress
       };
 
+      // Registrar el timeout en los excluidos para que no le vuelva a caer a él en esta ronda
       dispatchWithRetry(dataParaSiguiente, [...currentExcluidos, tEmail], attempt + 1);
     }
-  }, 30000); // 🚩 Timeout extendido a 30s
+  }, 22000);
 
   pendingTimeouts.set(tEmail, timeout);
 
@@ -787,6 +791,17 @@ io.on("connection", async (socket) => {
 
     // --- ✅ ACEPTACIÓN ---
     try {
+      // 1. 🛑 LIMPIAR EL TEMPORIZADOR DE LA CASCADA DE INMEDIATO
+      // Esto evita que los 22 segundos sigan corriendo y disparen el evento LATE fantasma
+      const runningTimeout = pendingTimeouts.get(tEmail);
+      if (runningTimeout) {
+        clearTimeout(runningTimeout);
+        pendingTimeouts.delete(tEmail);
+        console.log(`🗑️ Temporizador cancelado para ${tEmail}. Evitamos falsos LATE.`);
+      } else {
+        console.warn(`⚠️ Advertencia: No se encontró un temporizador activo para ${tEmail}.`);
+      }
+
       const pEstadoActual = await Position.findOne({ email: pEmail });
       console.log("📊 Estado pasajero justo al aceptar:", pEstadoActual?.estado);
 
@@ -794,14 +809,14 @@ io.on("connection", async (socket) => {
       const pPosActualizado = await Position.findOneAndUpdate(
         { email: pEmail, estado: { $in: ["buscando", "preasignado"] } },
         { $set: { estado: "encamino", taxistaAsignado: tEmail } },
-        { returnDocument: "after" }
+        { returnDocument: "after" } // ¡Excelente que ya cambiaste esto aquí!
       );
       console.log("📊 Estado pasajero actualizado:", pPosActualizado?.estado);
 
       if (!pPosActualizado) {
         console.log(`🚫 LATE: El taxista ${tEmail} llegó tarde para el pasajero ${pEmail}`);
         return socket.emit("trip_already_taken", {
-          message: "¡Lo sentimos! Otro compañero aceptó este viaje primero."
+          message: "¡Lo sentimos! Otro compañero aceptó este viaje primero o la solicitud expiró."
         });
       }
 
