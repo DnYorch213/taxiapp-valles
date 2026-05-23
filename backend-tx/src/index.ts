@@ -323,18 +323,20 @@ const dispatchWithRetry = async (
   const startTime = Date.now();
 
   const timeout = setTimeout(async () => {
+    const elapsed = Date.now() - startTime;
+    console.log(`### DEBUG: Tiempo transcurrido ${elapsed}ms para Tx-${elMasCercano.taxiNumber}`);
+
     const tCheck = await Position.findOne({ email: tEmail }).lean();
 
     if (tCheck && tCheck.estado === "asignado") {
-      const elapsed = Date.now() - startTime;
-      console.log(`⏳ Tx-${elMasCercano.taxiNumber} no respondió en ${elapsed}ms. Saltando...`);
+      console.error(`🚫 LATE: ${tEmail} aceptó después de ${elapsed}ms, pasajero ${pEmail} ya no estaba disponible.`);
 
       const pRefresh = await Position.findOne({ email: pEmail }).lean();
 
       if (!pRefresh || pRefresh.estado === "cancelado" || pRefresh.estado === "inactivo") {
-        console.log(`🛑 El pasajero ${pEmail} ya no busca viaje. Cancelando cascada.`);
+        console.warn(`🛑 El pasajero ${pEmail} ya no busca viaje. Cancelando cascada.`);
         await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
-        io.emit("panel_update", { email: pEmail, estado: "inactivo" });
+        io.emit("panel_update", { email: pEmail, estado: pRefresh?.estado || "inactivo" });
         return;
       }
 
@@ -352,6 +354,7 @@ const dispatchWithRetry = async (
   }, 30000); // 🚩 Timeout extendido a 30s
 
   pendingTimeouts.set(tEmail, timeout);
+
 };
 
 
