@@ -807,7 +807,7 @@ io.on("connection", async (socket) => {
 
       // 🚩 Candado más estricto: solo si estaba buscando o preasignado
       const pPosActualizado = await Position.findOneAndUpdate(
-        { email: pEmail, estado: { $in: ["buscando", "preasignado"] } },
+        { email: pEmail, estado: { $in: ["buscando", "preasignado", "activo"] } },
         { $set: { estado: "encamino", taxistaAsignado: tEmail } },
         { returnDocument: "after" } // ¡Excelente que ya cambiaste esto aquí!
       );
