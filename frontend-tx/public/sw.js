@@ -3,40 +3,40 @@ const API_BASE_URL =
   self.location.hostname === "localhost"
     ? "http://localhost:3001"
     : "https://taxiapp-valles.onrender.com";
+
 // 1. ESCUCHAR LA NOTIFICACIÓN PUSH
 self.addEventListener("push", (event) => {
-  let data = {};
+  let rawData = {};
 
   if (event.data) {
     try {
-      data = event.data.json();
-      // Extraemos la info si viene anidada en 'notification'
-      if (data.notification) {
-        data = { ...data.notification, ...data };
-      }
+      rawData = event.data.json();
     } catch {
-      data = { body: event.data.text() };
+      rawData = { notification: { body: event.data.text() } };
     }
   }
 
-  // Extraemos emails de la data del backend para las acciones
-  const notificationData = data.data || data.notification?.data || {};
-  const emailPasajero = notificationData.emailPasajero || "";
-  const emailTaxista = notificationData.emailTaxista || "";
+  // Normalizamos de dónde viene la información (raíz o dentro de .notification)
+  const notificationDetails = rawData.notification || rawData || {};
+  const customData = rawData.data || notificationDetails.data || {};
+
+  const emailPasajero = customData.emailPasajero || "";
+  const emailTaxista = customData.emailTaxista || "";
+  const fallbackUrl = customData.url || "/taxista";
 
   const options = {
-    body: data.body || "Tienes un nuevo servicio pendiente",
+    body: notificationDetails.body || "Tienes un nuevo servicio pendiente 🚕",
     icon: "/taxista.png",
     badge: "/taxista.png",
     vibrate: [500, 100, 500, 100, 500, 100, 800],
     tag: "servicio-taxi",
     renotify: true,
     data: {
-      url: data.url || (data.data && data.data.url) || "/taxista",
+      url: fallbackUrl,
       emailPasajero: emailPasajero,
       emailTaxista: emailTaxista,
     },
-    // 🚩 ACCIONES: Botones directos en la notificación
+    // Botones directos en la notificación
     actions: [
       { action: "aceptar", title: "✅ ACEPTAR VIAJE" },
       { action: "rechazar", title: "❌ IGNORAR" },
@@ -45,7 +45,7 @@ self.addEventListener("push", (event) => {
 
   event.waitUntil(
     self.registration.showNotification(
-      data.title || "🚕 Nuevo Servicio",
+      notificationDetails.title || "🚕 Nuevo Servicio Disponible",
       options,
     ),
   );
@@ -54,12 +54,21 @@ self.addEventListener("push", (event) => {
 // 2. GESTIONAR EL CLICK Y LAS ACCIONES
 self.addEventListener("notificationclick", (event) => {
   const notification = event.notification;
-  const action = event.action; // Puede ser 'aceptar', 'rechazar' o vacío (clic normal)
-  const notificationData = notification.data;
+  const action = event.action; // 'aceptar', 'rechazar' o '' (clic normal)
+  const notificationData = notification.data || {};
 
   notification.close();
 
-  // --- LÓGICA DE ACCIÓN: ACEPTAR ---
+  // --- CASO 1: EL TAXISTA RECHAZA EL VIAJE ---
+  if (action === "rechazar") {
+    console.log(
+      `ℹ️ Viaje ignorado por el taxista: ${notificationData.emailTaxista}`,
+    );
+    // No abrimos la app, simplemente cerramos (ya se hizo arriba) y terminamos
+    return;
+  }
+
+  // --- CASO 2: EL TAXISTA ACEPTA EL VIAJE ---
   if (action === "aceptar") {
     const apiPromise = fetch(`${API_BASE_URL}/api/accept-trip-push`, {
       method: "POST",
@@ -69,42 +78,52 @@ self.addEventListener("notificationclick", (event) => {
         pasajeroEmail: notificationData.emailPasajero,
       }),
     })
-      .then(() => {
-        // 🚩 Abrir la app con parámetros del viaje
-        const targetUrl = `/taxista?pasajero=${notificationData.emailPasajero}&taxista=${notificationData.emailTaxista}`;
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Error en servidor al aceptar viaje");
+
+        // Construimos la URL destino usando la URL base que nos dio el backend
+        const baseUrl = notificationData.url.split("?")[0];
+        const targetUrl = `${baseUrl}?pasajero=${notificationData.emailPasajero}&taxista=${notificationData.emailTaxista}&autoAccept=true`;
+
         return abrirOEnfocarApp(targetUrl);
       })
       .catch((err) => {
-        console.error("Error al aceptar vía Push:", err);
-        return abrirOEnfocarApp("/taxista");
+        console.error("❌ Error al aceptar vía Push:", err);
+        // Si falla el backend, abrimos la vista general de todos modos para que revise
+        return abrirOEnfocarApp(notificationData.url || "/taxista");
       });
 
     event.waitUntil(apiPromise);
     return;
   }
 
-  // --- LÓGICA DE ACCIÓN: RECHAZAR O CLIC NORMAL ---
-  // Si rechaza, no hacemos fetch, solo abrimos la app (o no hacemos nada)
-  // En este caso, por UX, abriremos la app en /taxista para que vea su estado
+  // --- CASO 3: CLIC NORMAL EN EL CUERPO DE LA NOTIFICACIÓN ---
+  // El taxista solo pulsó la alerta para ver de qué se trata sin decidir aún
   event.waitUntil(abrirOEnfocarApp(notificationData.url || "/taxista"));
 });
 
 // --- FUNCIÓN AUXILIAR: FOCO INTELIGENTE ---
 function abrirOEnfocarApp(targetPath) {
+  // Asegura que la URL sea absoluta usando el origen actual si viene relativa
   const urlToOpen = new URL(targetPath, self.location.origin).href;
 
   return clients
     .matchAll({ type: "window", includeUncontrolled: true })
     .then((windowClients) => {
+      // 1. Si hay una pestaña abierta en esa URL exacta, le damos foco
       for (let client of windowClients) {
         if (client.url === urlToOpen && "focus" in client) {
           return client.focus();
         }
+      }
+      // 2. Si hay una pestaña de la app abierta pero en otra ruta, la redirigimos
+      for (let client of windowClients) {
         if ("navigate" in client) {
           client.navigate(urlToOpen);
           return client.focus();
         }
       }
+      // 3. Si la app estaba completamente cerrada, abrimos una nueva ventana
       if (clients.openWindow) {
         return clients.openWindow(urlToOpen);
       }

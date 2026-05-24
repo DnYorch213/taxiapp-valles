@@ -76,67 +76,91 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   const [vistaActual, setVistaActual] = useState('mapa'); // 'mapa' o 'historial'
   const [isAccepting, setIsAccepting] = useState(false);
 
-  // 🚩 REHIDRATACIÓN DESDE QUERY PARAMS
+ // 🚩 REHIDRATACIÓN DESDE QUERY PARAMS O ACCIONES PUSH
 useEffect(() => {
   const params = new URLSearchParams(window.location.search);
   const pasajero = params.get("pasajero");
   const taxista = params.get("taxista");
+  const autoAccept = params.get("autoAccept");
 
   if (pasajero && taxista) {
     console.log("🔄 Rehidratando viaje desde notificación:", pasajero, taxista);
-    socket.emit("rehydrate_trip", { pasajero, taxista });
+    
+    // Si viene del botón aceptar del Push, forzamos un estado de carga inmediato
+    if (autoAccept === "true") {
+      setIsAccepting(true);
+      setEstado("encamino"); // Lo movemos visualmente a ruta mientras responde el socket
+    }
+    
+    socket.emit("rehydrate_trip", { 
+      pasajero: pasajero.toLowerCase().trim(), 
+      taxista: taxista.toLowerCase().trim() 
+    });
   }
 }, []);
 
 
-  // --- 🔔 FUNCIÓN DE SUSCRIPCIÓN (SÁCADA DEL USEEFFECT) ---
-  const gestionarSuscripcion = async () => {
-    const userEmail = userPosition?.email || localStorage.getItem("email");
+  // --- 🔔 FUNCIÓN DE SUSCRIPCIÓN BLINDADA Y RE-SUSCRIPCIÓN AUTOMÁTICA ---
+const gestionarSuscripcion = async () => {
+  // Intentamos obtener el email de donde sea que esté disponible
+  const userEmail = userPosition?.email || localStorage.getItem("email");
 
-    if (!userEmail) {
-      alert("No se encontró el email del usuario");
-      return;
-    }
+  if (!userEmail) {
+    console.log("ℹ️ Esperando email del taxista para verificar suscripción Push...");
+    return;
+  }
 
-    try {
-      // 1. Verificar si el navegador soporta Service Workers
-      if (!('serviceWorker' in navigator)) {
-        alert("Tu navegador no soporta notificaciones");
-        return;
-      }
+  // 1. Validaciones del entorno del navegador
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    console.warn("❌ Este dispositivo o navegador no soporta Notificaciones Push.");
+    return;
+  }
 
-      const registration = await navigator.serviceWorker.ready;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    
+    // 2. Revisamos si ya existe una suscripción en el Service Worker
+    let subscription = await registration.pushManager.getSubscription();
+    
+    // Si la suscripción no existe (debido a limpieza de cookies/datos), forzamos una nueva
+    if (!subscription) {
+      console.log("⚠️ No se encontró suscripción activa (posible borrado de datos). Re-suscribiendo...");
       
-      // 2. Intentar suscribir
-      const subscription = await registration.pushManager.subscribe({
+      subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
       });
-
-      if (subscription) {
-        console.log(`Enviando suscripción para: ${userEmail}`);
-        await axios.post(`${API_URL}/save-subscription`, {
-          email: userEmail,
-          subscription: subscription
-        });
-        //alert("✅ ¡Notificaciones activadas con éxito!");
-      }
-    } catch (err: any) {
-      console.error("Error gestionando suscripción:", err);
-      alert("Error al activar: " + err.message);
     }
-  };
 
-  useEffect(() => { 
-    estadoRef.current = estado; 
-  }, [estado]);
-
-  // Este useEffect ahora solo llama a la función que ya existe arriba
-  useEffect(() => {
-    if (userPosition?.email || localStorage.getItem("email")) {
-      gestionarSuscripcion();
+    // 3. Sincronización proactiva con el Backend
+    if (subscription) {
+      console.log(`🔄 Sincronizando token push en servidor para: ${userEmail}`);
+      
+      await axios.post(`${API_URL}/save-subscription`, {
+        email: userEmail.toLowerCase().trim(),
+        subscription: subscription
+      });
+      
+      console.log("✅ Suscripción Push validada y sincronizada correctamente.");
     }
-  }, [userPosition?.email]);
+  } catch (err: any) {
+    // Si el usuario denegó los permisos explícitamente en el navegador
+    if (Notification.permission === 'denied') {
+      console.warn("🚫 El taxista bloqueó los permisos de notificación en su navegador.");
+    } else {
+      console.error("❌ Error crítico en el ciclo de re-suscripción:", err);
+    }
+  }
+};
+
+// --- EFFECT CORREGIDO ---
+// Escuchamos de forma segura tanto el estado del GPS como el inicio de sesión manual
+useEffect(() => {
+  const miEmail = userPosition?.email || localStorage.getItem("email");
+  if (miEmail) {
+    gestionarSuscripcion();
+  }
+}, [userPosition?.email]);
 
   // --- AUDIO & NOTIFICACIONES ---
   const detenerSonido = useCallback(() => {
