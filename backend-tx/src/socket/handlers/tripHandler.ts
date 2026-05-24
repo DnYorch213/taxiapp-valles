@@ -7,6 +7,50 @@ import { reverseGeocode } from "../../services/geocodingService";
 import { dispatchWithRetry, pendingTimeouts } from "../../services/dispatchService";
 
 export const registerTripHandlers = (io: Server, socket: Socket, email: string) => {
+
+    // 🚀 NUEVO: LISTENER MAESTRO PARA SOLICITAR TRANSPORTE
+    socket.on("request_taxi", async (data: any) => {
+        const pEmail = data.email?.toLowerCase().trim();
+        if (!pEmail) return;
+
+        console.log(`🚕 [Motor de Despacho] Solicitud entrante del pasajero: ${pEmail}`);
+
+        try {
+            // 1. Forzamos la actualización del estado del pasajero a "buscando" en MongoDB
+            await Position.findOneAndUpdate(
+                { email: pEmail },
+                {
+                    $set: {
+                        estado: "buscando",
+                        lat: data.lat,
+                        lng: data.lng,
+                        name: data.name || "Pasajero",
+                        role: "pasajero",
+                        updatedAt: new Date()
+                    }
+                },
+                { upsert: true }
+            );
+
+            // 2. Creamos un payload limpio y estandarizado para la cascada
+            const pasajeroPayload = {
+                email: pEmail,
+                name: data.name || "Pasajero",
+                lat: data.lat,
+                lng: data.lng,
+                pickupAddress: data.pickupAddress || null
+            };
+
+            console.log(`🤖 [Motor] Buscando la unidad más cercana a la ubicación del pasajero...`);
+
+            // 3. Despertamos al despachador automático que arreglamos en dispatchService
+            dispatchWithRetry(io, pasajeroPayload, [], 1);
+
+        } catch (error) {
+            console.error("❌ Error crítico al procesar request_taxi en el handler:", error);
+        }
+    });
+
     socket.on("taxi_response", async ({ requestEmail, accepted, excludedEmails = [] }) => {
         const tEmail = email;
         const pEmail = requestEmail?.toLowerCase().trim();
@@ -64,6 +108,19 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         }
     });
 
+    // En el backend:
+    socket.on("send_message", ({ toEmail, message, fromName }) => {
+        const destinatario = toEmail?.toLowerCase().trim();
+        if (!destinatario) return;
+
+        // Redirige el mensaje directo al canal del destinatario
+        io.to(destinatario).emit("receive_message", {
+            fromName: fromName || "Sistema",
+            message: message,
+            timestamp: new Date().toISOString()
+        });
+    });
+
     socket.on("passenger_on_board", async ({ taxistaEmail, pasajeroEmail }) => {
         if (!pasajeroEmail || !taxistaEmail) return;
         const pEmail = pasajeroEmail.toLowerCase().trim();
@@ -78,24 +135,60 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         io.emit("panel_update", { email: tEmail, estado: "encurso" });
     });
 
+    // src/socket/handlers/tripHandler.ts
+
     socket.on("passenger_cancel", async ({ pasajeroEmail, taxistaEmail }) => {
         const pEmail = pasajeroEmail.toLowerCase().trim();
         const tEmail = taxistaEmail ? taxistaEmail.toLowerCase().trim() : null;
 
+        // 🛡️ REVISIÓN EN TIEMPO REAL: ¿El pasajero de verdad está buscando o asignado?
+        const estadoActualDoc = await Position.findOne({ email: pEmail }).lean();
+
+        // Si en la base de datos ya está pendiente, inactivo o cancelado, bloqueamos el evento
+        if (!estadoActualDoc || ["pendiente", "inactivo", "cancelado"].includes(estadoActualDoc.estado)) {
+            // console.log(`🚫 Cancelación bloqueada para ${pEmail}: Su estado ya es ${estadoActualDoc?.estado}`);
+            return; // 🛑 Cerramos la puerta y no hacemos nada
+        }
+
+        console.log(`❌ Cancelación definitiva: El pasajero ${pEmail} abortó la solicitud.`);
+
+        // 1. Matamos el temporizador de la cascada de inmediato si existía
         if (tEmail && pendingTimeouts.has(tEmail)) {
             clearTimeout(pendingTimeouts.get(tEmail)!);
             pendingTimeouts.delete(tEmail);
+            console.log(`🗑️ Cascada cancelada por el pasajero para el taxista: ${tEmail}`);
         }
 
-        await Position.updateOne({ email: pEmail }, { $set: { estado: "buscando", taxistaAsignado: null } });
+        // 2. IMPORTANTE: Marcamos al pasajero como "cancelado" o "inactivo" para romper su bucle en React
+        await Position.updateOne(
+            { email: pEmail },
+            { $set: { estado: "cancelado", taxistaAsignado: null, pickupAddress: null } }
+        );
+
+        // 3. Liberamos al taxista para que vuelva a recibir viajes
         if (tEmail) {
-            await Position.updateOne({ email: tEmail }, { $set: { estado: "activo", pasajeroAsignado: null } });
-            io.to(tEmail).emit("trip_cancelled_by_passenger", { message: "El pasajero ha cancelado la solicitud.", newStatus: "activo" });
+            await Position.updateOne(
+                { email: tEmail },
+                { $set: { estado: "activo", pasajeroAsignado: null } }
+            );
+            // Avisamos a la app del taxista para que limpie el mapa y oculte alertas
+            io.to(tEmail).emit("trip_cancelled_by_passenger", {
+                message: "El pasajero ha cancelado la solicitud.",
+                newStatus: "activo"
+            });
+            io.to(tEmail).emit("dispatch_timeout"); // Fuerza la limpieza del contador visual
         }
 
-        io.emit("trip_finished", { pasajeroEmail: pEmail, taxistaEmail: tEmail, estado: "buscando" });
-        io.emit("panel_update", { email: pEmail, estado: "buscando" });
+        // 4. Notificamos a los canales el cierre absoluto del viaje en estado "cancelado"
+        const payloadCancel = { pasajeroEmail: pEmail, taxistaEmail: tEmail, estado: "cancelado" };
+        io.to(pEmail).emit("trip_finished", payloadCancel);
+        io.to(pEmail).emit("dispatch_timeout"); // Saca al pasajero de la pantalla de carga
+
+        // 5. Actualizamos el panel de control del administrador
+        io.emit("panel_update", { email: pEmail, estado: "cancelado" });
         if (tEmail) io.emit("panel_update", { email: tEmail, estado: "activo" });
+
+        console.log(`❌ Cancelación definitiva: El pasajero ${pEmail} abortó la solicitud.`);
     });
 
     socket.on("end_trip", async ({ pasajeroEmail, taxistaEmail }) => {

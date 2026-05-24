@@ -26,10 +26,14 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
         return;
     }
 
+    // src/services/dispatchService.ts
+
     const taxistasCandidatos = await Position.find({
         role: "taxista",
-        pushSubscription: { $exists: true, $ne: null },
+        // pushSubscription: { $exists: true, $ne: null },
         estado: "activo",
+        lat: { $exists: true, $ne: null, $gt: 0 },
+        lng: { $exists: true, $nin: [null, 0] }, // 🛡️ CORRECCIÓN: Unificamos los $ne en un solo $nin limpio
         email: { $nin: currentExcluidos }
     }).lean() as IPosition[];
 
@@ -64,8 +68,10 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     };
 
     io.to(tEmail).emit("pasajero_asignado", fullPayload);
-    enviarNotificacionPush(elMasCercano.pushSubscription, fullPayload, tEmail);
-
+    // 🛡️ Solo intentamos enviar el Push si el taxista realmente tiene la suscripción guardada
+    if (elMasCercano.pushSubscription) {
+        enviarNotificacionPush(elMasCercano.pushSubscription, fullPayload, tEmail);
+    }
     const startTime = Date.now();
     const timeout = setTimeout(async () => {
         const elapsed = Date.now() - startTime;

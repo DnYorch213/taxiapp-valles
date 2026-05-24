@@ -15,6 +15,15 @@ import { isAutoMode } from "./services/dispatchService";
 dotenv.config();
 connectDB();
 
+// Copia esto temporalmente en tu src/index.ts (o src/server.ts) justo debajo de connectDB()
+/* import { Position } from "./models/Position";
+
+async function limpiarPruebas() {
+  await Position.updateMany({}, { $set: { estado: "inactivo", taxistaAsignado: null, pasajeroAsignado: null } });
+  console.log("🧹 Base de datos de posiciones reseteada para pruebas limpias.");
+}
+limpiarPruebas(); */
+
 const app = express();
 const server = http.createServer(app);
 const isDev = process.env.NODE_ENV === 'development';
@@ -40,9 +49,13 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-// Instanciación del Servidor WebSocket
+// Modifica la declaración de io para asegurar que herede las opciones abiertas:
 const io = new Server(server, {
-  cors: corsOptions,
+  cors: {
+    origin: isDev ? true : process.env.FRONTEND_URL, // ✅ Abre los CORS para Socket.io en local
+    credentials: true,
+    methods: ["GET", "POST"]
+  },
   transports: ['websocket', 'polling'],
   allowEIO3: true,
   pingInterval: 25000,

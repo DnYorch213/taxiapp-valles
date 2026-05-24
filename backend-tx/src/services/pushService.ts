@@ -1,8 +1,11 @@
 // src/services/pushService.ts
+import * as dotenv from "dotenv";
 import webpush from "web-push";
 import { Position } from "../models/Position";
 import { User } from "../models/User";
 import { calculateDistance } from "../utils/distance";
+
+dotenv.config();
 
 webpush.setVapidDetails(
     "mailto:jorgelopezarevalo0@gmail.com",
@@ -28,25 +31,19 @@ export const enviarNotificacionPush = async (subscription: any, pasajeroData: an
         }
 
         const payload = JSON.stringify({
-            notification: {
-                title: "¡NUEVO VIAJE DISPONIBLE! 🚕",
-                body: `Pasajero: ${pasajeroData.name}\nDistancia: ${distanciaMetros}m`,
-                icon: "/icon-192x192.png",
-                vibrate: [200, 100, 200, 100, 200],
-                actions: [
-                    { action: "aceptar", title: "✅ ACEPTAR VIAJE" },
-                    { action: "rechazar", title: "❌ IGNORAR" }
-                ],
-                data: {
-                    emailPasajero: pasajeroData.email,
-                    emailTaxista: taxistaEmail,
-                    action: "OPEN_TRIP_REQUEST",
-                    url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/taxista`
-                }
-            },
+            title: "¡NUEVO VIAJE DISPONIBLE! 🚕",
+            body: `Pasajero: ${pasajeroData.name}\nDistancia: ${distanciaMetros}m`,
+            icon: "/icon-192x192.png",
+            vibrate: [200, 100, 200, 100, 200],
+            actions: [
+                { action: "aceptar", title: "✅ ACEPTAR VIAJE" },
+                { action: "rechazar", title: "❌ IGNORAR" }
+            ],
+            // Agrupamos todos tus metadatos dentro de un solo objeto data plano
             data: {
                 emailPasajero: pasajeroData.email,
                 emailTaxista: taxistaEmail,
+                action: "OPEN_TRIP_REQUEST",
                 url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/taxista`
             }
         });

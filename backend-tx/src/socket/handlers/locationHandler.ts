@@ -27,7 +27,7 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                         updatedAt: new Date()
                     }
                 },
-                { returnDocument: "after" }
+                { upsert: true, returnDocument: "after" }
             );
             if (updated) io.emit("panel_update", buildPayload(updated, updated, updated.estado));
         } catch (error) {

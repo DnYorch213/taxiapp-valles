@@ -13,8 +13,14 @@ export const initSocketEngine = (io: Server) => {
         const email = rawEmail ? rawEmail.toString().toLowerCase().trim() : null;
         const role = socket.handshake.auth?.role || socket.handshake.query?.role;
 
-        if (!email) return;
+        // 🎯 LOG DE DIAGNÓSTICO:
+        console.log(`🔌 Intento de conexión: Email[${email}] | Role[${role}] | SocketID[${socket.id}]`);
 
+        if (!email || email === "null" || email === "undefined") {
+            console.log(`⚠️ Conclusión: Conexión rechazada por credenciales inválidas o vacías.`);
+            socket.disconnect(true); // Expulsamos limpia y definitivamente sin bucles
+            return;
+        }
         socket.join(email);
 
         socket.on("join_room", (roomEmail) => {
@@ -43,14 +49,20 @@ export const initSocketEngine = (io: Server) => {
             const viajeActivo = await Position.findOne({
                 role: "pasajero",
                 taxistaAsignado: email,
-                estado: { $in: ["asignado", "encurso", "encamino"] }
+                estado: { $in: ["asignado", "encurso", "encamino", "preasignado"] }
             });
 
             const currentDoc = await Position.findOne({ email });
             let nuevoEstado = role === "taxista" ? "activo" : "buscando";
 
             if (viajeActivo) {
-                nuevoEstado = currentDoc?.estado === "encurso" ? "encurso" : currentDoc?.estado === "encamino" ? "encamino" : "asignado";
+                // 🛡️ Si el taxista ya estaba en estado "asignado", RESPETAMOS ese estado 
+                // para que no se salte la pantalla de aceptación del viaje.
+                if (role === "taxista" && currentDoc?.estado === "asignado") {
+                    nuevoEstado = "asignado";
+                } else {
+                    nuevoEstado = currentDoc?.estado === "encurso" ? "encurso" : currentDoc?.estado === "encamino" ? "encamino" : "asignado";
+                }
             }
 
             const updatedPos = await Position.findOneAndUpdate(
@@ -65,9 +77,10 @@ export const initSocketEngine = (io: Server) => {
 
             if (viajeActivo && role === "taxista") {
                 setTimeout(() => {
+                    // 🚀 Forzamos que si el estado es asignado, viaje la bandera isNewOffer en true
                     socket.emit("pasajero_asignado", {
-                        ...buildPayload(viajeActivo, viajeActivo, viajeActivo.estado),
-                        isNewOffer: viajeActivo.estado === "asignado"
+                        ...buildPayload(viajeActivo, viajeActivo, nuevoEstado),
+                        isNewOffer: nuevoEstado === "asignado"
                     });
                 }, 1000);
             }
@@ -97,13 +110,39 @@ export const initSocketEngine = (io: Server) => {
         registerLocationHandlers(io, socket, email);
         registerTripHandlers(io, socket, email);
 
-        socket.on("reproducir_estado_viaje", async (data) => {
-            const cleanEmail = data.email.toLowerCase().trim();
-            if (data.role === "taxista") {
-                const pasajero = await Position.findOne({ taxistaAsignado: cleanEmail, estado: { $in: ["asignado", "encurso", "encamino"] } });
-                if (pasajero) {
-                    socket.emit("pasajero_asignado", { ...buildPayload(pasajero, pasajero, pasajero.estado), isNewOffer: pasajero.estado === "asignado" });
+        socket.on("reproducir_estado_viaje", async ({ email, role }) => {
+            const cleanEmail = email.toLowerCase().trim();
+            try {
+                if (role === "taxista") {
+                    const pasajero = await Position.findOne({ taxistaAsignado: cleanEmail, estado: { $in: ["asignado", "encurso", "encamino"] } });
+                    if (pasajero) {
+                        socket.emit("pasajero_asignado", { ...buildPayload(pasajero, pasajero, pasajero.estado), isNewOffer: pasajero.estado === "asignado" });
+                    } else {
+                        // Si no tiene viaje asignado, forzar estado activo en el cliente
+                        socket.emit("trip_status_update", { estado: "activo" });
+                    }
+                } else if (role === "pasajero") {
+                    const miEstado = await Position.findOne({ email: cleanEmail });
+                    if (miEstado?.taxistaAsignado) {
+                        const miTaxista = await Position.findOne({ email: miEstado.taxistaAsignado });
+                        if (miTaxista) {
+                            socket.emit("response_from_taxi", {
+                                accepted: true,
+                                tEmail: miTaxista.email,
+                                name: miTaxista.name,
+                                taxiNumber: miTaxista.taxiNumber,
+                                lat: miTaxista.lat,
+                                lng: miTaxista.lng,
+                                estado: miEstado.estado
+                            });
+                        }
+                    } else {
+                        // Si es un pasajero libre, avisarle que está en modo búsqueda normal
+                        socket.emit("trip_status_update", { estado: "buscando" });
+                    }
                 }
+            } catch (err) {
+                console.error("Error al reproducir estado:", err);
             }
         });
 
