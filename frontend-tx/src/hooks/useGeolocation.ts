@@ -1,3 +1,4 @@
+// src/hooks/useGeolocation.ts
 import { useEffect, useRef } from "react";
 import { socket } from "../lib/socket";
 import { EstadoUsuario, Position } from "../types/Positions";
@@ -7,7 +8,7 @@ interface UserData {
     name: string;
     role: "pasajero" | "taxista" | "admin";
     taxiNumber?: string;
-    estado?: string;
+    estado?: EstadoUsuario;
 }
 
 export const useGeolocation = (user: UserData, onRegistered?: (pos: Position) => void) => {
@@ -29,27 +30,35 @@ export const useGeolocation = (user: UserData, onRegistered?: (pos: Position) =>
                 let lat = latitude;
                 let lng = longitude;
 
-                // OFFSET (Solo para visualización)
+                // OFFSET (Solo para visualización simulada del pasajero)
                 if (userRef.current.role === "pasajero") {
                     lat += 0.00015;
                     lng += 0.00015;
                 }
 
-                const newPos: Position & { estado: string } = {
+                const currentRole = userRef.current.role;
+                const currentEstado = userRef.current.estado || "activo";
+
+                // 🎯 TIPADO CORREGIDO: Usamos EstadoUsuario en lugar de string genérico
+                const newPos: Position & { estado: EstadoUsuario } = {
                     email: userRef.current.email,
                     name: userRef.current.name,
-                    role: userRef.current.role,
-                    taxiNumber: userRef.current.role === "taxista" ? userRef.current.taxiNumber : undefined,
+                    role: currentRole,
+                    taxiNumber: currentRole === "taxista" ? userRef.current.taxiNumber : undefined,
                     lat,
                     lng,
-                    estado: userRef.current.estado as EstadoUsuario || "activo",
+                    estado: currentEstado,
                 };
 
-                // Emitir solo si el socket está conectado
-                if (socket.connected) {
+                // 🎯 EL CANDADO: Si es taxista y está en viaje/aproximación, NO emitimos en este canal genérico.
+                // Dejamos que los sockets de TaxistaView.tsx (taxi_moved / update_trip_path) controlen el flujo.
+                const esTaxistaOcupado = currentRole === "taxista" && ["asignado", "encamino", "encurso"].includes(currentEstado);
+
+                if (socket.connected && !esTaxistaOcupado) {
                     socket.emit("position", newPos);
                 }
 
+                // El callback local sigue corriendo libre para mover tu mapa de Leaflet de forma reactiva
                 if (onRegisteredRef.current) {
                     onRegisteredRef.current(newPos);
                 }
@@ -62,7 +71,7 @@ export const useGeolocation = (user: UserData, onRegistered?: (pos: Position) =>
             },
             {
                 enableHighAccuracy: true,
-                timeout: 10000, // Subimos a 10s para dar margen en segundo plano
+                timeout: 10000, // Margen de 10s para evitar microcaídas en segundo plano
                 maximumAge: 0
             }
         );
@@ -70,7 +79,6 @@ export const useGeolocation = (user: UserData, onRegistered?: (pos: Position) =>
         return () => {
             navigator.geolocation.clearWatch(watchId);
         };
-        // 💡 Quitamos user.role de las dependencias. 
-        // Solo reiniciamos el GPS si el email cambia (un login diferente).
+        // 💡 Solo reiniciamos el ciclo nativo del GPS si cambia la cuenta del usuario (email diferente)
     }, [user.email]);
 };

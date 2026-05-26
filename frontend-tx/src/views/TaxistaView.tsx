@@ -186,36 +186,39 @@ useEffect(() => {
     return () => detenerSonido();
   }, [detenerSonido]);
 
-// --- 🛰️ GEOLOCALIZACIÓN REFACTOREADA ---
+// --- 🛰️ GEOLOCALIZACIÓN REFACTOREADA Y BLINDADA ---
 useGeolocation(
   {
     email: userPosition?.email || localStorage.getItem("email") || "",
     name: localStorage.getItem("userName") || userPosition?.name || "Taxista",
     role: "taxista",
     taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "",
+    estado: estado, // Aseguramos que el estado se mantenga actualizado en la posición
   },
   (pos) => {
     if (pos.lat === null || pos.lng === null) return;
 
-   setTaxiPos((prev) => {
-  if (pos.lat === null || pos.lng === null) return prev;
+   // 1. Guardamos de inmediato en el estado local para el mapa de Leaflet
+setTaxiPos((prev) => {
+  // Calculamos el heading asegurando que pasamos números con !
   const heading = calcularHeading(
     prev ? { lat: prev.lat, lng: prev.lng } : null,
-    { lat: pos.lat, lng: pos.lng },
+    { lat: pos.lat!, lng: pos.lng! }, // 🎯 Añadido ! aquí
     pasajeroAsignado ? { lat: pasajeroAsignado.lat!, lng: pasajeroAsignado.lng! } : null,
     estado
   );
+  
   return {
-    lat: pos.lat,
-    lng: pos.lng,
+    lat: pos.lat!, // 🎯 Reparación Crítica: Forzamos a TypeScript a verlo como 'number'
+    lng: pos.lng!, // 🎯 Reparación Crítica: Forzamos a TypeScript a verlo como 'number'
     heading,
     taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "S/N"
   };
-});   
+});  
 
     const estadoActual = estadoRef.current;
     
-    // 2. Envío al socket con LÓGICA EXCLUSIVA
+    // 2. Envío al socket con coordenadas nativas directas (Evita lecturas de estados asíncronos)
     if (socket && (estadoActual === "asignado" || estadoActual === "encamino" || estadoActual === "encurso")) {
       
       if (estadoActual === "encurso") {
@@ -223,21 +226,21 @@ useGeolocation(
         const nuevaCoord: L.LatLngExpression = [pos.lat, pos.lng];
         setHistorialRuta((prev) => [...prev, nuevaCoord]);
         
-       socket.emit("update_trip_path", {
-  pasajeroEmail: pasajeroAsignado?.email,
-  lat: pos.lat,
-  lng: pos.lng,
-});
-} else {
-  // --- MODO APROXIMACIÓN (Asignado/EnCamino): Emitimos movimiento normal ---
-  socket.emit("taxi_moved", {
-    lat: taxiPos?.lat || pos.lat,
-    lng: taxiPos?.lng || pos.lng,
-    email: userPosition?.email || localStorage.getItem("email"),
-    taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber"),
-    role: "taxista"
-  });
-}
+        socket.emit("update_trip_path", {
+          pasajeroEmail: pasajeroAsignado?.email,
+          lat: pos.lat, // 🎯 Directo del hardware/simulador
+          lng: pos.lng, // 🎯 Directo del hardware/simulador
+        });
+      } else {
+        // --- MODO APROXIMACIÓN (Asignado/EnCamino): Emitimos movimiento normal ---
+        socket.emit("taxi_moved", {
+          lat: pos.lat, // 🎯 REPARACIÓN CRÍTICA: Quitamos "taxiPos?.lat ||"
+          lng: pos.lng, // 🎯 REPARACIÓN CRÍTICA: Quitamos "taxiPos?.lng ||"
+          email: userPosition?.email || localStorage.getItem("email"),
+          taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber"),
+          role: "taxista"
+        });
+      }
     }
   }
 );
@@ -330,8 +333,8 @@ else {
 
     socket.on("pasajero_asignado", handleAsignacion);
 
-    // 🚩 ESTO ES LO QUE FALTA: Escuchar la confirmación oficial
-    socket.on("assignment_confirmed", (data) => {
+   // 1. 🏁 LISTENER DE CONFIRMACIÓN OFICIAL
+socket.on("assignment_confirmed", (data) => {
   if (data.success) {
     console.log("✅ Confirmación recibida del servidor:", data);
     setEstado("encamino"); 
@@ -339,18 +342,27 @@ else {
     toast.success("¡Viaje vinculado! Dirígete al pasajero.");
     setIsAccepting(false);
     setViajeSolicitado(null);
+
     if (data.pasajero) {
       const pEmail = data.pasajero.email.toLowerCase().trim();
       
-      // 🚩 USAMOS UNA FUNCIÓN DE ACTUALIZACIÓN PARA NO PERDER DATOS PREVIOS
-      setPasajeroAsignado((prev) => ({
-        ...prev,            // Mantenemos pickupAddress y demás datos que ya teníamos
-        ...data.pasajero,     // Sobrescribimos con lo nuevo que mande el server
-        email: pEmail       // Aseguramos el email limpio
+      // 🎯 MODIFICACIÓN: Guardamos directamente el payload de respaldo limpio
+      // asegurándonos de que la dirección quede firmada en el hilo principal
+      const direccionDetectada = data.pasajero.pickupAddress || data.pasajero.direccionOrigen;
+      
+      setPasajeroAsignado((prev: any) => ({
+        ...prev,
+        ...data.pasajero,
+        pickupAddress: direccionDetectada && direccionDetectada !== "Calculando ubicación..." 
+          ? direccionDetectada 
+          : (prev?.pickupAddress || "Calle Detectada"),
+        email: pEmail
       }));
     }
   }
 });
+
+
     
 // 🚩 AQUÍ PONES EL CANDADO DEL LADO DEL CLIENTE
     socket.on("trip_already_taken", (data: { message: string }) => {
@@ -369,28 +381,46 @@ else {
         // Si usas algún contador o sonido de alerta, deténlo aquí
     });
 
-socket.on("trip_status_update", (data) => {
-  console.log("🔄 Cambio de estado recibido:", data);
+// 2. 🔄 LISTENER DE CAMBIO DE ESTADO (BLINDADO)
+socket.on("trip_status_update", (data: any) => {
+  console.log("🔄 [Socket Test] Cambio de estado recibido:", data);
   
+  if (data.estado) {
+    setEstado(data.estado);
+  }
+
+  // 🚖 CASO A: EL TAXISTA VA EN CAMINO A RECOGER AL PASAJERO
+  if (data.estado === "encamino") {
+    setPasajeroAsignado((prev: any) => {
+      // Prioridad 1: Si el backend por fin mandó los datos limpios en el evento
+      if (data.pasajeroAsignado?.pickupAddress && data.pasajeroAsignado.pickupAddress !== "Calculando ubicación...") {
+        return data.pasajeroAsignado;
+      }
+      // Prioridad 2: Si el estado previo tiene la dirección real viva, la retenemos completa
+      if (prev?.pickupAddress && prev.pickupAddress !== "Calculando ubicación...") {
+        return { ...prev, ...data.pasajeroAsignado, pickupAddress: prev.pickupAddress };
+      }
+      // Prioridad 3: Si todo falla, buscamos en el historial del objeto de la alerta
+      return prev;
+    });
+  }
+
+  // 🏁 CASO B: EL PASAJERO YA SUBIÓ Y EL VIAJE ESTÁ EN CURSO
   if (data.estado === "encurso") {
-    setEstado("encurso");
     detenerSonido();
     setChatAbierto(false);
 
-    // 🚩 LIMPIEZA DE UBICACIÓN:
-    // Si la dirección de recogida venía vacía, le ponemos un texto de respaldo
-    // para que la UI deje de mostrar "Calculando ubicación..."
     setPasajeroAsignado((prev: any) => ({
       ...prev,
-      pickupAddress: prev?.pickupAddress || "Pasajero a bordo",
-      // Si el server mandó destino, lo actualizamos de una vez
-      destinationAddress: data.destinationAddress || prev?.destinationAddress 
+      pickupAddress: prev?.pickupAddress && prev.pickupAddress !== "Calculando ubicación..." 
+        ? prev.pickupAddress 
+        : "Pasajero a bordo",
+      destinationAddress: data.destinationAddress || data.pasajeroAsignado?.destinationAddress || prev?.destinationAddress || "Rumbo al destino..."
     }));
 
-    toast.info("¡Viaje iniciado! Rumbo al destino.");
+    toast.info("¡Viaje iniciado! Rumbo al destino final.");
   }
 });
-
     // 🚩 Listener de rehidratación
   socket.on("rehydrate_trip_result", (data) => {
     if (data.success) {

@@ -15,15 +15,6 @@ import { isAutoMode } from "./services/dispatchService";
 dotenv.config();
 connectDB();
 
-// Copia esto temporalmente en tu src/index.ts (o src/server.ts) justo debajo de connectDB()
-/* import { Position } from "./models/Position";
-
-async function limpiarPruebas() {
-  await Position.updateMany({}, { $set: { estado: "inactivo", taxistaAsignado: null, pasajeroAsignado: null } });
-  console.log("🧹 Base de datos de posiciones reseteada para pruebas limpias.");
-}
-limpiarPruebas(); */
-
 const app = express();
 const server = http.createServer(app);
 const isDev = process.env.NODE_ENV === 'development';
@@ -69,7 +60,7 @@ app.use("/api/auth", authRoutes);
 
 // Endpoints delegados a controladores inyectando dependencias
 app.post("/api/accept-trip-push", handleAcceptTripPush(io));
-app.post("/save-subscription", handleSaveSubscription);
+app.post("/api/save-subscription", handleSaveSubscription);
 
 app.get("/api/history/:email", async (req, res) => {
   try {

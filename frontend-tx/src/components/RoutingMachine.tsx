@@ -1,54 +1,63 @@
+import { useEffect } from "react";
+import { useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet-routing-machine";
-import { createControlComponent } from "@react-leaflet/core";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
-const createRoutingMachineLayer = (props: any) => {
-  const { waypoints } = props;
+interface RoutingMachineProps {
+  waypoints: L.LatLng[];
+  onRouteFound: (coords: L.LatLng[]) => void;
+}
 
-  if (!waypoints || waypoints.length < 2 || !waypoints[0]?.lat) {
-    return (L as any).Layer(); // Retorna una capa vacía segura
-  }
+export const RoutingMachine = ({ waypoints, onRouteFound }: RoutingMachineProps) => {
+  const map = useMap();
 
-  const validWaypoints = waypoints.map((wp: any) => L.latLng(wp.lat, wp.lng));
+  useEffect(() => {
+    if (!map || !waypoints || waypoints.length < 2) return;
 
-  const instance = (L.Routing as any).control({
-    waypoints: validWaypoints,
-    router: (L.Routing as any).mapbox(MAPBOX_TOKEN, {
-      profile: 'mapbox/driving',
-      language: 'es',
-      urlParameters: { access_token: MAPBOX_TOKEN }
-    }),
-    createMarker: () => null,
-    show: false,
-    addWaypoints: false,
-    draggableWaypoints: false,
-    fitSelectedRoutes: false, // Evita saltos de cámara molestos
-    containerClassName: 'hidden-routing-container',
-    lineOptions: {
-      styles: [
-        { color: "#0f172a", weight: 9, opacity: 0.2 },
-        { color: "#22c55e", weight: 6, opacity: 1 }
-      ],
-      extendToWaypoints: true,
-      missingRouteTolerance: 10
-    },
-  });
+    // 🎯 Creamos la instancia del router de Mapbox de forma silenciosa y ligera
+    const routingControl = (L.Routing as any).control({
+      waypoints: waypoints,
+      router: (L.Routing as any).mapbox(MAPBOX_TOKEN, {
+        profile: "mapbox/driving",
+        language: "es",
+        urlParameters: { access_token: MAPBOX_TOKEN }
+      }),
+      createMarker: () => null, // No creamos marcadores basura en el mapa
+      show: false,
+      addWaypoints: false,
+      draggableWaypoints: false,
+      fitSelectedRoutes: false,
+      // 🛡️ Al pasarle estilos vacíos e invisibles, Leaflet NO dibuja nada en el mapa,
+      // evitando conflictos de renders con tu Polyline nativa de React.
+      lineOptions: {
+        styles: [{ opacity: 0, weight: 0 }]
+      }
+    });
 
-  return instance;
+    // 📥 CAPTURA DE RUTA: Cuando Mapbox responde, extraemos los puntos y se los mandamos al padre
+    routingControl.on("routesfound", (e: any) => {
+      const routes = e.routes;
+      if (routes && routes[0]) {
+        const coords = routes[0].coordinates.map((c: any) => L.latLng(c.lat, c.lng));
+        onRouteFound(coords); // Inyecta la geometría limpia a 'setGeometriaRuta'
+      }
+    });
+
+    // Añadimos el control al mapa de forma efímera
+    routingControl.addTo(map);
+
+    // 🧼 LIMPIEZA CRÍTICA: Cuando el componente se desmonta, removemos el control
+    // de forma segura sin disparar re-renders destructivos en los marcadores.
+    return () => {
+      try {
+        map.removeControl(routingControl);
+      } catch (err) {
+        console.warn("⚠️ Limpieza silenciosa de enrutamiento");
+      }
+    };
+  }, [map, waypoints, onRouteFound]);
+
+  return null; // No renderiza HTML innecesario, trabaja 100% en memoria
 };
-
-// 🚩 SOLUCIÓN AL ERROR:
-// Definimos el componente con un solo argumento
-export const RoutingMachine = createControlComponent<any, any>(
-  createRoutingMachineLayer
-);
-
-/**
- * EXPLICACIÓN:
- * Aunque eliminamos el segundo argumento para quitar el error de TS, 
- * React-Leaflet por defecto destruye y recrea el control cuando las props cambian.
- * Al tener 'fitSelectedRoutes: false', la experiencia será fluida porque el mapa
- * no saltará, solo se redibujará la línea en la nueva posición del taxista.
- */

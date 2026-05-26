@@ -81,16 +81,30 @@ self.addEventListener("notificationclick", (event) => {
       .then(async (response) => {
         if (!response.ok) throw new Error("Error en servidor al aceptar viaje");
 
-        // Construimos la URL destino usando la URL base que nos dio el backend
-        const baseUrl = notificationData.url.split("?")[0];
-        const targetUrl = `${baseUrl}?pasajero=${notificationData.emailPasajero}&taxista=${notificationData.emailTaxista}&autoAccept=true`;
+        console.log("✅ Viaje pre-aceptado en BD desde el Service Worker.");
+
+        // 🚀 CONSTRUCCIÓN BLINDADA: Usamos el origen del propio Service Worker
+        // Esto asegura que apunte a http://localhost:5173/taxista en local
+        // y a https://tu-frontend.onrender.com/taxista en producción automáticamente.
+        const pEmail = encodeURIComponent(notificationData.emailPasajero || "");
+        const tEmail = encodeURIComponent(notificationData.emailTaxista || "");
+
+        const targetUrl = `${self.location.origin}/taxista?pasajero=${pEmail}&taxista=${tEmail}&autoAccept=true`;
 
         return abrirOEnfocarApp(targetUrl);
       })
       .catch((err) => {
-        console.error("❌ Error al aceptar vía Push:", err);
-        // Si falla el backend, abrimos la vista general de todos modos para que revise
-        return abrirOEnfocarApp(notificationData.url || "/taxista");
+        console.error(
+          "❌ Error al aceptar vía Push, redirigiendo a respaldo:",
+          err,
+        );
+
+        // Respaldo seguro en caso de falla: igual intentamos mandarlo con los parámetros
+        const pEmail = encodeURIComponent(notificationData.emailPasajero || "");
+        const tEmail = encodeURIComponent(notificationData.emailTaxista || "");
+        return abrirOEnfocarApp(
+          `${self.location.origin}/taxista?pasajero=${pEmail}&taxista=${tEmail}`,
+        );
       });
 
     event.waitUntil(apiPromise);

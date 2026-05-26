@@ -221,6 +221,13 @@ const PasajeroView: React.FC = () => {
     setChatAbierto(false);
   };
 
+  // 🎯 Agrega esto arriba de tu return principal en PasajeroView.tsx
+const obtenerTextoEstado = () => {
+  if (estado === 'pendiente') return 'ACTIVO';
+  if (estado === 'encurso') return 'VIAJE EN CURSO';
+  return estado ? estado.toUpperCase() : '';
+};
+
   return (
     <div className="h-dvh bg-slate-50 flex flex-col items-center font-sans relative overflow-hidden">
       <ToastContainer theme="light" />
@@ -271,6 +278,7 @@ const PasajeroView: React.FC = () => {
                     L.latLng(taxiPos.lat, taxiPos.lng),
                     L.latLng(userPosition.lat, userPosition.lng)
                   ]} 
+                  onRouteFound={() => {}}
                 />
               )}
 
@@ -286,18 +294,19 @@ const PasajeroView: React.FC = () => {
               Buscando tu ubicación...
             </div>
           )}
+        </div>
 
           {/* Badge de estado flotante */}
-          <div className="absolute top-4 right-4 z-[1000]">
-            <div className={`px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all duration-500 ${
-              estado === 'encurso' 
-                ? 'bg-slate-800/80 text-slate-100 backdrop-blur-md' 
-                : 'bg-[#22c55e] text-white animate-pulse'
-            }`}>
-              {estado === 'encurso' ? 'VIAJE EN CURSO' : estado}
-            </div>
-          </div>
-        </div>
+<div className="absolute top-4 right-4 z-[1000]">
+  <div className={`px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all duration-500 ${
+    estado === 'encurso' 
+      ? 'bg-slate-800/80 text-slate-100 backdrop-blur-md' 
+      : 'bg-[#22c55e] text-white animate-pulse'
+  }`}>
+    {/* 🚀 Llamada limpia y segura que no rompe a Vite */}
+    {obtenerTextoEstado()}
+  </div>
+</div>
 
         {/* CARD DEL TAXISTA */}
         {taxistaAsignado && (
