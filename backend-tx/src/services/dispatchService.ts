@@ -20,11 +20,12 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     const pEmail = pasajeroData.email.toLowerCase().trim();
     const currentExcluidos = [...new Set(excludedEmails.map(e => e.toLowerCase().trim()))];
 
-    // 🛡️ ESCUDO 1: Si antes de lanzar el siguiente intento el pasajero ya no está buscando (ej: ya va en camino), matamos el hilo
+    // 🎯 CANDADO ATÓMICO: Si el pasajero ya fue tomado por un taxista,
+    // abortamos de inmediato cualquier sub-proceso o solicitud duplicada que venga en camino.
     const pStatusCheck = await Position.findOne({ email: pEmail }).lean();
-    if (pStatusCheck && ["encamino", "encurso", "finalizado"].includes(pStatusCheck.estado)) {
-        console.log(`🛑 [Motor] Cancelando intento ${attempt} para ${pEmail}. El viaje ya está consolidado o en curso.`);
-        return;
+    if (pStatusCheck && ["encamino", "encurso", "asignado"].includes(pStatusCheck.estado)) {
+        console.log(`🛡️ [Motor] Abortando solicitud duplicada para ${pEmail}. Ya se encuentra en estado: ${pStatusCheck.estado}`);
+        return; // Detiene el proceso por completo
     }
 
     if (attempt > MAX_RETRIES) {

@@ -8,16 +8,26 @@ import { dispatchWithRetry, pendingTimeouts } from "../../services/dispatchServi
 
 export const registerTripHandlers = (io: Server, socket: Socket, email: string) => {
 
-    // 🚀 NUEVO: LISTENER MAESTRO PARA SOLICITAR TRANSPORTE
+    // 🚀 NUEVO: LISTENER MAESTRO PARA SOLICITAR TRANSPORTE (BLINDADO CONTRA DUPLICADOS)
     socket.on("request_taxi", async (data: any) => {
         const pEmail = data.email?.toLowerCase().trim();
         if (!pEmail) return;
 
-        console.log(`🚕 [Motor de Despacho] Solicitud entrante del pasajero: ${pEmail}`);
-
         try {
-            // 1. Forzamos la actualización del estado del pasajero a "buscando" en MongoDB
-            await Position.findOneAndUpdate(
+            // 🎯 ESCUDO ATÓMICO PREVENTIVO: Revisamos el estado real ANTES de tocar la base de datos
+            const pasajeroActual = await Position.findOne({ email: pEmail }).lean();
+
+            if (pasajeroActual && ["encamino", "encurso", "asignado"].includes(pasajeroActual.estado)) {
+                console.log(`🛡️ [Sockets] Abortando request_taxi duplicado para ${pEmail}. El usuario ya está en viaje (${pasajeroActual.estado}).`);
+
+                // Forzamos al frontend del pasajero a mantenerse en su pantalla real de viaje
+                return socket.emit("trip_status_update", { estado: pasajeroActual.estado });
+            }
+
+            console.log(`实时 [Motor de Despacho] Solicitud entrante legítima del pasajero: ${pEmail}`);
+
+            // 1. Forzamos la actualización solo si el pasajero está realmente libre/buscando
+            const pPosActualizado = await Position.findOneAndUpdate(
                 { email: pEmail },
                 {
                     $set: {
@@ -29,7 +39,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                         updatedAt: new Date()
                     }
                 },
-                { upsert: true }
+                { upsert: true, new: true }
             );
 
             // 2. Creamos un payload limpio y estandarizado para la cascada
@@ -43,7 +53,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
             console.log(`🤖 [Motor] Buscando la unidad más cercana a la ubicación del pasajero...`);
 
-            // 3. Despertamos al despachador automático que arreglamos en dispatchService
+            // 3. Despertamos al despachador automático
             dispatchWithRetry(io, pasajeroPayload, [], 1);
 
         } catch (error) {

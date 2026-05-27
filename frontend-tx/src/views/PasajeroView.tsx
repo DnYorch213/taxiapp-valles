@@ -181,23 +181,30 @@ const PasajeroView: React.FC = () => {
     return () => clearInterval(interval);
   }, [userPosition, estado]);
 
-  const solicitarTaxi = () => {
-    if (!userPosition?.lat) {
-      toast.error("📍 Esperando señal GPS...");
-      return;
-    }
-    setEstado("buscando");
-    
-    socket.emit("request_taxi", {
-      email: userPosition.email.toLowerCase().trim(),
-      name: userPosition.name,
-      lat: userPosition.lat,
-      lng: userPosition.lng,
-      role: "pasajero",
-      estado: "buscando",
-      timestamp: new Date().toISOString(),
-    });
-  };
+ const solicitarTaxi = () => {
+  if (!userPosition?.lat) {
+    toast.error("📍 Esperando señal GPS...");
+    return;
+  }
+
+  // 🎯 CANDADO DE FRONTEND: Si ya está buscando o en viaje, bloqueamos el disparo
+  if (["buscando", "preasignado", "encamino", "encurso"].includes(estado)) {
+    console.warn("⚠️ Solicitud bloqueada: ya existe un proceso de viaje activo.");
+    return;
+  }
+  
+  setEstado("buscando");
+  
+  socket.emit("request_taxi", {
+    email: userPosition.email.toLowerCase().trim(),
+    name: userPosition.name,
+    lat: userPosition.lat,
+    lng: userPosition.lng,
+    role: "pasajero",
+    estado: "buscando",
+    timestamp: new Date().toISOString(),
+  });
+};
 
   const cancelarSolicitud = () => {
     setEstado("pendiente"); // Primero apagamos el estado local para congelar el Heartbeat
