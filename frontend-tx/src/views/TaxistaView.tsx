@@ -708,25 +708,43 @@ return (
 )}
 
 
-{/* 2. La Polyline: Es la que el taxista ve y la que se va "borrando" */}
+{/* 🟪 LINEA 1: Ruta de aproximación al cliente (Color Púrpura/Magenta) */}
 {estado === "encamino" && geometriaRuta.length > 0 && (
   <Polyline 
     positions={geometriaRuta} 
     pathOptions={{ 
-      color: '#3b82f6', 
+      color: '#d02692', 
       weight: 6, 
       opacity: 0.8,
       lineJoin: 'round' 
     }} 
   />
 )}
-   {estado === "encurso" && (
+
+{/* 🟦 LINEA 2: Ruta hacia el destino final del cliente (Color Cyan o Azul si está en curso) */}
+{estado === "encurso" && geometriaRuta.length > 0 && (
   <Polyline 
-    positions={historialRuta} 
-    pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} 
+    positions={geometriaRuta} 
+    pathOptions={{ 
+      color: '#06b6d4', // 🎯 Un Cyan (#06b6d4) o el color que gustes para el destino final
+      weight: 6, 
+      opacity: 0.8,
+      lineJoin: 'round' 
+    }} 
   />
 )}
 
+{/* 🟩 LINEA 3: Historial del rastro que el taxi ya recorrió (Color Verde) */}
+{estado === "encurso" && historialRuta.length > 0 && (
+  <Polyline 
+    positions={historialRuta} 
+    pathOptions={{ 
+      color: '#22c55e', 
+      weight: 5, 
+      opacity: 0.7 
+    }} 
+  />
+)}
 {taxiPos && (
   <RotatedMarker 
     position={[taxiPos.lat, taxiPos.lng]} 

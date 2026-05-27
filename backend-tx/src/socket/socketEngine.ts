@@ -118,27 +118,33 @@ export const initSocketEngine = (io: Server) => {
                     if (pasajero) {
                         socket.emit("pasajero_asignado", { ...buildPayload(pasajero, pasajero, pasajero.estado), isNewOffer: pasajero.estado === "asignado" });
                     } else {
-                        // Si no tiene viaje asignado, forzar estado activo en el cliente
                         socket.emit("trip_status_update", { estado: "activo" });
                     }
                 } else if (role === "pasajero") {
                     const miEstado = await Position.findOne({ email: cleanEmail });
-                    if (miEstado?.taxistaAsignado) {
-                        const miTaxista = await Position.findOne({ email: miEstado.taxistaAsignado });
-                        if (miTaxista) {
-                            socket.emit("response_from_taxi", {
-                                accepted: true,
-                                tEmail: miTaxista.email,
-                                name: miTaxista.name,
-                                taxiNumber: miTaxista.taxiNumber,
-                                lat: miTaxista.lat,
-                                lng: miTaxista.lng,
-                                estado: miEstado.estado
-                            });
-                        }
-                    } else {
-                        // Si es un pasajero libre, avisarle que está en modo búsqueda normal
+
+                    // 🎯 ESCUDO COMPROBADO: Evaluamos si el pasajero tiene un viaje activo en curso o camino
+                    if (miEstado && ["encamino", "encurso", "asignado"].includes(miEstado.estado)) {
+                        // Buscamos al taxista asignado de forma dinámica
+                        const taxistaEmail = miEstado.taxistaAsignado;
+                        const miTaxista = taxistaEmail ? await Position.findOne({ email: taxistaEmail }) : null;
+
+                        // Le respondemos al pasajero con su estado real ("encamino" o "encurso") para retener su interfaz
+                        socket.emit("response_from_taxi", {
+                            accepted: true,
+                            tEmail: miTaxista ? miTaxista.email : "",
+                            name: miTaxista ? miTaxista.name : "Conductor",
+                            taxiNumber: miTaxista ? miTaxista.taxiNumber : "S/N",
+                            lat: miTaxista ? miTaxista.lat : null,
+                            lng: miTaxista ? miTaxista.lng : null,
+                            estado: miEstado.estado // 🚀 Mantiene "encurso" o "encamino" original sin regresar a "buscando"
+                        });
+                    } else if (miEstado && miEstado.estado === "buscando") {
+                        // Si explícitamente sigue buscando en la base de datos, le confirmamos el estado buscando
                         socket.emit("trip_status_update", { estado: "buscando" });
+                    } else {
+                        // Por defecto para cualquier otro estado libre
+                        socket.emit("trip_status_update", { estado: "pendiente" });
                     }
                 }
             } catch (err) {

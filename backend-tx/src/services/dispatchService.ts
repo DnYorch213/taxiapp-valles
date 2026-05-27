@@ -5,6 +5,7 @@ import { calculateDistance } from "../utils/distance";
 import { reverseGeocode } from "./geocodingService";
 import { enviarNotificacionPush } from "./pushService";
 
+// 🎯 CAMBIO CRÍTICO: Ahora guardamos los timeouts usando como clave el email del PASAJERO
 export const pendingTimeouts = new Map<string, NodeJS.Timeout>();
 const MAX_RETRIES = 5;
 export let isAutoMode = true;
@@ -19,6 +20,13 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     const pEmail = pasajeroData.email.toLowerCase().trim();
     const currentExcluidos = [...new Set(excludedEmails.map(e => e.toLowerCase().trim()))];
 
+    // 🛡️ ESCUDO 1: Si antes de lanzar el siguiente intento el pasajero ya no está buscando (ej: ya va en camino), matamos el hilo
+    const pStatusCheck = await Position.findOne({ email: pEmail }).lean();
+    if (pStatusCheck && ["encamino", "encurso", "finalizado"].includes(pStatusCheck.estado)) {
+        console.log(`🛑 [Motor] Cancelando intento ${attempt} para ${pEmail}. El viaje ya está consolidado o en curso.`);
+        return;
+    }
+
     if (attempt > MAX_RETRIES) {
         console.log(`❌ Límite alcanzado para ${pEmail}`);
         await Position.updateOne({ email: pEmail }, { $set: { estado: "cancelado" } });
@@ -26,14 +34,11 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
         return;
     }
 
-    // src/services/dispatchService.ts
-
     const taxistasCandidatos = await Position.find({
         role: "taxista",
-        // pushSubscription: { $exists: true, $ne: null },
         estado: "activo",
         lat: { $exists: true, $ne: null, $gt: 0 },
-        lng: { $exists: true, $nin: [null, 0] }, // 🛡️ CORRECCIÓN: Unificamos los $ne en un solo $nin limpio
+        lng: { $exists: true, $nin: [null, 0] },
         email: { $nin: currentExcluidos }
     }).lean() as IPosition[];
 
@@ -68,20 +73,20 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     };
 
     io.to(tEmail).emit("pasajero_asignado", fullPayload);
-    // 🛡️ Solo intentamos enviar el Push si el taxista realmente tiene la suscripción guardada
+
     if (elMasCercano.pushSubscription) {
         enviarNotificacionPush(elMasCercano.pushSubscription, fullPayload, tEmail);
     }
+
     const startTime = Date.now();
     const timeout = setTimeout(async () => {
-        const elapsed = Date.now() - startTime;
         const tCheck = await Position.findOne({ email: tEmail }).lean();
 
         if (tCheck && tCheck.estado === "asignado") {
             console.log(`⏳ TIMEOUT: Taxista ${tEmail} no respondió. Saltando cascada.`);
             const pRefresh = await Position.findOne({ email: pEmail }).lean();
 
-            if (!pRefresh || ["cancelado", "inactivo"].includes(pRefresh.estado)) {
+            if (!pRefresh || ["cancelado", "inactivo", "encamino", "encurso"].includes(pRefresh.estado)) {
                 await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
                 return;
             }
@@ -94,5 +99,6 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
         }
     }, 22000);
 
-    pendingTimeouts.set(tEmail, timeout);
+    // 🎯 Guardamos el timeout referenciado al PASAJERO para poder borrarlo de un plumazo
+    pendingTimeouts.set(pEmail, timeout);
 };

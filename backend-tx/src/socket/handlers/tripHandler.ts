@@ -52,15 +52,20 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
     });
 
     socket.on("taxi_response", async ({ requestEmail, accepted, excludedEmails = [] }) => {
-        const tEmail = email;
+        const tEmail = email; // El email del taxista dueño de este socket
         const pEmail = requestEmail?.toLowerCase().trim();
         if (!tEmail || !pEmail) return;
 
-        if (pendingTimeouts.has(tEmail)) {
-            clearTimeout(pendingTimeouts.get(tEmail)!);
-            pendingTimeouts.delete(tEmail);
+        // 🎯 MODIFICACIÓN 1: Limpieza preventiva por Pasajero
+        // Si el taxista responde (ya sea aceptando o rechazando), limpiamos de inmediato 
+        // el timeout de búsqueda activa indexado con el correo de este pasajero.
+        if (pendingTimeouts.has(pEmail)) {
+            clearTimeout(pendingTimeouts.get(pEmail));
+            pendingTimeouts.delete(pEmail);
+            console.log(`🛑 [Motor] Timeout de búsqueda cancelado para el pasajero: ${pEmail}`);
         }
 
+        // 🚨 CASO: EL TAXISTA RECHAZA EL VIAJE
         if (!accepted) {
             await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
             const tPos = await Position.findOne({ email: tEmail });
@@ -68,10 +73,13 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             io.to(pEmail).emit("taxi_rejected_request");
 
             const pData = await Position.findOne({ email: pEmail });
+
+            // Al ejecutarse dispatchWithRetry, creará un NUEVO timeout guardado bajo la clave 'pEmail'
             if (pData) dispatchWithRetry(io, pData, [...excludedEmails, tEmail], 1);
             return;
         }
 
+        // 🚖 CASO: EL TAXISTA ACEPTA EL VIAJE
         try {
             const pPosActualizado = await Position.findOneAndUpdate(
                 { email: pEmail, estado: { $in: ["buscando", "preasignado", "activo"] } },
@@ -81,6 +89,13 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
             if (!pPosActualizado) {
                 return io.to(tEmail).emit("trip_already_taken", { message: "¡Lo sentimos! Solicitud expirada o tomada por otro compañero." });
+            }
+
+            // 🎯 MODIFICACIÓN 2: Por seguridad extrema ante asincronías drásticas,
+            // si un timeout colgado intentó reaparecer justo en este milisegundo, lo volvemos a fulminar
+            if (pendingTimeouts.has(pEmail)) {
+                clearTimeout(pendingTimeouts.get(pEmail));
+                pendingTimeouts.delete(pEmail);
             }
 
             await Position.updateOne({ email: tEmail }, { $set: { estado: "encamino", pasajeroAsignado: pEmail } });
