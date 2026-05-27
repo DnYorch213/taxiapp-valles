@@ -8,25 +8,26 @@ import { dispatchWithRetry, pendingTimeouts } from "../../services/dispatchServi
 
 export const registerTripHandlers = (io: Server, socket: Socket, email: string) => {
 
-    // 🚀 NUEVO: LISTENER MAESTRO PARA SOLICITAR TRANSPORTE (BLINDADO CONTRA DUPLICADOS)
+    // 🚀 EVENTO: request_taxi (REPARADO Y ULTRA-BLINDADO)
     socket.on("request_taxi", async (data: any) => {
         const pEmail = data.email?.toLowerCase().trim();
         if (!pEmail) return;
 
         try {
-            // 🎯 ESCUDO ATÓMICO PREVENTIVO: Revisamos el estado real ANTES de tocar la base de datos
+            // 🛡️ ESCUDO 1: Si ya está en viaje, ignoramos de inmediato
             const pasajeroActual = await Position.findOne({ email: pEmail }).lean();
-
             if (pasajeroActual && ["encamino", "encurso", "asignado"].includes(pasajeroActual.estado)) {
-                console.log(`🛡️ [Sockets] Abortando request_taxi duplicado para ${pEmail}. El usuario ya está en viaje (${pasajeroActual.estado}).`);
-
-                // Forzamos al frontend del pasajero a mantenerse en su pantalla real de viaje
+                console.log(`🛡️ [Sockets] Bloqueado request_taxi duplicado para ${pEmail}. Ya está en viaje.`);
                 return socket.emit("trip_status_update", { estado: pasajeroActual.estado });
             }
 
-            console.log(`实时 [Motor de Despacho] Solicitud entrante legítima del pasajero: ${pEmail}`);
+            // Generamos un ID único para ESTA solicitud específica (basado en el timestamp)
+            // Esto evitará que promesas geocodificadas viejas reactiven el motor.
+            const currentRequestId = new Date().getTime().toString();
 
-            // 1. Forzamos la actualización solo si el pasajero está realmente libre/buscando
+            console.log(`🚕 [Motor] Solicitud entrante legítima de: ${pEmail} (ID: ${currentRequestId})`);
+
+            // 🎯 CORRECCIÓN MONGOOSE: Cambiamos 'new: true' por 'returnDocument: "after"'
             const pPosActualizado = await Position.findOneAndUpdate(
                 { email: pEmail },
                 {
@@ -36,28 +37,46 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                         lng: data.lng,
                         name: data.name || "Pasajero",
                         role: "pasajero",
-                        updatedAt: new Date()
+                        updatedAt: new Date(),
+                        // Guardamos el ID de la solicitud activa en la base de datos
+                        taxistaAsignado: `REQ_${currentRequestId}`
                     }
                 },
-                { upsert: true, new: true }
+                { upsert: true, returnDocument: "after" }
             );
 
-            // 2. Creamos un payload limpio y estandarizado para la cascada
+            // 2. Resolvemos la dirección de forma segura sin bloquear el hilo
+            let pickupAddress = data.pickupAddress || null;
+
+            // Lanzamos la geocodificación asíncrona con un validador de vida
+            if (!pickupAddress || pickupAddress.includes("Ubicación:")) {
+                reverseGeocode(data.lat, data.lng).then(async (direccion) => {
+                    console.log(`✅ DIRECCIÓN GENERADA: ${direccion} para ${pEmail}`);
+
+                    // Comprobamos si la solicitud sigue siendo la misma antes de guardar
+                    const validacionP = await Position.findOne({ email: pEmail }).lean();
+                    if (validacionP && validacionP.taxistaAsignado === `REQ_${currentRequestId}`) {
+                        await Position.updateOne({ email: pEmail }, { $set: { pickupAddress: direccion } });
+                    }
+                }).catch(err => console.error("Error en geocoding silencioso:", err));
+            }
+
             const pasajeroPayload = {
                 email: pEmail,
                 name: data.name || "Pasajero",
                 lat: data.lat,
                 lng: data.lng,
-                pickupAddress: data.pickupAddress || null
+                pickupAddress: pickupAddress || "Calculando ubicación...",
+                requestId: currentRequestId // Identificador de control
             };
 
-            console.log(`🤖 [Motor] Buscando la unidad más cercana a la ubicación del pasajero...`);
+            console.log(`🤖 [Motor] Buscando la unidad más cercana...`);
 
-            // 3. Despertamos al despachador automático
+            // 3. Activamos el motor pasándole el ID de control
             dispatchWithRetry(io, pasajeroPayload, [], 1);
 
         } catch (error) {
-            console.error("❌ Error crítico al procesar request_taxi en el handler:", error);
+            console.error("❌ Error crítico en request_taxi:", error);
         }
     });
 
