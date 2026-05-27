@@ -120,31 +120,49 @@ export const initSocketEngine = (io: Server) => {
                     } else {
                         socket.emit("trip_status_update", { estado: "activo" });
                     }
+                    // src/services/socketEngine.ts o donde manejes "reproducir_estado_viaje"
+
                 } else if (role === "pasajero") {
                     const miEstado = await Position.findOne({ email: cleanEmail });
 
-                    // 🎯 ESCUDO COMPROBADO: Evaluamos si el pasajero tiene un viaje activo en curso o camino
-                    if (miEstado && ["encamino", "encurso", "asignado"].includes(miEstado.estado)) {
-                        // Buscamos al taxista asignado de forma dinámica
+                    // 🎯 REVISIÓN DE ORO: Si el pasajero tiene registrado un taxistaAsignado,
+                    // significa que el viaje está amarrado pase lo que pase, incluso si por un lag
+                    // su estado en la BD dice otra cosa temporalmente.
+                    if (miEstado && (miEstado.taxistaAsignado || ["encamino", "encurso", "asignado"].includes(miEstado.estado))) {
+
+                        // Buscamos al taxista real usando el campo que guarda su correo
                         const taxistaEmail = miEstado.taxistaAsignado;
                         const miTaxista = taxistaEmail ? await Position.findOne({ email: taxistaEmail }) : null;
 
-                        // Le respondemos al pasajero con su estado real ("encamino" o "encurso") para retener su interfaz
+                        // Determinamos el estado real: si ya estaba en curso o camino, lo forzamos.
+                        // Si por error se movió a buscando, lo rescatamos devolviéndolo a "encamino"
+                        const estadoReal = ["encamino", "encurso"].includes(miEstado.estado)
+                            ? miEstado.estado
+                            : "encamino";
+
+                        console.log(`🛡️ [Rehidratación] Asegurando estado '${estadoReal}' para el pasajero ${cleanEmail} con el taxista ${taxistaEmail}`);
+
+                        // Le clavamos al pasajero su pantalla correcta de viaje activo
                         socket.emit("response_from_taxi", {
                             accepted: true,
-                            tEmail: miTaxista ? miTaxista.email : "",
+                            tEmail: taxistaEmail || "",
                             name: miTaxista ? miTaxista.name : "Conductor",
                             taxiNumber: miTaxista ? miTaxista.taxiNumber : "S/N",
                             lat: miTaxista ? miTaxista.lat : null,
                             lng: miTaxista ? miTaxista.lng : null,
-                            estado: miEstado.estado // 🚀 Mantiene "encurso" o "encamino" original sin regresar a "buscando"
+                            estado: estadoReal
                         });
+
+                        // Opcional: Sincronizamos la BD por si el lag la había corrompido
+                        if (miEstado.estado !== estadoReal) {
+                            await Position.updateOne({ email: cleanEmail }, { $set: { estado: estadoReal } });
+                        }
+
                     } else if (miEstado && miEstado.estado === "buscando") {
-                        // Si explícitamente sigue buscando en la base de datos, le confirmamos el estado buscando
+                        // Si de verdad no tiene taxista y está buscando legítimamente
                         socket.emit("trip_status_update", { estado: "buscando" });
                     } else {
-                        // Por defecto para cualquier otro estado libre
-                        socket.emit("trip_status_update", { estado: "pendiente" });
+                        socket.emit("trip_status_update", { estado: "activo" });
                     }
                 }
             } catch (err) {

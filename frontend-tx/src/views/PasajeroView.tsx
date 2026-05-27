@@ -22,10 +22,22 @@ const PasajeroView: React.FC = () => {
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
 
   const taxistaAsignadoRef = useRef<Payload | null>(null);
+  // 🎯 NUEVAS REFS PARA EVITAR RESETEAR EL EFFECT
+  const estadoRef = useRef<ViajeEstado>("pendiente");
+  const taxiPosRef = useRef<any>(null);
 
   useEffect(() => {
     taxistaAsignadoRef.current = taxistaAsignado;
   }, [taxistaAsignado]);
+
+  // Sincronizamos las nuevas referencias
+  useEffect(() => {
+    estadoRef.current = estado;
+  }, [estado]);
+
+  useEffect(() => {
+    taxiPosRef.current = taxiPos;
+  }, [taxiPos]);
 
   // 1. GPS Hook
   useGeolocation(
@@ -94,7 +106,7 @@ const PasajeroView: React.FC = () => {
             prev ? { lat: prev.lat, lng: prev.lng } : null,
             { lat: data.lat, lng: data.lng },
             userPosition ? { lat: userPosition.lat!, lng: userPosition.lng! } : null,
-            estado
+           estadoRef.current // 🎯 Usamos la ref para leer el estado fresco sin reiniciar el effect
           );
           return { lat: data.lat, lng: data.lng, heading };
         });
@@ -111,7 +123,8 @@ const PasajeroView: React.FC = () => {
       if (data.estado === "encurso") {
         setEstado("encurso");
         setChatAbierto(false);
-        if (taxiPos) setHistorialRuta([[taxiPos.lat, taxiPos.lng]]);
+        // 🎯 Usamos taxiPosRef para evitar la dependencia directa
+        if (taxiPosRef.current) setHistorialRuta([[taxiPosRef.current.lat, taxiPosRef.current.lng]]);
         toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
       }
       
@@ -161,7 +174,7 @@ const PasajeroView: React.FC = () => {
       socket.off("trip_finished");
       socket.off("taxi_rejected_request");
     };
-  }, [socket, userPosition?.email, estado, taxiPos]);
+  }, [socket, userPosition?.email]);
 
   // 3. Heartbeat Controlado (Optimizado para no interrumpir despachos)
   useEffect(() => {
@@ -279,22 +292,50 @@ const obtenerTextoEstado = () => {
                 </RotatedMarker>
               )}
 
-              {taxiPos && (estado === "asignado" || estado === "encamino") && (
-                <RoutingMachine 
-                  waypoints={[
-                    L.latLng(taxiPos.lat, taxiPos.lng),
-                    L.latLng(userPosition.lat, userPosition.lng)
-                  ]} 
-                  onRouteFound={() => {}}
-                />
-              )}
+              {/* ==================== SECCIÓN DE LÍNEAS DEL MAPA ==================== */}
 
-              {estado === "encurso" && historialRuta.length > 0 && (
-                <Polyline 
-                  positions={historialRuta} 
-                  pathOptions={{ color: '#22c55e', weight: 6, opacity: 0.8 }} 
-                />
-              )}
+{/* 🟪 LINEA 1: Ruta de aproximación del taxi hacia el Pasajero (Fase: encamino / asignado) */}
+{(estado === "asignado" || estado === "encamino") && taxiPos && userPosition?.lat && (
+  <Polyline
+    positions={[
+      [taxiPos.lat, taxiPos.lng],
+      [userPosition.lat, userPosition.lng]
+    ]}
+    pathOptions={{
+      color: '#d02692', // 🎯 El mismo magenta premium que metimos en la vista del taxista
+      weight: 6,
+      opacity: 0.8,
+      dashArray: '10, 10', // 🏃‍♂️ Estilo línea punteada dinámica que indica "en camino hacia ti"
+      lineJoin: 'round'
+    }}
+  />
+)}
+
+{/* 🗺️ CONTROL DE ENRUTAMIENTO (Se mantiene oculto o de respaldo para no sobrecargar el mapa) */}
+{taxiPos && (estado === "asignado" || estado === "encamino") && (
+  <RoutingMachine 
+    waypoints={[
+      L.latLng(taxiPos.lat, taxiPos.lng),
+      L.latLng(userPosition.lat, userPosition.lng)
+    ]} 
+    onRouteFound={() => {}}
+    // 💡 Pro tip: Si tu componente RoutingMachine tiene una prop para ocultar las líneas por defecto, 
+    // puedes activarla para que no compita visualmente con nuestra Polyline magenta.
+  />
+)}
+
+{/* 🟩 LINEA 2: El rastro del viaje que ya van recorriendo juntos (Fase: encurso) */}
+{estado === "encurso" && historialRuta.length > 0 && (
+  <Polyline 
+    positions={historialRuta} 
+    pathOptions={{ 
+      color: '#22c55e', 
+      weight: 6, 
+      opacity: 0.8,
+      lineJoin: 'round'
+    }} 
+  />
+)}
             </MapContainer>
           ) : (
             <div className="flex items-center justify-center h-full text-slate-400 font-black text-[10px] uppercase tracking-widest animate-pulse">
