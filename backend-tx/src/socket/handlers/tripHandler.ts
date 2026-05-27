@@ -46,15 +46,27 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 { upsert: true, returnDocument: "after" }
             );
 
-            // 3. Geocodificación silenciosa en segundo plano
+            // 🚀 3. Geocodificación silenciosa en segundo plano (ULTRA-BLINDADA)
             let pickupAddress = data.pickupAddress || null;
             if (!pickupAddress || pickupAddress.includes("Ubicación:")) {
                 reverseGeocode(data.lat, data.lng).then(async (direccion) => {
+
+                    // 🎯 CANDADO DE ESTADO: Consultamos cómo está el pasajero JUSTO AHORA en MongoDB
                     const validacionP = await Position.findOne({ email: pEmail }).lean();
+
+                    // 🛡️ Si el viaje ya se consolidó con Jorge o Yorchi, ABORTAMOS. No tocamos la BD a mitad de ruta.
+                    if (validacionP && ["encamino", "encurso", "asignado", "preasignado"].includes(validacionP.estado)) {
+                        console.log(`🛡️ [Geocoding] Ignorando dirección tardía (${direccion}) para ${pEmail}. El viaje ya está en curso/camino.`);
+                        return; // 🛑 Salimos en seco sin modificar nada en MongoDB
+                    }
+
+                    // Si sigue buscando legítimamente y el ID coincide, guardamos de forma segura
                     if (validacionP && validacionP.pasajeroAsignado === currentRequestId) {
                         await Position.updateOne({ email: pEmail }, { $set: { pickupAddress: direccion } });
+                        console.log(`✅ DIRECCIÓN GENERADA E INYECTADA: ${direccion} para ${pEmail}`);
                     }
-                }).catch(err => console.error("Error geocode:", err));
+
+                }).catch(err => console.error("❌ Error geocode silencioso:", err));
             }
 
             const pasajeroPayload = {
