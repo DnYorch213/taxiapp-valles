@@ -110,63 +110,51 @@ export const initSocketEngine = (io: Server) => {
         registerLocationHandlers(io, socket, email);
         registerTripHandlers(io, socket, email);
 
+        // En tu servidor backend, dentro del io.on("connection", (socket) => { ... })
+
         socket.on("reproducir_estado_viaje", async ({ email, role }) => {
             const cleanEmail = email.toLowerCase().trim();
             try {
-                if (role === "taxista") {
-                    const pasajero = await Position.findOne({ taxistaAsignado: cleanEmail, estado: { $in: ["asignado", "encurso", "encamino"] } });
-                    if (pasajero) {
-                        socket.emit("pasajero_asignado", { ...buildPayload(pasajero, pasajero, pasajero.estado), isNewOffer: pasajero.estado === "asignado" });
-                    } else {
-                        socket.emit("trip_status_update", { estado: "activo" });
-                    }
-                    // src/services/socketEngine.ts o donde manejes "reproducir_estado_viaje"
+                if (role === "pasajero") {
+                    // Buscamos el estado real persistido en la base de datos
+                    const miEstado = await Position.findOne({ email: cleanEmail }).lean();
 
-                } else if (role === "pasajero") {
-                    const miEstado = await Position.findOne({ email: cleanEmail });
+                    // 🎯 ESCUDO ABSOLUTO: Si en la base de datos ya figura que tiene un taxista asignado
+                    // o está en camino/curso, bajo ninguna circunstancia le permitimos volver a buscar.
+                    if (miEstado && (miEstado.taxistaAsignado || ["encamino", "encurso", "asignado", "preasignado"].includes(miEstado.estado))) {
 
-                    // 🎯 REVISIÓN DE ORO: Si el pasajero tiene registrado un taxistaAsignado,
-                    // significa que el viaje está amarrado pase lo que pase, incluso si por un lag
-                    // su estado en la BD dice otra cosa temporalmente.
-                    if (miEstado && (miEstado.taxistaAsignado || ["encamino", "encurso", "asignado"].includes(miEstado.estado))) {
-
-                        // Buscamos al taxista real usando el campo que guarda su correo
                         const taxistaEmail = miEstado.taxistaAsignado;
-                        const miTaxista = taxistaEmail ? await Position.findOne({ email: taxistaEmail }) : null;
+                        const miTaxista = taxistaEmail ? await Position.findOne({ email: taxistaEmail }).lean() : null;
 
-                        // Determinamos el estado real: si ya estaba en curso o camino, lo forzamos.
-                        // Si por error se movió a buscando, lo rescatamos devolviéndolo a "encamino"
-                        const estadoReal = ["encamino", "encurso"].includes(miEstado.estado)
+                        // Forzamos al estado a mantenerse estable en lo que dicte la BD
+                        const estadoSincronizado = ["encamino", "encurso"].includes(miEstado.estado)
                             ? miEstado.estado
                             : "encamino";
 
-                        console.log(`🛡️ [Rehidratación] Asegurando estado '${estadoReal}' para el pasajero ${cleanEmail} con el taxista ${taxistaEmail}`);
+                        console.log(`🛡️ [Garantía] Forzando rehidratación estricta para ${cleanEmail} en estado: ${estadoSincronizado}`);
 
-                        // Le clavamos al pasajero su pantalla correcta de viaje activo
-                        socket.emit("response_from_taxi", {
+                        // Devolvemos la confirmación total al cliente para congelar su interfaz en la pantalla de viaje
+                        return socket.emit("response_from_taxi", {
                             accepted: true,
                             tEmail: taxistaEmail || "",
                             name: miTaxista ? miTaxista.name : "Conductor",
-                            taxiNumber: miTaxista ? miTaxista.taxiNumber : "S/N",
+                            taxiNumber: miTaxista ? miTaxista.taxiNumber : "ECO",
                             lat: miTaxista ? miTaxista.lat : null,
                             lng: miTaxista ? miTaxista.lng : null,
-                            estado: estadoReal
+                            estado: estadoSincronizado
                         });
-
-                        // Opcional: Sincronizamos la BD por si el lag la había corrompido
-                        if (miEstado.estado !== estadoReal) {
-                            await Position.updateOne({ email: cleanEmail }, { $set: { estado: estadoReal } });
-                        }
-
-                    } else if (miEstado && miEstado.estado === "buscando") {
-                        // Si de verdad no tiene taxista y está buscando legítimamente
-                        socket.emit("trip_status_update", { estado: "buscando" });
-                    } else {
-                        socket.emit("trip_status_update", { estado: "activo" });
                     }
+
+                    // Si de verdad está libre en la base de datos, le permitimos adoptar el estado correspondiente
+                    if (miEstado && miEstado.estado === "buscando") {
+                        return socket.emit("trip_status_update", { estado: "buscando" });
+                    }
+
+                    // Por defecto si no hay nada activo
+                    socket.emit("trip_status_update", { estado: "pendiente" });
                 }
             } catch (err) {
-                console.error("Error al reproducir estado:", err);
+                console.error("Error al reproducir estado del pasajero:", err);
             }
         });
 

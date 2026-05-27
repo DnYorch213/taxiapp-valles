@@ -371,41 +371,43 @@ const obtenerTextoEstado = () => {
           </div>
         )}
 
-        {/* SECCIÓN DE BOTONES */}
-        <div className="px-6 pt-5 pb-18 flex flex-col shrink-0 bg-white">
-          <div className="mb-3">
-            <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Servicio Valles</p>
-            <h2 className="text-lg font-black text-slate-900 tracking-tighter leading-tight">
-              {estado === 'pendiente' && "¿A dónde vamos hoy?"}
-              {estado === 'buscando' && "Buscando unidad..."}
-              {(estado === 'asignado' || estado === 'encamino') && "Tu taxi viene en camino"}
-              {estado === 'encurso' && "¡Buen viaje por Valles!"}
-            </h2>
-          </div>
+       {/* SECCIÓN DE BOTONES MODIFICADA */}
+<div className="px-6 pt-5 pb-18 flex flex-col shrink-0 bg-white">
+  <div className="mb-3">
+    <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Servicio Valles</p>
+    <h2 className="text-lg font-black text-slate-900 tracking-tighter leading-tight">
+      {estado === 'pendiente' && "¿A dónde vamos hoy?"}
+      {estado === 'buscando' && "Buscando unidad..."}
+      {(estado === 'asignado' || estado === 'encamino') && "Tu taxi viene en camino"}
+      {estado === 'encurso' && "¡Buen viaje por Valles!"}
+    </h2>
+  </div>
 
-          <div className="space-y-3">
-            <button
-              onClick={solicitarTaxi}
-              disabled={estado !== "pendiente"} 
-              className={`w-full py-5 rounded-[1.2rem] font-black transition-all transform active:scale-95 shadow-xl tracking-widest text-xs ${
-                estado === "pendiente"
-                  ? "bg-[#22c55e] text-white shadow-green-900/20" 
-                  : "bg-slate-800 text-slate-500 cursor-not-allowed opacity-50"
-              }`}
-            >
-              {estado === "pendiente" ? "SOLICITAR TRANSPORTE" : "VIAJE ACTIVO"}
-            </button>
+  <div className="space-y-3">
+    <button
+      onClick={solicitarTaxi}
+      // 🎯 CANDADO ULTRA-ESTRICTO: Solo se puede clickear si el estado es exactamente "pendiente"
+      disabled={estado !== "pendiente"} 
+      className={`w-full py-5 rounded-[1.2rem] font-black transition-all transform active:scale-95 shadow-xl tracking-widest text-xs ${
+        estado === "pendiente"
+          ? "bg-[#22c55e] text-white shadow-green-900/20" 
+          : "bg-slate-800 text-slate-500 cursor-not-allowed opacity-50"
+      }`}
+    >
+      {estado === "pendiente" ? "SOLICITAR TRANSPORTE" : "VIAJE ACTIVO"}
+    </button>
 
-            {(estado === "buscando" || estado === "asignado" || estado === "encamino") && (
-              <button
-                onClick={cancelarSolicitud}
-                className="w-full py-3 bg-red-50 text-red-500 rounded-[1.2rem] font-bold text-[8px] uppercase border border-red-100 active:bg-red-100"
-              >
-                Cancelar Solicitud
-              </button>
-            )}
-          </div>
-        </div>
+    {/* 🎯 INCLUIMOS "preasignado" para que el botón de cancelar no desaparezca en las transiciones de estados del servidor */}
+    {(estado === "buscando" || estado === "preasignado" || estado === "asignado" || estado === "encamino") && (
+      <button
+        onClick={cancelarSolicitud}
+        className="w-full py-3 bg-red-50 text-red-500 rounded-[1.2rem] font-bold text-[8px] uppercase border border-red-100 active:bg-red-100"
+      >
+        Cancelar Solicitud
+      </button>
+    )}
+  </div>
+</div>
       </main>
 
       {/* CHAT */}

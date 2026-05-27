@@ -15,9 +15,12 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
         try {
             // 1. Escudo preventivo básico
+            // En tu backend, al inicio de socket.on("request_taxi", ...)
             const pasajeroActual = await Position.findOne({ email: pEmail }).lean();
-            if (pasajeroActual && ["encamino", "encurso", "asignado"].includes(pasajeroActual.estado)) {
-                console.log(`🛡️ [Sockets] Pasajero ${pEmail} ya está en viaje activo.`);
+
+            // 🎯 Incluimos "preasignado" en el escudo preventivo del backend
+            if (pasajeroActual && ["encamino", "encurso", "asignado", "preasignado"].includes(pasajeroActual.estado)) {
+                console.log(`🛡️ [Sockets] Bloqueado request_taxi en fase de asignación para ${pEmail}`);
                 return socket.emit("trip_status_update", { estado: pasajeroActual.estado });
             }
 
