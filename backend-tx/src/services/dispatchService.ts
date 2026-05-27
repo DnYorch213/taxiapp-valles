@@ -16,6 +16,8 @@ export const setAutoMode = (value: boolean) => {
 
 // src/services/dispatchService.ts
 
+// src/services/dispatchService.ts
+
 export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedEmails: string[] = [], attempt: number = 1) => {
     if (!isAutoMode || !pasajeroData || !pasajeroData.email) return;
 
@@ -23,23 +25,31 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     const currentExcluidos = [...new Set(excludedEmails.map(e => e.toLowerCase().trim()))];
     const reqId = pasajeroData.requestId;
 
-    // 🛡️ VALIDACIÓN DE CONTROL: Comprobamos si la solicitud sigue viva en MongoDB
+    // 🛡️ REVISIÓN DEL CANDADO:
     const pStatusCheck = await Position.findOne({ email: pEmail }).lean();
 
-    // Si el estado ya cambió a otra fase, o el ID de la solicitud ya no coincide, abortamos el hilo fantasma
-    if (!pStatusCheck || ["encamino", "encurso", "finalizado"].includes(pStatusCheck.estado) || pStatusCheck.taxistaAsignado !== `REQ_${reqId}`) {
-        console.log(`🛑 [Motor] Cancelando intento ${attempt} para ${pEmail}. Solicitud obsoleta o cancelada.`);
+    // Si el viaje ya se consolidó con un taxista (cambió de estado), dejamos que siga.
+    // Pero si sigue en "buscando" o "preasignado" y el requestId cambió, abortamos el hilo viejo.
+    if (!pStatusCheck) return;
+
+    if (["encamino", "encurso", "finalizado"].includes(pStatusCheck.estado)) {
+        console.log(`🛑 [Motor] Cancelando intento ${attempt} para ${pEmail}. Viaje ya en curso.`);
+        return;
+    }
+
+    if (pStatusCheck.estado === "buscando" && pStatusCheck.pasajeroAsignado !== reqId) {
+        console.log(`🛑 [Motor] Cancelando intento ${attempt} para ${pEmail}. ID de solicitud obsoleto.`);
         return;
     }
 
     if (attempt > MAX_RETRIES) {
         console.log(`❌ Límite de intentos alcanzado para ${pEmail}`);
-        await Position.updateOne({ email: pEmail }, { $set: { estado: "cancelado", taxistaAsignado: null } });
+        await Position.updateOne({ email: pEmail }, { $set: { estado: "cancelado", pasajeroAsignado: null } });
         io.to(pEmail).emit("no_taxis_available", { message: "Sin unidades disponibles." });
         return;
     }
 
-    // ... Tu lógica de buscar candidatos (taxistasCandidatos) ...
+    // 🚖 BUSQUEDA DE CANDIDATOS ACTIVOS
     const taxistasCandidatos = await Position.find({
         role: "taxista",
         estado: "activo",
@@ -49,12 +59,8 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     }).lean() as IPosition[];
 
     if (taxistasCandidatos.length === 0) {
-        console.log(`📭 No hay más taxistas disponibles en este intento para ${pEmail}`);
-        // Modificación para que el pasajero se entere pero no se rompa el estado
-        io.to(pEmail).emit("no_taxis_available", { message: "Buscando más conductores a la redonda..." });
-
-        // Opcional: Si quieres que limpie en lugar de quedarse buscando, descomenta abajo:
-        // await Position.updateOne({ email: pEmail }, { $set: { estado: "cancelado", taxistaAsignado: null } });
+        console.log(`📭 No hay más taxistas disponibles en el intento ${attempt} para ${pEmail}`);
+        io.to(pEmail).emit("no_taxis_available", { message: "Buscando más conductores..." });
         return;
     }
 
@@ -66,8 +72,8 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
 
     const tEmail = elMasCercano.email.toLowerCase().trim();
 
-    // Actualizamos al taxista a asignado y al pasajero a preasignado
-    await Position.updateOne({ email: tEmail }, { $set: { estado: "assigned" === "assigned" ? "asignado" : "asignado", pasajeroAsignado: pEmail } });
+    // Asignamos temporalmente al taxista
+    await Position.updateOne({ email: tEmail }, { $set: { estado: "asignado", pasajeroAsignado: pEmail } });
     await Position.updateOne({ email: pEmail }, { $set: { estado: "preasignado" } });
 
     const fullPayload = {
@@ -88,15 +94,14 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
         const tCheck = await Position.findOne({ email: tEmail }).lean();
         const pRefresh = await Position.findOne({ email: pEmail }).lean();
 
-        // 🛡️ Verificamos que el pasajero siga en la misma solicitud exacta antes de saltar al siguiente
-        if (tCheck && tCheck.estado === "asignado" && pRefresh && pRefresh.taxistaAsignado === `REQ_${reqId}`) {
-            console.log(`⏳ TIMEOUT: Taxista ${tEmail} no respondió. Saltando cascada.`);
+        // Verificamos que el taxista siga asignado y que el pasajero no haya iniciado OTRA solicitud distinta
+        if (tCheck && tCheck.estado === "asignado" && pRefresh && pRefresh.pasajeroAsignado === reqId) {
+            console.log(`⏳ TIMEOUT: Taxista ${tEmail} no respondió. Saltando cascada al intento ${attempt + 1}.`);
 
             io.to(tEmail).emit("dispatch_timeout");
             await Position.updateOne({ email: tEmail }, { $set: { estado: "activo", pasajeroAsignado: null } });
             io.emit("panel_update", { email: tEmail, estado: "activo" });
 
-            // Llamamos al siguiente intento heredando el ID de control
             dispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt + 1);
         }
     }, 22000);
