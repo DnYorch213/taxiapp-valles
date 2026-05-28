@@ -39,20 +39,29 @@ const PasajeroView: React.FC = () => {
     taxiPosRef.current = taxiPos;
   }, [taxiPos]);
 
-  // 1. GPS Hook
-  useGeolocation(
-    {
-      email: userPosition?.email || "",
-      name: userPosition?.name || "Pasajero",
-      role: "pasajero",
-    },
-   
-    (pos) => {
-      if (pos.lat && pos.lng) {
-        setUserPosition({ ...userPosition, lat: pos.lat, lng: pos.lng } as any);
+ // 🎯 1. Tu useMemo limpio y corregido (mantén la Opción A o B que elegiste)
+const geoConfig = useMemo(() => ({
+  email: userPosition?.email || "",
+  name: userPosition?.name || "Pasajero",
+  role: "pasajero" as const, 
+}), [userPosition?.email]);
+
+// 🎯 2. Invocamos useGeolocation pasando el objeto directo exigido por el Contexto
+useGeolocation(
+  geoConfig,
+  (pos) => {
+    if (pos.lat && pos.lng) {
+      // 🛡️ CORRECCIÓN: Validamos el cambio antes de enviarlo, pero pasamos el objeto directo
+      if (userPosition?.lat !== pos.lat || userPosition?.lng !== pos.lng) {
+        setUserPosition({
+          ...userPosition,
+          lat: pos.lat,
+          lng: pos.lng
+        } as any);
       }
     }
-  );
+  }
+);
 
   // 2. Escucha de Eventos Socket
   useEffect(() => {

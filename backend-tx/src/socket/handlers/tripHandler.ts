@@ -8,27 +8,31 @@ import { dispatchWithRetry, pendingTimeouts } from "../../services/dispatchServi
 
 export const registerTripHandlers = (io: Server, socket: Socket, email: string) => {
 
-    // 🚀 EVENTO: request_taxi (PERFECTO Y SIN AUTO-BLOQUEO)
     socket.on("request_taxi", async (data: any) => {
         const pEmail = data.email?.toLowerCase().trim();
         if (!pEmail) return;
 
         try {
-            // 1. Escudo preventivo básico
-            // En tu backend, al inicio de socket.on("request_taxi", ...)
-            const pasajeroActual = await Position.findOne({ email: pEmail }).lean();
+            // 🎯 CONTROL CRÍTICO: Revisamos el registro real en MongoDB antes de mover una sola línea
+            const viajeActivo = await Position.findOne({ email: pEmail }).lean();
 
-            // 🎯 Incluimos "preasignado" en el escudo preventivo del backend
-            if (pasajeroActual && ["encamino", "encurso", "asignado", "preasignado"].includes(pasajeroActual.estado)) {
-                console.log(`🛡️ [Sockets] Bloqueado request_taxi en fase de asignación para ${pEmail}`);
-                return socket.emit("trip_status_update", { estado: pasajeroActual.estado });
+            // Si ya tiene un taxista asignado o está en camino/curso/preasignado, ignoramos el evento en seco
+            if (viajeActivo && (viajeActivo.taxistaAsignado || ["encamino", "encurso", "asignado", "preasignado"].includes(viajeActivo.estado))) {
+                console.log(`🛡️ [Escudo Sockets] Abortado request_taxi duplicado para ${pEmail}. Viaje activo: ${viajeActivo.estado}`);
+
+                // Rehidratamos al pasajero forzando a su frontend a mantenerse en el viaje real
+                return socket.emit("response_from_taxi", {
+                    accepted: true,
+                    tEmail: viajeActivo.taxistaAsignado || "",
+                    name: "Conductor",
+                    estado: viajeActivo.estado
+                });
             }
 
+            // 🟢 SI ESTÁ COMPLETA Y LEGÍTIMAMENTE LIBRE, CONTINÚA TU FLUJO NORMAL:
             const currentRequestId = new Date().getTime().toString();
             console.log(`🚕 [Motor] Solicitud entrante legítima de: ${pEmail} (ID: ${currentRequestId})`);
 
-            // 2. Guardamos el estado y el requestId dedicado. 
-            // 🎯 LIMPIAMOS taxistaAsignado y pasajeroAsignado para que no lleven basura de viajes viejos
             await Position.findOneAndUpdate(
                 { email: pEmail },
                 {
@@ -38,13 +42,15 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                         lng: data.lng,
                         name: data.name || "Pasajero",
                         role: "pasajero",
-                        taxistaAsignado: null, // Queda libre para cuando acepte un taxista real
-                        pasajeroAsignado: currentRequestId, // 🎯 Usamos este campo para el ID de solicitud temporal
+                        taxistaAsignado: null,
+                        pasajeroAsignado: currentRequestId,
                         updatedAt: new Date()
                     }
                 },
                 { upsert: true, returnDocument: "after" }
             );
+
+            // ... Tu lógica de geocodificación silenciosa y el dispatchWithRetry abajo ...
 
             // 🚀 3. Geocodificación silenciosa en segundo plano (ULTRA-BLINDADA)
             let pickupAddress = data.pickupAddress || null;
