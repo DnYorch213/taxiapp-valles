@@ -46,10 +46,11 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     }
 
 
-    if (pStatusCheck.estado === "buscando" && pStatusCheck.requestId !== reqId) {
+    if (pStatusCheck.estado === "buscando" && pStatusCheck.requestId && pStatusCheck.requestId !== reqId) {
         console.log(`🛑 [Motor] Cancelando intento ${attempt} para ${pEmail}. ID de solicitud obsoleto.`);
         return;
     }
+
 
 
     if (attempt > MAX_RETRIES) {
