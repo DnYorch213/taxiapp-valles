@@ -12,6 +12,7 @@ export interface IPosition extends Document {
     pasajeroAsignado?: string | null; // 👈 AGREGADO
     pickupAddress?: string;
     destinationAddress?: string;    // 👈 AGREGADO
+    requestId?: string; // 🚩 nuevo campo
     pushSubscription?: {
         endpoint: string;
         keys: {
@@ -24,6 +25,7 @@ export interface IPosition extends Document {
 }
 
 const PositionSchema = new Schema<IPosition>({
+    requestId: { type: String, default: null }, // 🚩 nuevo campo
     email: {
         type: String,
         required: true,

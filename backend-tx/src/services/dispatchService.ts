@@ -71,14 +71,19 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     });
 
     const tEmail = elMasCercano.email.toLowerCase().trim();
+    // Generar dirección de recogida con reverseGeocode
+    const direccion = await reverseGeocode(pasajeroData.lat, pasajeroData.lng);
 
     // Asignamos temporalmente al taxista
     await Position.updateOne({ email: tEmail }, { $set: { estado: "asignado", pasajeroAsignado: pEmail } });
-    await Position.updateOne({ email: pEmail }, { $set: { estado: "preasignado" } });
-
+    await Position.updateOne(
+        { email: pEmail },
+        { $set: { estado: "preasignado", pickupAddress: direccion, requestId: reqId } }
+    );
     const fullPayload = {
         ...pasajeroData,
         email: pEmail,
+        pickupAddress: direccion,
         excludedEmails: currentExcluidos,
         isNewOffer: true,
         attempt
@@ -94,8 +99,8 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
         const tCheck = await Position.findOne({ email: tEmail }).lean();
         const pRefresh = await Position.findOne({ email: pEmail }).lean();
 
-        // Verificamos que el taxista siga asignado y que el pasajero no haya iniciado OTRA solicitud distinta
-        if (tCheck && tCheck.estado === "asignado" && pRefresh && pRefresh.pasajeroAsignado === reqId) {
+        // 🚩 Aquí va la nueva condición
+        if (tCheck && tCheck.estado === "asignado" && pRefresh && pRefresh.requestId === reqId) {
             console.log(`⏳ TIMEOUT: Taxista ${tEmail} no respondió. Saltando cascada al intento ${attempt + 1}.`);
 
             io.to(tEmail).emit("dispatch_timeout");
@@ -105,6 +110,7 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
             dispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt + 1);
         }
     }, 22000);
+
 
     pendingTimeouts.set(pEmail, timeout);
 };
