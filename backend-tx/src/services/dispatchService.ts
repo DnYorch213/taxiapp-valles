@@ -34,13 +34,23 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
 
     if (["encamino", "encurso", "finalizado"].includes(pStatusCheck.estado)) {
         console.log(`🛑 [Motor] Cancelando intento ${attempt} para ${pEmail}. Viaje ya en curso.`);
+
+        // 🚩 Aquí sí existe pEmail y puedes limpiar
+        const oldTimeout = pendingTimeouts.get(pEmail);
+        if (oldTimeout) {
+            clearTimeout(oldTimeout);
+            pendingTimeouts.delete(pEmail);
+            console.log(`🧹 Timeout limpiado para pasajero ${pEmail}, viaje ya en curso.`);
+        }
         return;
     }
 
-    if (pStatusCheck.estado === "buscando" && pStatusCheck.pasajeroAsignado !== reqId) {
+
+    if (pStatusCheck.estado === "buscando" && pStatusCheck.requestId !== reqId) {
         console.log(`🛑 [Motor] Cancelando intento ${attempt} para ${pEmail}. ID de solicitud obsoleto.`);
         return;
     }
+
 
     if (attempt > MAX_RETRIES) {
         console.log(`❌ Límite de intentos alcanzado para ${pEmail}`);
@@ -48,6 +58,7 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
         io.to(pEmail).emit("no_taxis_available", { message: "Sin unidades disponibles." });
         return;
     }
+
 
     // 🚖 BUSQUEDA DE CANDIDATOS ACTIVOS
     const taxistasCandidatos = await Position.find({
@@ -98,6 +109,12 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     const timeout = setTimeout(async () => {
         const tCheck = await Position.findOne({ email: tEmail }).lean();
         const pRefresh = await Position.findOne({ email: pEmail }).lean();
+
+        // 🚩 Candado extra dentro del timeout
+        if (pRefresh && ["encamino", "encurso"].includes(pRefresh.estado)) {
+            console.log(`🛑 Timeout ignorado: pasajero ${pEmail} ya está en curso.`);
+            return;
+        }
 
         // 🚩 Aquí va la nueva condición
         if (tCheck && tCheck.estado === "asignado" && pRefresh && pRefresh.requestId === reqId) {
