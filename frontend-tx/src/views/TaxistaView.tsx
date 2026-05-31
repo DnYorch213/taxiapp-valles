@@ -76,6 +76,14 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   const [vistaActual, setVistaActual] = useState('mapa'); // 'mapa' o 'historial'
   const [isAccepting, setIsAccepting] = useState(false);
 
+  useEffect(() => {
+  if (estado === "finalizado" || estado === "activo") {
+    setTimeout(() => setGeometriaRuta([]), 300);
+  }
+}, [estado]);
+
+
+
  // 🚩 REHIDRATACIÓN DESDE QUERY PARAMS O ACCIONES PUSH
 useEffect(() => {
   const params = new URLSearchParams(window.location.search);
@@ -136,7 +144,7 @@ const gestionarSuscripcion = async () => {
     if (subscription) {
       console.log(`🔄 Sincronizando token push en servidor para: ${userEmail}`);
       
-      await axios.post(`${API_URL}/save-subscription`, {
+      await axios.post(`${API_URL}/api/save-subscription`, {
         email: userEmail.toLowerCase().trim(),
         subscription: subscription
       });
@@ -697,15 +705,24 @@ return (
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
            {/* --- DENTRO DEL MAPA --- */}
 
-{estado === "encamino" && pasajeroAsignado?.lat && taxiPos?.lat && taxiPos?.lng && pasajeroAsignado?.lng && geometriaRuta.length === 0 && (
-  <RoutingMachine 
-    waypoints={[
-      L.latLng(taxiPos.lat!, taxiPos.lng!), 
-      L.latLng(pasajeroAsignado.lat!, pasajeroAsignado.lng!)
-    ]} 
-    onRouteFound={(coords: L.LatLng[]) => setGeometriaRuta(coords)} 
-  />
-)}
+{estado === "encamino" &&
+  pasajeroAsignado?.lat &&
+  pasajeroAsignado?.lng &&
+  taxiPos?.lat &&
+  taxiPos?.lng &&
+  geometriaRuta.length === 0 && (
+    <RoutingMachine
+      waypoints={[
+        L.latLng(taxiPos.lat, taxiPos.lng),
+        L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng)
+      ]}
+      onRouteFound={(coords: L.LatLng[]) => {
+        console.log("✅ Ruta encontrada, longitud:", coords.length);
+        setGeometriaRuta(coords);
+      }}
+    />
+  )}
+
 
 
 {/* 🟪 LINEA 1: Ruta de aproximación al cliente (Color Púrpura/Magenta) */}

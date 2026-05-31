@@ -14,16 +14,18 @@ export const setAutoMode = (value: boolean) => {
     isAutoMode = value;
 };
 
-// src/services/dispatchService.ts
-
-// src/services/dispatchService.ts
-
 export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedEmails: string[] = [], attempt: number = 1) => {
     if (!isAutoMode || !pasajeroData || !pasajeroData.email) return;
 
     const pEmail = pasajeroData.email.toLowerCase().trim();
     const currentExcluidos = [...new Set(excludedEmails.map(e => e.toLowerCase().trim()))];
     const reqId = pasajeroData.requestId;
+
+    // Guardar requestId al inicio
+    await Position.updateOne(
+        { email: pEmail },
+        { $set: { requestId: reqId } }
+    );
 
     // 🛡️ REVISIÓN DEL CANDADO:
     const pStatusCheck = await Position.findOne({ email: pEmail }).lean();

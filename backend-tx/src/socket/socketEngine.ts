@@ -56,14 +56,14 @@ export const initSocketEngine = (io: Server) => {
             let nuevoEstado = role === "taxista" ? "activo" : "buscando";
 
             if (viajeActivo) {
-                // 🛡️ Si el taxista ya estaba en estado "asignado", RESPETAMOS ese estado 
-                // para que no se salte la pantalla de aceptación del viaje.
                 if (role === "taxista" && currentDoc?.estado === "asignado") {
                     nuevoEstado = "asignado";
-                } else {
-                    nuevoEstado = currentDoc?.estado === "encurso" ? "encurso" : currentDoc?.estado === "encamino" ? "encamino" : "asignado";
+                } else if (["encurso", "encamino"].includes(currentDoc?.estado ?? "")) {
+                    nuevoEstado = currentDoc?.estado ?? "activo";
                 }
             }
+
+
 
             const updatedPos = await Position.findOneAndUpdate(
                 { email },

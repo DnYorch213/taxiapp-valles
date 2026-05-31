@@ -20,6 +20,7 @@ const PasajeroView: React.FC = () => {
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
   const [chatAbierto, setChatAbierto] = useState(false);
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
+  const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
 
   const taxistaAsignadoRef = useRef<Payload | null>(null);
   // 🎯 NUEVAS REFS PARA EVITAR RESETEAR EL EFFECT
@@ -301,39 +302,38 @@ const obtenerTextoEstado = () => {
                 </RotatedMarker>
               )}
 
-              {/* ==================== SECCIÓN DE LÍNEAS DEL MAPA ==================== */}
+           {/* ==================== SECCIÓN DE LÍNEAS DEL MAPA (SIN PARPADEO) ==================== */}
 
-{/* 🟪 LINEA 1: Ruta de aproximación del taxi hacia el Pasajero (Fase: encamino / asignado) */}
-{(estado === "asignado" || estado === "encamino") && taxiPos && userPosition?.lat && (
+{/* 🟪 LINEA 1: Se dibuja fluidamente porque geometríaRuta ya no se borra ni se sobreescribe en bucle */}
+{(estado === "asignado" || estado === "encamino") && geometriaRuta.length > 0 && (
   <Polyline
-    positions={[
-      [taxiPos.lat, taxiPos.lng],
-      [userPosition.lat, userPosition.lng]
-    ]}
+    positions={geometriaRuta}
     pathOptions={{
-      color: '#d02692', // 🎯 El mismo magenta premium que metimos en la vista del taxista
+      color: '#d02692',
       weight: 6,
-      opacity: 0.8,
-      dashArray: '10, 10', // 🏃‍♂️ Estilo línea punteada dinámica que indica "en camino hacia ti"
-      lineJoin: 'round'
+      opacity: 0.9,
+      dashArray: '10, 15',
+      lineJoin: 'round',
+      lineCap: 'round'
     }}
   />
 )}
 
-{/* 🗺️ CONTROL DE ENRUTAMIENTO (Se mantiene oculto o de respaldo para no sobrecargar el mapa) */}
-{taxiPos && (estado === "asignado" || estado === "encamino") && (
+{/* 🗺️ CONTROL DE ENRUTAMIENTO (🎯 CANDADO DE DISPARO ÚNICO) */}
+{/* Al añadir "geometriaRuta.length === 0", el componente calcula la ruta UNA sola vez. */}
+{/* En cuanto encuentra las coordenadas, se desmonta y deja la línea fija y hermosa en el mapa */}
+{taxiPos?.lat && taxiPos?.lng && userPosition?.lat && userPosition?.lng && 
+ (estado === "asignado" || estado === "encamino") && geometriaRuta.length === 0 && (
   <RoutingMachine 
     waypoints={[
-      L.latLng(taxiPos.lat, taxiPos.lng),
-      L.latLng(userPosition.lat, userPosition.lng)
+      L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
+      L.latLng(Number(userPosition.lat), Number(userPosition.lng))
     ]} 
-    onRouteFound={() => {}}
-    // 💡 Pro tip: Si tu componente RoutingMachine tiene una prop para ocultar las líneas por defecto, 
-    // puedes activarla para que no compita visualmente con nuestra Polyline magenta.
+    onRouteFound={(coords: L.LatLng[]) => setGeometriaRuta(coords)}
   />
 )}
 
-{/* 🟩 LINEA 2: El rastro del viaje que ya van recorriendo juntos (Fase: encurso) */}
+{/* 🟩 LINEA 2: El rastro del viaje en curso */}
 {estado === "encurso" && historialRuta.length > 0 && (
   <Polyline 
     positions={historialRuta} 

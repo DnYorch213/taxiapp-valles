@@ -5,6 +5,41 @@ import "leaflet-routing-machine";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
+// 🛡️ PARCHE DE PROTOTIPO DE NIVEL INDUSTRIAL COMPLETADO
+if (L.Routing && (L.Routing as any).Control) {
+  const originalClearLines = (L.Routing as any).Control.prototype._clearLines;
+  
+  (L.Routing as any).Control.prototype._clearLines = function () {
+    if (!this._map) return;
+    if (originalClearLines) {
+      try { originalClearLines.apply(this, arguments); } catch (e) {}
+    }
+  };
+
+  (L.Routing as any).Control.prototype._addLayer = function (layer: any) {
+    if (!this._map) return;
+    try { this._map.addLayer(layer); } catch (e) {}
+  };
+
+  // 🎯 EL ESCUDO DEFINITIVO: Parchamos el emisor de eventos del prototipo
+  // Esto intercepta cualquier error de estatus -3 producido por sub-módulos de Leaflet
+  // que intenten tocar capas (addLayer/removeLayer) cuando el mapa esté en transiciones rápidas de React.
+  const originalFire = (L.Routing as any).Control.prototype.fire;
+  (L.Routing as any).Control.prototype.fire = function (type: string, data: any, propagate?: boolean) {
+    if (type === "routingerror" || type === "error") {
+      const errMsg = data?.error?.message || "";
+      if (errMsg.includes("addLayer") || errMsg.includes("null") || errMsg.includes("removeLayer")) {
+        // 🤫 Devoramos el error estético de Leaflet en silencio
+        return this;
+      }
+    }
+    if (originalFire) {
+      return originalFire.apply(this, arguments);
+    }
+    return this;
+  };
+}
+
 interface RoutingMachineProps {
   waypoints: L.LatLng[];
   onRouteFound: (coords: L.LatLng[]) => void;
@@ -15,49 +50,67 @@ export const RoutingMachine = ({ waypoints, onRouteFound }: RoutingMachineProps)
 
   useEffect(() => {
     if (!map || !waypoints || waypoints.length < 2) return;
+    
+    const container = map.getContainer();
+    if (!container) return;
 
-    // 🎯 Creamos la instancia del router de Mapbox de forma silenciosa y ligera
     const routingControl = (L.Routing as any).control({
-      waypoints: waypoints,
+      waypoints,
       router: (L.Routing as any).mapbox(MAPBOX_TOKEN, {
         profile: "mapbox/driving",
         language: "es",
         urlParameters: { access_token: MAPBOX_TOKEN }
       }),
-      createMarker: () => null, // No creamos marcadores basura en el mapa
+      createMarker: () => null,
       show: false,
       addWaypoints: false,
       draggableWaypoints: false,
       fitSelectedRoutes: false,
-      // 🛡️ Al pasarle estilos vacíos e invisibles, Leaflet NO dibuja nada en el mapa,
-      // evitando conflictos de renders con tu Polyline nativa de React.
       lineOptions: {
-        styles: [{ opacity: 0, weight: 0 }]
+        styles: [{ opacity: 0, weight: 0 }] 
       }
     });
 
-    // 📥 CAPTURA DE RUTA: Cuando Mapbox responde, extraemos los puntos y se los mandamos al padre
+    let isMounted = true;
+
+    // Silenciador local redundante por seguridad
+    (routingControl as any)._onError = function (err: any) {
+      if (err?.message?.includes("addLayer") || err?.message?.includes("null") || err?.message?.includes("removeLayer")) {
+        return;
+      }
+      console.warn("⚠️ Mensaje de enrutamiento Mapbox mitigado.");
+    };
+
     routingControl.on("routesfound", (e: any) => {
+      if (!isMounted) return;
       const routes = e.routes;
       if (routes && routes[0]) {
         const coords = routes[0].coordinates.map((c: any) => L.latLng(c.lat, c.lng));
-        onRouteFound(coords); // Inyecta la geometría limpia a 'setGeometriaRuta'
+        onRouteFound(coords);
       }
     });
 
-    // Añadimos el control al mapa de forma efímera
-    routingControl.addTo(map);
+    try {
+      routingControl.addTo(map);
+    } catch (err) {
+      console.warn("⚠️ addTo falló de forma asíncrona, mitigando.");
+    }
 
-    // 🧼 LIMPIEZA CRÍTICA: Cuando el componente se desmonta, removemos el control
-    // de forma segura sin disparar re-renders destructivos en los marcadores.
     return () => {
+      isMounted = false;
       try {
+        routingControl.off("routesfound");
+        
+        if ((routingControl as any)._plan && map) {
+          map.removeLayer((routingControl as any)._plan);
+        }
+
         map.removeControl(routingControl);
-      } catch (err) {
-        console.warn("⚠️ Limpieza silenciosa de enrutamiento");
+      } catch (error) {
+        console.warn("🛡️ Limpieza silenciosa de enrutamiento al desmontar.");
       }
     };
   }, [map, waypoints, onRouteFound]);
 
-  return null; // No renderiza HTML innecesario, trabaja 100% en memoria
+  return null;
 };
