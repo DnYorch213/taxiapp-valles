@@ -184,13 +184,39 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         const pEmail = pasajeroEmail.toLowerCase().trim();
         const tEmail = taxistaEmail.toLowerCase().trim();
 
-        await Position.updateOne({ email: tEmail }, { $set: { estado: "encurso" } });
-        await Position.updateOne({ email: pEmail }, { $set: { estado: "encurso" } });
+        try {
+            console.log(`🚖 [Viaje] Pasajero ${pEmail} a bordo de la unidad de ${tEmail}. Iniciando viaje en curso.`);
 
-        io.to(pEmail).emit("trip_status_update", { estado: "encurso", pasajeroEmail: pEmail });
-        io.to(tEmail).emit("trip_status_update", { estado: "encurso" });
-        io.emit("panel_update", { email: pEmail, estado: "encurso" });
-        io.emit("panel_update", { email: tEmail, estado: "encurso" });
+            // 🎯 1. FULMINAMOS CUALQUIER HILO O TIMEOUT RESIDUAL DEL DISPATCHER
+            if (pendingTimeouts.has(pEmail)) {
+                clearTimeout(pendingTimeouts.get(pEmail));
+                pendingTimeouts.delete(pEmail);
+                console.log(`🧹 [Viaje] Limpiados hilos residuales del dispatcher para el pasajero: ${pEmail}`);
+            }
+
+            // 2. Actualizamos de forma segura los estados en la base de datos
+            await Position.updateOne({ email: tEmail }, { $set: { estado: "encurso", updatedAt: new Date() } });
+            await Position.updateOne({ email: pEmail }, { $set: { estado: "encurso", updatedAt: new Date() } });
+
+            // Extraemos los documentos frescos y actualizados con sus variables intactas
+            const pPos = await Position.findOne({ email: pEmail });
+            const tPos = await Position.findOne({ email: tEmail });
+
+            // 3. Notificaciones dirigidas y estructuradas a los canales privados de los usuarios
+            io.to(pEmail).emit("trip_status_update", {
+                estado: "encurso",
+                pasajeroEmail: pEmail,
+                taxiData: tPos ? buildPayload(tPos, tPos, "encurso") : null
+            });
+            io.to(tEmail).emit("trip_status_update", { estado: "encurso" });
+
+            // 🎯 4. CORRECCIÓN CRÍTICA: Emetimos payloads completos e industriales a los paneles globales
+            if (pPos) io.emit("panel_update", buildPayload(pPos, pPos, "encurso"));
+            if (tPos) io.emit("panel_update", buildPayload(tPos, tPos, "encurso"));
+
+        } catch (error) {
+            console.error("❌ Error en passenger_on_board:", error);
+        }
     });
 
     // src/socket/handlers/tripHandler.ts
