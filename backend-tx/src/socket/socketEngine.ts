@@ -103,20 +103,24 @@ export const initSocketEngine = (io: Server) => {
                 }, 500);
             }
 
-            // 🚀 Rehidratación relámpago para el Pasajero
+            // 🚀 Rehidratación relámpago para el Pasajero (CORREGIDA CON PAYLOAD INDUSTRIAL)
             if (viajeActivo && role === "pasajero") {
                 if (viajeActivo.taxistaAsignado) {
                     const taxistaData = await Position.findOne({ email: viajeActivo.taxistaAsignado });
-                    console.log(`📡 Inyectando rehidratación relámpago a pasajero reconectado: ${email}`);
+                    console.log(`📡 Inyectando rehidratación relámpago estructurada a pasajero reconectado: ${email} en estado: ${nuevoEstado}`);
+
+                    // Emitimos el payload completo idéntico al que espera la lógica de PasajeroView
                     socket.emit("response_from_taxi", {
                         accepted: true,
                         tEmail: taxistaData?.email || viajeActivo.taxistaAsignado,
-                        name: taxistaData?.name || "Conductor",
+                        name: taxistaData?.name || "Taxista",
                         taxiNumber: taxistaData?.taxiNumber || "ECO",
                         lat: taxistaData?.lat || null,
                         lng: taxistaData?.lng || null,
-                        estado: nuevoEstado,
-                        rehydrated: true
+                        estado: nuevoEstado, // "encurso" o "encamino" original preservado
+                        rehydrated: true,
+                        // 🎯 ADICIÓN CRÍTICA: Inyectamos el payload estructurado del taxista para evitar campos undefined y distancias en cero
+                        taxiData: taxistaData ? buildPayload(taxistaData, taxistaData, nuevoEstado) : null
                     });
                 }
             }
@@ -153,7 +157,9 @@ export const initSocketEngine = (io: Server) => {
                             taxiNumber: miTaxista ? miTaxista.taxiNumber : "ECO",
                             lat: miTaxista ? miTaxista.lat : null,
                             lng: miTaxista ? miTaxista.lng : null,
-                            estado: estadoSincronizado
+                            estado: estadoSincronizado,
+                            // 🎯 ADICIÓN CRÍTICA: Payload estructurado en el listener redundante
+                            taxiData: miTaxista ? buildPayload(miTaxista, miTaxista, estadoSincronizado) : null
                         });
                     }
 
