@@ -13,19 +13,33 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         if (!pEmail) return;
 
         try {
-            // 🎯 CONTROL CRÍTICO: Revisamos el registro real en MongoDB antes de mover una sola línea
-            const viajeActivo = await Position.findOne({ email: pEmail }).lean();
+            // 🎯 ESCUDO ABSOLUTO EN MONGO: Buscamos si el pasajero ya está en viaje, en camino,
+            // o si de forma cruzada ya tiene un taxista asignado en la colección.
+            const viajeExistente = await Position.findOne({
+                $or: [
+                    { email: pEmail, estado: { $in: ["encamino", "encurso", "asignado", "preasignado"] } },
+                    { email: pEmail, role: "pasajero", taxistaAsignado: { $ne: null } }
+                ]
+            }).lean();
 
-            // Si ya tiene un taxista asignado o está en camino/curso/preasignado, ignoramos el evento en seco
-            if (viajeActivo && (viajeActivo.taxistaAsignado || ["encamino", "encurso", "asignado", "preasignado"].includes(viajeActivo.estado))) {
-                console.log(`🛡️ [Escudo Sockets] Abortado request_taxi duplicado para ${pEmail}. Viaje activo: ${viajeActivo.estado}`);
+            // 🔥 Si el escudo detecta que ya tiene un viaje amarrado, ABORTAMOS la petición espuria en el acto
+            if (viajeExistente) {
+                console.log(`🛡️ [Escudo Sockets] Abortado de raíz request_taxi duplicado para ${pEmail}. Estado real: ${viajeExistente.estado}`);
 
-                // Rehidratamos al pasajero forzando a su frontend a mantenerse en el viaje real
+                // Traemos los datos frescos del taxista asignado para rehidratar al pasajero correctamente
+                const taxistaData = viajeExistente.taxistaAsignado
+                    ? await Position.findOne({ email: viajeExistente.taxistaAsignado }).lean()
+                    : null;
+
+                // Forzamos al frontend del pasajero a quedarse congelado en su viaje legítimo
                 return socket.emit("response_from_taxi", {
                     accepted: true,
-                    tEmail: viajeActivo.taxistaAsignado || "",
-                    name: "Conductor",
-                    estado: viajeActivo.estado
+                    tEmail: viajeExistente.taxistaAsignado || "",
+                    name: taxistaData ? taxistaData.name : "Conductor",
+                    taxiNumber: taxistaData ? taxistaData.taxiNumber : "ECO",
+                    lat: taxistaData ? taxistaData.lat : null,
+                    lng: taxistaData ? taxistaData.lng : null,
+                    estado: viajeExistente.estado
                 });
             }
 
@@ -50,23 +64,19 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 { upsert: true, returnDocument: "after" }
             );
 
-            // ... Tu lógica de geocodificación silenciosa y el dispatchWithRetry abajo ...
-
             // 🚀 3. Geocodificación silenciosa en segundo plano (ULTRA-BLINDADA)
             let pickupAddress = data.pickupAddress || null;
             if (!pickupAddress || pickupAddress.includes("Ubicación:")) {
                 reverseGeocode(data.lat, data.lng).then(async (direccion) => {
 
-                    // 🎯 CANDADO DE ESTADO: Consultamos cómo está el pasajero JUSTO AHORA en MongoDB
+                    // 🎯 CANDADO DE ESTADO CRÍTICO
                     const validacionP = await Position.findOne({ email: pEmail }).lean();
 
-                    // 🛡️ Si el viaje ya se consolidó con Jorge o Yorchi, ABORTAMOS. No tocamos la BD a mitad de ruta.
                     if (validacionP && ["encamino", "encurso", "asignado", "preasignado"].includes(validacionP.estado)) {
                         console.log(`🛡️ [Geocoding] Ignorando dirección tardía (${direccion}) para ${pEmail}. El viaje ya está en curso/camino.`);
-                        return; // 🛑 Salimos en seco sin modificar nada en MongoDB
+                        return;
                     }
 
-                    // Si sigue buscando legítimamente y el ID coincide, guardamos de forma segura
                     if (validacionP && validacionP.pasajeroAsignado === currentRequestId) {
                         await Position.updateOne({ email: pEmail }, { $set: { pickupAddress: direccion } });
                         console.log(`✅ DIRECCIÓN GENERADA E INYECTADA: ${direccion} para ${pEmail}`);

@@ -205,17 +205,21 @@ useGeolocation(
   }, [userPosition, estado]);
 
  const solicitarTaxi = () => {
-  if (!userPosition?.lat) {
+
+  // 🎯 ESCUDO ANTIDISPAROS ASÍNCRONOS:
+  // Si el pasajero ya tiene un viaje activo o el taxista va hacia él / ya van en camino,
+  // bloqueamos por completo cualquier emisión accidental hacia el socket.
+  if (["asignado", "encamino", "encurso"].includes(estado)) {
+    console.warn("🛡️ [Frontend Escudo] Intento de solicitarTaxi bloqueado: El viaje ya está activo o en curso.");
+    return;
+  }
+
+  if (!userPosition?.lat || !userPosition?.lng) {
     toast.error("📍 Esperando señal GPS...");
     return;
   }
 
-  // 🎯 CANDADO DE FRONTEND: Si ya está buscando o en viaje, bloqueamos el disparo
-  if (["buscando", "preasignado", "encamino", "encurso"].includes(estado)) {
-    console.warn("⚠️ Solicitud bloqueada: ya existe un proceso de viaje activo.");
-    return;
-  }
-  
+   
   setEstado("buscando");
   
   socket.emit("request_taxi", {
