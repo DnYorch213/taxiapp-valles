@@ -219,7 +219,6 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         }
     });
 
-    // src/socket/handlers/tripHandler.ts
 
     socket.on("passenger_cancel", async ({ pasajeroEmail, taxistaEmail }) => {
         const pEmail = pasajeroEmail.toLowerCase().trim();
