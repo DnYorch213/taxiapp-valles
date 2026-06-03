@@ -5,6 +5,7 @@ import { Trip } from "../../models/Trip";
 import { buildPayload } from "../../utils/payloadBuilder";
 import { reverseGeocode } from "../../services/geocodingService";
 import { dispatchWithRetry, pendingTimeouts } from "../../services/dispatchService";
+import { logMotor } from "../../utils/logger";
 
 export const registerTripHandlers = (io: Server, socket: Socket, email: string) => {
 
@@ -24,14 +25,12 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
             // 🔥 Si el escudo detecta que ya tiene un viaje amarrado, ABORTAMOS la petición espuria en el acto
             if (viajeExistente) {
-                console.log(`🛡️ [Escudo Sockets] Abortado de raíz request_taxi duplicado para ${pEmail}. Estado real: ${viajeExistente.estado}`);
+                logMotor("request_taxi", `Pasajero=${pEmail} Estado=${viajeExistente.estado} Taxista=${viajeExistente.taxistaAsignado || "N/A"} -> Solicitud ignorada`, "WARN");
 
-                // Traemos los datos frescos del taxista asignado para rehidratar al pasajero correctamente
                 const taxistaData = viajeExistente.taxistaAsignado
                     ? await Position.findOne({ email: viajeExistente.taxistaAsignado }).lean()
                     : null;
 
-                // Forzamos al frontend del pasajero a quedarse congelado en su viaje legítimo
                 return socket.emit("response_from_taxi", {
                     accepted: true,
                     tEmail: viajeExistente.taxistaAsignado || "",
@@ -43,10 +42,10 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 });
             }
 
+
             // 🟢 SI ESTÁ COMPLETA Y LEGÍTIMAMENTE LIBRE, CONTINÚA TU FLUJO NORMAL:
             const currentRequestId = new Date().getTime().toString();
-            console.log(`🚕 [Motor] Solicitud entrante legítima de: ${pEmail} (ID: ${currentRequestId})`);
-
+            logMotor("request_taxi", `Solicitud legítima de: ${pEmail} (ID: ${currentRequestId})`, "INFO");
             await Position.findOneAndUpdate(
                 { email: pEmail },
                 {
@@ -73,16 +72,15 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                     const validacionP = await Position.findOne({ email: pEmail }).lean();
 
                     if (validacionP && ["encamino", "encurso", "asignado", "preasignado"].includes(validacionP.estado)) {
-                        console.log(`🛡️ [Geocoding] Ignorando dirección tardía (${direccion}) para ${pEmail}. El viaje ya está en curso/camino.`);
-                        return;
+                        logMotor("geocoding", `Ignorando dirección tardía (${direccion}) para ${pEmail}. Estado=${validacionP.estado}`, "WARN"); return;
                     }
 
                     if (validacionP && validacionP.pasajeroAsignado === currentRequestId) {
                         await Position.updateOne({ email: pEmail }, { $set: { pickupAddress: direccion } });
-                        console.log(`✅ DIRECCIÓN GENERADA E INYECTADA: ${direccion} para ${pEmail}`);
+                        logMotor("geocoding", `Dirección generada e inyectada: ${direccion} para ${pEmail}`, "INFO");
                     }
 
-                }).catch(err => console.error("❌ Error geocode silencioso:", err));
+                }).catch(err => logMotor("geocoding", `Error en geocoding para ${pEmail}: ${err}`, "ERROR"));
             }
 
             const pasajeroPayload = {
@@ -94,13 +92,12 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 requestId: currentRequestId
             };
 
-            console.log(`🤖 [Motor] Buscando la unidad más cercana...`);
-
+            logMotor("request_taxi", `Buscando la unidad más cercana para ${pEmail}`, "INFO");
             // 4. Despertamos al motor asegurando que la BD ya se actualizó
             dispatchWithRetry(io, pasajeroPayload, [], 1);
 
         } catch (error) {
-            console.error("❌ Error crítico en request_taxi:", error);
+            logMotor("error", `Error en request_taxi para ${pEmail}: ${error}`, "ERROR");
         }
     });
 
@@ -115,7 +112,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         if (pendingTimeouts.has(pEmail)) {
             clearTimeout(pendingTimeouts.get(pEmail));
             pendingTimeouts.delete(pEmail);
-            console.log(`🛑 [Motor] Timeout de búsqueda cancelado para el pasajero: ${pEmail}`);
+            logMotor("taxi_response", `Pasajero=${pEmail} -> Timeout cancelado`, "INFO");
         }
 
         // 🚨 CASO: EL TAXISTA RECHAZA EL VIAJE
@@ -172,8 +169,10 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             io.emit("panel_update", buildPayload(tPos, tPos, "encamino", { pasajeroAsignado: pEmail }));
             io.emit("panel_update", buildPayload(pPosActualizado, pPosActualizado, "encamino", { taxistaAsignado: tEmail }));
         } catch (error) {
-            console.error(error);
+            logMotor("taxi_response", `Error al asignar viaje a ${pEmail}: ${error}`, "ERROR");
+            io.to(tEmail).emit("assignment_confirmed", { success: false, message: "Error al asignar el viaje. Intenta nuevamente." });
         }
+
     });
 
     // En el backend:
@@ -195,13 +194,12 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         const tEmail = taxistaEmail.toLowerCase().trim();
 
         try {
-            console.log(`🚖 [Viaje] Pasajero ${pEmail} a bordo de la unidad de ${tEmail}. Iniciando viaje en curso.`);
-
+            logMotor("passenger_on_board", `Pasajero=${pEmail} Taxista=${tEmail} -> Estado=EN_CURSO`, "INFO");
             // 🎯 1. FULMINAMOS CUALQUIER HILO O TIMEOUT RESIDUAL DEL DISPATCHER
             if (pendingTimeouts.has(pEmail)) {
                 clearTimeout(pendingTimeouts.get(pEmail));
                 pendingTimeouts.delete(pEmail);
-                console.log(`🧹 [Viaje] Limpiados hilos residuales del dispatcher para el pasajero: ${pEmail}`);
+                logMotor("passenger_on_board", `Pasajero=${pEmail} -> Timeout limpiado`, "INFO");
             }
 
             // 2. Actualizamos de forma segura los estados en la base de datos
@@ -225,7 +223,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             if (tPos) io.emit("panel_update", buildPayload(tPos, tPos, "encurso"));
 
         } catch (error) {
-            console.error("❌ Error en passenger_on_board:", error);
+            logMotor("error", `Error en passenger_on_board para ${pEmail}: ${error}`, "ERROR");
         }
     });
 
@@ -239,17 +237,15 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
         // Si en la base de datos ya está pendiente, inactivo o cancelado, bloqueamos el evento
         if (!estadoActualDoc || ["pendiente", "inactivo", "cancelado"].includes(estadoActualDoc.estado)) {
-            // console.log(`🚫 Cancelación bloqueada para ${pEmail}: Su estado ya es ${estadoActualDoc?.estado}`);
-            return; // 🛑 Cerramos la puerta y no hacemos nada
+            logMotor("passenger_cancel", `Pasajero=${pEmail} -> Cancelación bloqueada. Estado=${estadoActualDoc?.estado}`, "WARN"); return; // 🛑 Cerramos la puerta y no hacemos nada
         }
 
-        console.log(`❌ Cancelación definitiva: El pasajero ${pEmail} abortó la solicitud.`);
-
+        logMotor("passenger_cancel", `Pasajero=${pEmail} -> Cancelación definitiva`, "WARN");
         // 1. Matamos el temporizador de la cascada de inmediato si existía
         if (tEmail && pendingTimeouts.has(tEmail)) {
             clearTimeout(pendingTimeouts.get(tEmail)!);
             pendingTimeouts.delete(tEmail);
-            console.log(`🗑️ Cascada cancelada por el pasajero para el taxista: ${tEmail}`);
+            logMotor("passenger_cancel", `Pasajero=${pEmail} Taxista=${tEmail} -> Cascada cancelada`, "INFO");
         }
 
         // 2. IMPORTANTE: Marcamos al pasajero como "cancelado" o "inactivo" para romper su bucle en React
@@ -281,7 +277,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         io.emit("panel_update", { email: pEmail, estado: "cancelado" });
         if (tEmail) io.emit("panel_update", { email: tEmail, estado: "activo" });
 
-        console.log(`❌ Cancelación definitiva: El pasajero ${pEmail} abortó la solicitud.`);
+        logMotor("passenger_cancel", `Pasajero=${pEmail} -> Cancelación finalizada`, "WARN");
     });
 
     socket.on("end_trip", async ({ pasajeroEmail, taxistaEmail }) => {
@@ -322,7 +318,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             if (pUpdated) io.emit("panel_update", buildPayload(pUpdated, pUpdated, "finalizado"));
             if (tUpdated) io.emit("panel_update", buildPayload(tUpdated, tUpdated, "activo"));
         } catch (error) {
-            console.error(error);
+            logMotor("end_trip", `Error al finalizar viaje para Pasajero=${pEmail} Taxista=${tEmail}: ${error}`, "ERROR");
         }
     });
 };

@@ -2,6 +2,7 @@
 import { Server, Socket } from "socket.io";
 import { Position } from "../../models/Position";
 import { buildPayload } from "../../utils/payloadBuilder";
+import { logMotor } from "../../utils/logger";
 
 export const registerLocationHandlers = (io: Server, socket: Socket, email: string) => {
     socket.on("update_trip_path", async (data) => {
@@ -31,7 +32,7 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
             );
             if (updated) io.emit("panel_update", buildPayload(updated, updated, updated.estado));
         } catch (error) {
-            console.error(error);
+            logMotor("Error en Update Position", `Error al actualizar la posición para ${data.email}: ${error}`, "ERROR");
         }
     });
 

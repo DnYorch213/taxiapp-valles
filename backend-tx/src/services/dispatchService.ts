@@ -4,6 +4,7 @@ import { Position, IPosition } from "../models/Position";
 import { calculateDistance } from "../utils/distance";
 import { reverseGeocode } from "./geocodingService";
 import { enviarNotificacionPush } from "./pushService";
+import { logMotor } from "../utils/logger";
 
 // 🎯 CAMBIO CRÍTICO: Ahora guardamos los timeouts usando como clave el email del PASAJERO
 export const pendingTimeouts = new Map<string, NodeJS.Timeout>();
@@ -35,28 +36,26 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     if (!pStatusCheck) return;
 
     if (["encamino", "encurso", "finalizado"].includes(pStatusCheck.estado)) {
-        console.log(`🛑 [Motor] Cancelando intento ${attempt} para ${pEmail}. Viaje ya en curso.`);
-
+        logMotor("dispatch_retry", `Pasajero=${pEmail} Estado=${pStatusCheck.estado} Intento=${attempt} -> Viaje ya en curso`, "WARN");
         // 🚩 Aquí sí existe pEmail y puedes limpiar
         const oldTimeout = pendingTimeouts.get(pEmail);
         if (oldTimeout) {
             clearTimeout(oldTimeout);
             pendingTimeouts.delete(pEmail);
-            console.log(`🧹 Timeout limpiado para pasajero ${pEmail}, viaje ya en curso.`);
+            logMotor("dispatch_retry", `Pasajero=${pEmail} -> Timeout limpiado, viaje ya en curso.`, "INFO");
         }
         return;
     }
 
 
     if (pStatusCheck.estado === "buscando" && pStatusCheck.requestId && pStatusCheck.requestId !== reqId) {
-        console.log(`🛑 [Motor] Cancelando intento ${attempt} para ${pEmail}. ID de solicitud obsoleto.`);
-        return;
+        logMotor("dispatch_retry", `Pasajero=${pEmail} Intento=${attempt} -> RequestId obsoleto`, "WARN"); return;
     }
 
 
 
     if (attempt > MAX_RETRIES) {
-        console.log(`❌ Límite de intentos alcanzado para ${pEmail}`);
+        logMotor("dispatch_retry", `Pasajero=${pEmail} Intento=${attempt} -> Límite de intentos alcanzado`, "ERROR");
         await Position.updateOne({ email: pEmail }, { $set: { estado: "cancelado", pasajeroAsignado: null } });
         io.to(pEmail).emit("no_taxis_available", { message: "Sin unidades disponibles." });
         return;
@@ -73,7 +72,7 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     }).lean() as IPosition[];
 
     if (taxistasCandidatos.length === 0) {
-        console.log(`📭 No hay más taxistas disponibles en el intento ${attempt} para ${pEmail}`);
+        logMotor("dispatch_retry", `Pasajero=${pEmail} Intento=${attempt} -> No hay taxistas disponibles`, "WARN");
         io.to(pEmail).emit("no_taxis_available", { message: "Buscando más conductores..." });
         return;
     }
@@ -94,6 +93,8 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
         { email: pEmail },
         { $set: { estado: "preasignado", pickupAddress: direccion, requestId: reqId } }
     );
+    logMotor("geocoding", `Dirección generada e inyectada: ${direccion} para ${pEmail}`, "INFO");
+
     const fullPayload = {
         ...pasajeroData,
         email: pEmail,
@@ -113,16 +114,21 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
         const tCheck = await Position.findOne({ email: tEmail }).lean();
         const pRefresh = await Position.findOne({ email: pEmail }).lean();
 
-        // 🚩 Candado extra dentro del timeout
-        if (pRefresh && ["encamino", "encurso"].includes(pRefresh.estado)) {
-            console.log(`🛑 Timeout ignorado: pasajero ${pEmail} ya está en curso.`);
+        // 🚦 Candado crítico: si el pasajero ya está en viaje, ignoramos el timeout
+        if (pRefresh && ["encamino", "encurso", "finalizado"].includes(pRefresh.estado)) {
+            logMotor("dispatch_timeout", `Pasajero=${pEmail} Estado=${pRefresh.estado} -> Timeout ignorado, viaje activo`, "INFO"); pendingTimeouts.delete(pEmail); // limpiamos el registro para no dejar hilos colgados
             return;
         }
 
-        // 🚩 Aquí va la nueva condición
-        if (tCheck && tCheck.estado === "asignado" && pRefresh && pRefresh.requestId === reqId) {
-            console.log(`⏳ TIMEOUT: Taxista ${tEmail} no respondió. Saltando cascada al intento ${attempt + 1}.`);
+        // 🚦 Candado extra: si el requestId cambió, este timeout es obsoleto
+        if (pRefresh && pRefresh.requestId !== reqId) {
+            logMotor("dispatch_timeout", `Pasajero=${pEmail} RequestIdActual=${pRefresh.requestId} RequestIdEsperado=${reqId} -> Timeout obsoleto ignorado`, "WARN"); pendingTimeouts.delete(pEmail);
+            return;
+        }
 
+        // 👉 Si el taxista sigue asignado y el requestId coincide, relanzamos cascada
+        if (tCheck && tCheck.estado === "asignado" && pRefresh && pRefresh.requestId === reqId) {
+            logMotor("dispatch_timeout", `Pasajero=${pEmail} Taxista=${tEmail} Intento=${attempt} -> Taxista no respondió, relanzando cascada`, "INFO");
             io.to(tEmail).emit("dispatch_timeout");
             await Position.updateOne({ email: tEmail }, { $set: { estado: "activo", pasajeroAsignado: null } });
             io.emit("panel_update", { email: tEmail, estado: "activo" });
@@ -131,6 +137,7 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
         }
     }, 22000);
 
-
     pendingTimeouts.set(pEmail, timeout);
-};
+
+    logMotor("dispatch_retry", `Pasajero=${pEmail} Intento=${attempt} -> Taxista=${tEmail} asignado. Timeout programado`, "INFO");
+}

@@ -6,6 +6,7 @@ import { buildPayload } from "../utils/payloadBuilder";
 import { pendingTimeouts, isAutoMode } from "../services/dispatchService";
 import { registerLocationHandlers } from "./handlers/locationHandler";
 import { registerTripHandlers } from "./handlers/tripHandler";
+import { logMotor } from "../utils/logger";
 
 export const initSocketEngine = (io: Server) => {
     io.on("connection", async (socket) => {
@@ -14,10 +15,10 @@ export const initSocketEngine = (io: Server) => {
         const role = socket.handshake.auth?.role || socket.handshake.query?.role;
 
         // 🎯 LOG DE DIAGNÓSTICO:
-        console.log(`🔌 Intento de conexión: Email[${email}] | Role[${role}] | SocketID[${socket.id}]`);
+        logMotor("Conexión Iniciada", `Intento de conexión: Email[${email}] | Role[${role}] | SocketID[${socket.id}]`);
 
         if (!email || email === "null" || email === "undefined") {
-            console.log(`⚠️ Conclusión: Conexión rechazada por credenciales inválidas o vacías.`);
+            logMotor("Conexión Rechazada", `Conexión rechazada por credenciales inválidas o vacías.`);
             socket.disconnect(true); // Expulsamos limpia y definitivamente sin bucles
             return;
         }
@@ -66,7 +67,7 @@ export const initSocketEngine = (io: Server) => {
                 if (role === "pasajero") {
                     // Si el que se reconecta es el pasajero, preservamos exactamente su estado de viaje
                     nuevoEstado = viajeActivo.estado;
-                    console.log(`🛡️ [Conexión] Pasajero ${email} recuperado. Manteniendo viaje en: ${nuevoEstado}`);
+                    logMotor("Conexión Recuperada", `Pasajero ${email} recuperado. Manteniendo viaje en: ${nuevoEstado}`);
                 }
                 else if (role === "taxista") {
                     // Si el que se reconecta es el taxista, mantenemos su estado de ocupación (encamino o encurso)
@@ -74,7 +75,7 @@ export const initSocketEngine = (io: Server) => {
                     nuevoEstado = ["encurso", "encamino"].includes(viajeActivo.estado)
                         ? viajeActivo.estado
                         : "encamino";
-                    console.log(`🛡️ [Conexión] Taxista ${email} recuperado en ruta. Manteniendo sincronía en: ${nuevoEstado}`);
+                    logMotor("Conexión Recuperada", `Taxista ${email} recuperado en ruta. Manteniendo sincronía en: ${nuevoEstado}`);
                 }
             } else if (currentDoc && ["encamino", "encurso", "asignado", "preasignado"].includes(currentDoc.estado)) {
                 // Respaldo histórico por documento individual
@@ -95,7 +96,7 @@ export const initSocketEngine = (io: Server) => {
             // 🚀 Rehidratación relámpago para el Taxista
             if (viajeActivo && role === "taxista") {
                 setTimeout(() => {
-                    console.log(`📡 Inyectando rehidratación en ruta para taxista: ${email}`);
+                    logMotor("Rehidratación en Ruta", `Inyectando rehidratación en ruta para taxista: ${email}`);
                     socket.emit("pasajero_asignado", {
                         ...buildPayload(viajeActivo, viajeActivo, nuevoEstado),
                         isNewOffer: false // Falso porque es una reconexión de un viaje que ya existía
@@ -107,7 +108,7 @@ export const initSocketEngine = (io: Server) => {
             if (viajeActivo && role === "pasajero") {
                 if (viajeActivo.taxistaAsignado) {
                     const taxistaData = await Position.findOne({ email: viajeActivo.taxistaAsignado });
-                    console.log(`📡 Inyectando rehidratación relámpago estructurada a pasajero reconectado: ${email} en estado: ${nuevoEstado}`);
+                    logMotor("Rehidratación en Ruta", `Inyectando rehidratación relámpago estructurada a pasajero reconectado: ${email} en estado: ${nuevoEstado}`);
 
                     // Emitimos el payload completo idéntico al que espera la lógica de PasajeroView
                     socket.emit("response_from_taxi", {
@@ -127,7 +128,7 @@ export const initSocketEngine = (io: Server) => {
 
             io.emit("panel_update", buildPayload(updatedPos, updatedPos, nuevoEstado));
         } catch (error) {
-            console.error("❌ Error en conexión de socket:", error);
+            logMotor("Error en Conexión de Socket", `Error en conexión de socket para ${email}: ${error}`, "ERROR");
         }
 
         // 🚀 Registramos los listeners modulares inyectando instancias
@@ -148,7 +149,7 @@ export const initSocketEngine = (io: Server) => {
                             ? miEstado.estado
                             : "encamino";
 
-                        console.log(`🛡️ [Garantía] Forzando rehidratación estricta para ${cleanEmail} en estado: ${estadoSincronizado}`);
+                        logMotor("Rehidratación en Ruta", `Forzando rehidratación estricta para ${cleanEmail} en estado: ${estadoSincronizado}`);
 
                         return socket.emit("response_from_taxi", {
                             accepted: true,
@@ -170,7 +171,7 @@ export const initSocketEngine = (io: Server) => {
                     socket.emit("trip_status_update", { estado: "pendiente" });
                 }
             } catch (err) {
-                console.error("Error al reproducir estado del pasajero:", err);
+                logMotor("Error en Reproducción de Estado", `Error al reproducir estado del pasajero ${cleanEmail}: ${err}`, "ERROR");
             }
         });
 
@@ -182,7 +183,7 @@ export const initSocketEngine = (io: Server) => {
                     socket.emit("assignment_confirmed", { success: true, pasajero: buildPayload(pPos, pPos, pPos.estado) });
                 }
             } catch (err) {
-                console.error(err);
+                logMotor("Error en Rehidratación de Viaje", `Error al rehidratar el viaje para ${pasajero}: ${err}`, "ERROR");
             }
         });
 
@@ -201,12 +202,12 @@ export const initSocketEngine = (io: Server) => {
 
         socket.on("disconnect", async (reason) => {
             if (email) {
-                console.log(`📡 Socket cerrado temporalmente para: ${email} | Razón: ${reason}`);
+                logMotor("Desconexión Temporal", `Socket cerrado temporalmente para: ${email} | Razón: ${reason}`);
                 try {
                     const checkActive = await Position.findOne({ email });
 
                     if (checkActive && ["encamino", "encurso"].includes(checkActive.estado)) {
-                        console.log(`🛡️ Conservando estado '${checkActive.estado}' para ${email} (Protección contra microcortes).`);
+                        logMotor("Protección contra Microcortes", `Conservando estado '${checkActive.estado}' para ${email} (Protección contra microcortes).`);
                         await Position.updateOne({ email }, { $set: { socketId: null } });
                         return;
                     }
@@ -214,7 +215,7 @@ export const initSocketEngine = (io: Server) => {
                     await Position.updateOne({ email }, { $set: { estado: "desconectado", socketId: null, updatedAt: new Date() } });
                     io.emit("panel_update", { email, estado: "desconectado", force: true });
                 } catch (error) {
-                    console.error("Error en disconnect pasivo:", error);
+                    logMotor("Error en Desconexión Pasiva", `Error en desconexión pasiva para ${email}: ${error}`, "ERROR");
                 }
             }
         });
