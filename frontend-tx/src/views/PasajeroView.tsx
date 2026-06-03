@@ -137,6 +137,12 @@ useGeolocation(
         if (taxiPosRef.current) setHistorialRuta([[taxiPosRef.current.lat, taxiPosRef.current.lng]]);
         toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
       }
+
+       // 🛡️ Escudo: si ya estamos en encurso, ignoramos cualquier 'buscando'
+        if (estadoRef.current === "encurso" && data.estado === "buscando") {
+        console.warn("🛡️ [Frontend Escudo] Ignorado salto a 'buscando' porque el viaje ya está en curso.");
+        return;
+     }
       
       // 🛡️ CORRECCIÓN: Al finalizar regresamos a 'pendiente', NO a 'buscando'
       if (data.estado === "finalizado") {
