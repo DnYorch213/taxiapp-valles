@@ -202,6 +202,10 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 logMotor("passenger_on_board", `Pasajero=${pEmail} -> Timeout limpiado`, "INFO");
             }
 
+            // 🚩 Limpieza crítica: invalidamos cualquier requestId viejo
+            await Position.updateOne({ email: pEmail }, { $set: { requestId: null } });
+            logMotor("passenger_on_board", `Pasajero=${pEmail} -> RequestId limpiado al subir a bordo`, "INFO");
+
             // 2. Actualizamos de forma segura los estados en la base de datos
             await Position.updateOne({ email: tEmail }, { $set: { estado: "encurso", updatedAt: new Date() } });
             await Position.updateOne({ email: pEmail }, { $set: { estado: "encurso", updatedAt: new Date() } });
@@ -216,6 +220,8 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 pasajeroEmail: pEmail,
                 taxiData: tPos ? buildPayload(tPos, tPos, "encurso") : null
             });
+            // 🚩 Refuerzo UI: emitimos explícitamente encurso al pasajero
+            io.to(pEmail).emit("trip_status_update", { estado: "encurso" });
             io.to(tEmail).emit("trip_status_update", { estado: "encurso" });
 
             // 🎯 4. CORRECCIÓN CRÍTICA: Emetimos payloads completos e industriales a los paneles globales
