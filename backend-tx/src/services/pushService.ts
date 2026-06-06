@@ -32,21 +32,24 @@ export const enviarNotificacionPush = async (subscription: any, pasajeroData: an
 
         const payload = JSON.stringify({
             title: "¡NUEVO VIAJE DISPONIBLE! 🚕",
-            body: `Pasajero: ${pasajeroData.name}\nDistancia: ${distanciaMetros}m`,
+            body: `Pasajero: ${pasajeroData.name || pasajeroData.pasajeroEmail}\nDistancia: ${distanciaMetros}m`,
             icon: "/icon-192x192.png",
             vibrate: [200, 100, 200, 100, 200],
             actions: [
                 { action: "aceptar", title: "✅ ACEPTAR VIAJE" },
                 { action: "rechazar", title: "❌ IGNORAR" }
             ],
-            // Agrupamos todos tus metadatos dentro de un solo objeto data plano
             data: {
-                emailPasajero: pasajeroData.email,
+                emailPasajero: pasajeroData.pasajeroEmail || pasajeroData.email,
                 emailTaxista: taxistaEmail,
+                pasajeroLat: pasajeroData.pasajeroLat || pasajeroData.lat,
+                pasajeroLng: pasajeroData.pasajeroLng || pasajeroData.lng,
+                distancia: distanciaMetros,
                 action: "OPEN_TRIP_REQUEST",
                 url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/taxista`
             }
         });
+
 
         await webpush.sendNotification(subscription, payload, { TTL: 60, urgency: 'high' });
         console.log(`🔔 Push enviado con éxito a: ${taxistaEmail}`);

@@ -1,5 +1,3 @@
-// src/utils/payloadBuilder.ts
-
 export function buildPayload(user: any, pos: any, estado: string, extra: any = {}) {
     return {
         email: user?.email || pos?.email,
@@ -18,6 +16,13 @@ export function buildPayload(user: any, pos: any, estado: string, extra: any = {
         destinationAddress: extra.destinationAddress || pos?.destinationAddress || user?.destinationAddress || "Destino no especificado",
 
         estado: estado ?? pos?.estado ?? "pendiente",
+
+        // 🚩 Campos explícitos para notificaciones y métricas
+        pasajeroEmail: extra.pasajeroEmail || pos?.pasajeroEmail || null,
+        pasajeroLat: extra.pasajeroLat || pos?.pasajeroLat || null,
+        pasajeroLng: extra.pasajeroLng || pos?.pasajeroLng || null,
+        taxistaEmail: extra.taxistaEmail || pos?.taxistaEmail || null,
+        distancia: extra.distancia || null,
 
         timestamp: new Date().toISOString(),
         ...extra,

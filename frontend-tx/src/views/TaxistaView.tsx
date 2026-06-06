@@ -297,7 +297,15 @@ const handleAsignacion = useCallback((data: any) => {
     // 2. ACTUALIZACIÓN DE ESTADOS
     // Limpiamos el email por si trae la "k" extra o espacios
     const pEmail = rawData.email.toLowerCase().trim();
-    setPasajeroAsignado({ ...rawData, email: pEmail, attempt: data.attempt });
+setPasajeroAsignado({ 
+  ...rawData, 
+  email: pEmail, 
+  attempt: data.attempt,
+  pasajeroEmail: rawData.pasajeroEmail || pEmail,
+  pasajeroLat: rawData.pasajeroLat || rawData.lat,
+  pasajeroLng: rawData.pasajeroLng || rawData.lng,
+  distancia: rawData.distancia || null
+ });
     setExcludedEmails(data.excludedEmails || []);
     
     const estadoServidor = rawData.estado?.toLowerCase().trim();
@@ -392,6 +400,12 @@ socket.on("assignment_confirmed", (data) => {
 // 2. 🔄 LISTENER DE CAMBIO DE ESTADO (BLINDADO)
 socket.on("trip_status_update", (data: any) => {
   console.log("🔄 [Socket Test] Cambio de estado recibido:", data);
+
+    // 🛡️ Escudo: ignorar 'buscando' si ya estamos en encurso/finalizado/pendiente
+  if (["encurso", "finalizado", "pendiente"].includes(estadoRef.current) && data.estado === "buscando") {
+    console.warn("🛡️ Ignorado salto a 'buscando' porque el viaje ya está cerrado o en curso.");
+    return;
+  }
   
   if (data.estado) {
     setEstado(data.estado);
@@ -459,7 +473,8 @@ socket.on("trip_status_update", (data: any) => {
   if (payload?.destinationAddress) {
     setPasajeroAsignado((prev: any) => ({
       ...prev,
-      destinationAddress: payload.destinationAddress
+      destinationAddress: payload.destinationAddress,
+      distancia: payload.distancia || prev?.distancia || null
     }));
   }
 

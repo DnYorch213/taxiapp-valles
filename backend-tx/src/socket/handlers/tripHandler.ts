@@ -6,6 +6,7 @@ import { buildPayload } from "../../utils/payloadBuilder";
 import { reverseGeocode } from "../../services/geocodingService";
 import { dispatchWithRetry, pendingTimeouts } from "../../services/dispatchService";
 import { logMotor } from "../../utils/logger";
+import { calculateDistance } from "../../utils/distance";
 
 export const registerTripHandlers = (io: Server, socket: Socket, email: string) => {
 
@@ -159,8 +160,15 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 estado: "encamino",
                 lat: tPos?.lat,
                 lng: tPos?.lng,
-                taxiData: buildPayload(tPos, tPos, "encamino")
+                taxiData: buildPayload(tPos, tPos, "encamino"),
+                pasajeroEmail: pEmail,
+                pasajeroLat: pPosActualizado?.lat,
+                pasajeroLng: pPosActualizado?.lng,
+                distancia: (tPos?.lat && tPos?.lng && pPosActualizado?.lat && pPosActualizado?.lng)
+                    ? calculateDistance(pPosActualizado.lat, pPosActualizado.lng, tPos.lat, tPos.lng)
+                    : null
             });
+
 
             io.to(tEmail).emit("assignment_confirmed", { success: true, pasajero: buildPayload(pPosActualizado, pPosActualizado, "encamino") });
             io.to(tEmail).emit("trip_status_update", { estado: "encamino" });
@@ -275,7 +283,14 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         }
 
         // 4. Notificamos a los canales el cierre absoluto del viaje en estado "cancelado"
-        const payloadCancel = { pasajeroEmail: pEmail, taxistaEmail: tEmail, estado: "cancelado" };
+        const payloadCancel = {
+            pasajeroEmail: pEmail,
+            taxistaEmail: tEmail,
+            estado: "cancelado",
+            pasajeroLat: estadoActualDoc?.lat,
+            pasajeroLng: estadoActualDoc?.lng
+        };
+
         io.to(pEmail).emit("trip_finished", payloadCancel);
         io.to(pEmail).emit("dispatch_timeout"); // Saca al pasajero de la pantalla de carga
 
@@ -317,7 +332,17 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             const pUpdated = await Position.findOne({ email: pEmail });
             const tUpdated = await Position.findOne({ email: tEmail });
 
-            const payloadFin = { pasajeroEmail: pEmail, taxistaEmail: tEmail, estado: "finalizado", pickupAddress: direccionOrigen, destinationAddress: direccionDestino };
+            const payloadFin = {
+                pasajeroEmail: pEmail,
+                taxistaEmail: tEmail,
+                estado: "finalizado",
+                pickupAddress: direccionOrigen,
+                destinationAddress: direccionDestino,
+                distancia: (pPos?.lat && pPos?.lng && tPos?.lat && tPos?.lng)
+                    ? calculateDistance(pPos.lat, pPos.lng, tPos.lat, tPos.lng)
+                    : null
+            };
+
             io.to(pEmail).emit("trip_finished", payloadFin);
             io.to(tEmail).emit("trip_finished", payloadFin);
 
