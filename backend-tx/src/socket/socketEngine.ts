@@ -7,6 +7,7 @@ import { pendingTimeouts, isAutoMode } from "../services/dispatchService";
 import { registerLocationHandlers } from "./handlers/locationHandler";
 import { registerTripHandlers } from "./handlers/tripHandler";
 import { logMotor } from "../utils/logger";
+import { calculateDistance } from "../utils/distance";
 
 export const initSocketEngine = (io: Server) => {
     io.on("connection", async (socket) => {
@@ -118,11 +119,18 @@ export const initSocketEngine = (io: Server) => {
                         taxiNumber: taxistaData?.taxiNumber || "ECO",
                         lat: taxistaData?.lat || null,
                         lng: taxistaData?.lng || null,
-                        estado: nuevoEstado, // "encurso" o "encamino" original preservado
+                        estado: nuevoEstado,
                         rehydrated: true,
-                        // 🎯 ADICIÓN CRÍTICA: Inyectamos el payload estructurado del taxista para evitar campos undefined y distancias en cero
-                        taxiData: taxistaData ? buildPayload(taxistaData, taxistaData, nuevoEstado) : null
+                        taxiData: taxistaData ? buildPayload(taxistaData, taxistaData, nuevoEstado) : null,
+
+                        pasajeroEmail: viajeActivo.email,
+                        pasajeroLat: viajeActivo.lat,
+                        pasajeroLng: viajeActivo.lng,
+                        distancia: (taxistaData?.lat && taxistaData?.lng && viajeActivo.lat && viajeActivo.lng)
+                            ? calculateDistance(viajeActivo.lat, viajeActivo.lng, taxistaData.lat, taxistaData.lng)
+                            : null
                     });
+
                 }
             }
 

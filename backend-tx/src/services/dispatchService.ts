@@ -95,14 +95,27 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     );
     logMotor("geocoding", `Dirección generada e inyectada: ${direccion} para ${pEmail}`, "INFO");
 
+    const distancia = calculateDistance(
+        pasajeroData.lat,
+        pasajeroData.lng,
+        elMasCercano.lat,
+        elMasCercano.lng
+    );
+
     const fullPayload = {
         ...pasajeroData,
         email: pEmail,
+        pasajeroEmail: pEmail,
+        taxistaEmail: tEmail,
+        pasajeroLat: pasajeroData.lat,
+        pasajeroLng: pasajeroData.lng,
         pickupAddress: direccion,
         excludedEmails: currentExcluidos,
         isNewOffer: true,
-        attempt
+        attempt,
+        distancia
     };
+
 
     io.to(tEmail).emit("pasajero_asignado", fullPayload);
 
