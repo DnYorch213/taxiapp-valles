@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { MapContainer, TileLayer, Marker, Polyline, Popup } from "react-leaflet"; // 🚩 Importamos Polyline
+import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from "react-leaflet"; // 🚩 Importamos Polyline
 import { toast, ToastContainer } from "react-toastify";
 import L from 'leaflet';
 import axios, { head } from "axios";
@@ -55,6 +55,14 @@ const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ durati
       />
     </div>
   );
+};
+
+const MapFixer = () => {
+  const map = useMap();
+  useEffect(() => {
+    map.invalidateSize();
+  }, [map]);
+  return null;
 };
 
 const TaxistaView: React.FC = () => {
@@ -452,12 +460,19 @@ socket.on("trip_status_update", (data: any) => {
   }
 });
 
-socket.on("update_trip_path", (data: { lat: number, lng: number }) => {
+socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   // 🚖 Añade puntos al historial del viaje en curso
   setHistorialRuta((prev) => [...prev, [data.lat, data.lng]]);
+  setTaxiPos({ lat: data.lat, lng: data.lng, heading: 0 });
 
-  // 🚩 Actualiza polyline dinámica hacia el destino
-  setGeometriaRuta((prev) => [...prev, L.latLng(data.lat, data.lng)]);
+  // 🚩 Recalcular polyline hacia destino
+  if (estadoRef.current === "encurso" && pasajeroAsignado?.lat && pasajeroAsignado?.lng) {
+    const nuevaRuta = [
+      L.latLng(data.lat, data.lng), // posición actual del taxi
+      L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng), // destino del pasajero
+    ];
+    setGeometriaRuta(nuevaRuta);
+  }
 });
 
     // 🚩 Listener de rehidratación
@@ -485,7 +500,7 @@ socket.on("update_trip_path", (data: { lat: number, lng: number }) => {
     });
 
    socket.on("trip_finished", (payload) => {
-  detenerSonido();
+   detenerSonido();
   
   // 1. Actualizamos los datos del pasajero con la dirección que viene del server
   if (payload?.destinationAddress) {
@@ -501,6 +516,7 @@ socket.on("update_trip_path", (data: { lat: number, lng: number }) => {
   setChatAbierto(false);
   setHistorialRuta([]); 
   setGeometriaRuta([]);
+  toast.success("¡Viaje finalizado!");
 
   // 3. 🕒 ESPERA DE CORTESÍA: Dejamos la info en pantalla 5 segundos
   setTimeout(() => {
@@ -640,11 +656,7 @@ const finalizarViaje = () => {
     pasajeroEmail: pEmail.toLowerCase().trim(), 
     taxistaEmail: tEmail.toLowerCase().trim() 
   });
-
-  /* setEstado("activo");
-  setPasajeroAsignado(null); */
-  setHistorialRuta([]); 
-  toast.info("Servicio finalizado");
+  
 };
 
    // --- OBJETO DE USUARIO PARA EL MENÚ LATERAL ---
@@ -739,9 +751,9 @@ return (
   <MapContainer 
     center={[taxiPos.lat, taxiPos.lng]} 
     zoom={15} 
-    className="h-full w-full" 
-    zoomControl={false}
+    style={{ height: "100vh", width: "100%" }} // 🚩 clave    zoomControl={false}
   >
+        <MapFixer />
 
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
            {/* --- DENTRO DEL MAPA --- */}
@@ -771,8 +783,8 @@ return (
   <Polyline 
     positions={geometriaRuta} 
     pathOptions={{ 
-      color: '#d02692', 
-      weight: 6, 
+      color: 'rgb(245, 33, 65)', 
+      weight: 4, 
       opacity: 0.8,
       lineJoin: 'round' 
     }} 
@@ -784,8 +796,8 @@ return (
   <Polyline 
     positions={geometriaRuta} 
     pathOptions={{ 
-      color: '#06b6d4', // 🎯 Un Cyan (#06b6d4) o el color que gustes para el destino final
-      weight: 6, 
+      color: 'rgb(55, 227, 55)', 
+      weight: 4, 
       opacity: 0.8,
       lineJoin: 'round' 
     }} 
@@ -797,8 +809,8 @@ return (
   <Polyline 
     positions={historialRuta} 
     pathOptions={{ 
-      color: '#22c55e', 
-      weight: 5, 
+      color: 'rgb(55, 227, 55)', 
+      weight: 4, 
       opacity: 0.7 
     }} 
   />

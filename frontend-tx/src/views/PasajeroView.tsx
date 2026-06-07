@@ -123,24 +123,34 @@ useGeolocation(
       }
     });
 
-    socket.on("update_trip_path", (data: { lat: number, lng: number }) => {
-      setHistorialRuta((prev) => [...prev, [data.lat, data.lng]]);
-      setTaxiPos({ lat: data.lat, lng: data.lng, heading: 0 });
-      // 🚩 Actualiza polyline dinámica hacia el destino
-      setGeometriaRuta((prev) => [...prev, L.latLng(data.lat, data.lng)]);
-    });
+  socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
+  setHistorialRuta((prev) => [...prev, [data.lat, data.lng]]);
+  setTaxiPos({ lat: data.lat, lng: data.lng, heading: 0 });
+
+  // 🚩 Recalcular polyline hacia destino usando taxistaAsignado
+  if (estadoRef.current === "encurso" && taxistaAsignado?.lat && taxistaAsignado?.lng) {
+    const nuevaRuta = [
+      L.latLng(data.lat, data.lng), // posición actual del taxi
+      L.latLng(taxistaAsignado.lat, taxistaAsignado.lng), // destino asignado
+    ];
+    setGeometriaRuta(nuevaRuta);
+  }
+});
+
+
 
     // INICIO Y FIN DE VIAJE (CONFIRMAR ABORDO DESDE SERVER)
-    socket.on("trip_status_update", (data: { estado: string }) => {
-      if (data.estado === "encurso") {
-  setEstado("encurso");
-  setChatAbierto(false);
+  socket.on("trip_status_update", (data: { estado: string, pasajeroEmail?: string }) => {
+  const miEmail = userPosition?.email?.toLowerCase().trim();
 
-  if (taxiPosRef.current) {
-    setHistorialRuta([[taxiPosRef.current.lat, taxiPosRef.current.lng]]);
-  }
+  if (data.estado === "encurso" && (!data.pasajeroEmail || data.pasajeroEmail === miEmail)) {
+    setEstado("encurso");
+    setChatAbierto(false);
 
-// 🚩 Inicializa polyline hacia el destino
+    if (taxiPosRef.current) {
+      setHistorialRuta([[taxiPosRef.current.lat, taxiPosRef.current.lng]]);
+    }
+
     if (taxistaAsignado?.lat && taxistaAsignado?.lng && taxiPosRef.current) {
       setGeometriaRuta([
         L.latLng(taxiPosRef.current.lat, taxiPosRef.current.lng),
@@ -148,9 +158,8 @@ useGeolocation(
       ]);
     }
 
-  toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
-}
-
+    toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
+  }
 
        // 🛡️ Escudo extra: si ya estamos en encurso, finalizado o pendiente, ignoramos cualquier 'buscando'
  if (["encurso", "finalizado", "pendiente"].includes(estadoRef.current) && data.estado === "buscando") {
@@ -335,9 +344,8 @@ const obtenerTextoEstado = () => {
     positions={geometriaRuta}
     pathOptions={{
       color: '#d02692',
-      weight: 6,
+      weight: 4,
       opacity: 0.9,
-      dashArray: '10, 15',
       lineJoin: 'round',
       lineCap: 'round'
     }}
@@ -364,12 +372,25 @@ const obtenerTextoEstado = () => {
     positions={historialRuta} 
     pathOptions={{ 
       color: '#22c55e', 
-      weight: 6, 
+      weight: 4, 
       opacity: 0.8,
       lineJoin: 'round'
     }} 
   />
 )}
+      {/* 🟩 LINEA 3: Polyline hacia destino en curso */}
+{estado === "encurso" && geometriaRuta.length > 0 && (
+  <Polyline
+    positions={geometriaRuta}
+    pathOptions={{
+      color: '#22c55e',
+      weight: 4,
+      opacity: 0.6,
+      lineJoin: 'round'
+    }}
+  />
+)}
+
             </MapContainer>
           ) : (
             <div className="flex items-center justify-center h-full text-slate-400 font-black text-[10px] uppercase tracking-widest animate-pulse">
