@@ -20,8 +20,7 @@ const PasajeroView: React.FC = () => {
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
   const [chatAbierto, setChatAbierto] = useState(false);
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
-  const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
-
+  const [geometriaRuta, setGeometriaRuta] = useState<L.LatLngExpression[]>([]);
   const taxistaAsignadoRef = useRef<Payload | null>(null);
   // 🎯 NUEVAS REFS PARA EVITAR RESETEAR EL EFFECT
   const estadoRef = useRef<ViajeEstado>("pendiente");
@@ -120,23 +119,38 @@ useGeolocation(
           );
           return { lat: data.lat, lng: data.lng, heading };
         });
+        setGeometriaRuta((prev) => [...prev, [data.lat, data.lng]]);
       }
     });
 
     socket.on("update_trip_path", (data: { lat: number, lng: number }) => {
       setHistorialRuta((prev) => [...prev, [data.lat, data.lng]]);
       setTaxiPos({ lat: data.lat, lng: data.lng, heading: 0 });
+      // 🚩 Actualiza polyline dinámica hacia el destino
+      setGeometriaRuta((prev) => [...prev, L.latLng(data.lat, data.lng)]);
     });
 
     // INICIO Y FIN DE VIAJE (CONFIRMAR ABORDO DESDE SERVER)
     socket.on("trip_status_update", (data: { estado: string }) => {
       if (data.estado === "encurso") {
-        setEstado("encurso");
-        setChatAbierto(false);
-        // 🎯 Usamos taxiPosRef para evitar la dependencia directa
-        if (taxiPosRef.current) setHistorialRuta([[taxiPosRef.current.lat, taxiPosRef.current.lng]]);
-        toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
-      }
+  setEstado("encurso");
+  setChatAbierto(false);
+
+  if (taxiPosRef.current) {
+    setHistorialRuta([[taxiPosRef.current.lat, taxiPosRef.current.lng]]);
+  }
+
+// 🚩 Inicializa polyline hacia el destino
+    if (taxistaAsignado?.lat && taxistaAsignado?.lng && taxiPosRef.current) {
+      setGeometriaRuta([
+        L.latLng(taxiPosRef.current.lat, taxiPosRef.current.lng),
+        L.latLng(taxistaAsignado.lat, taxistaAsignado.lng)
+      ]);
+    }
+
+  toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
+}
+
 
        // 🛡️ Escudo extra: si ya estamos en encurso, finalizado o pendiente, ignoramos cualquier 'buscando'
  if (["encurso", "finalizado", "pendiente"].includes(estadoRef.current) && data.estado === "buscando") {
@@ -151,6 +165,7 @@ useGeolocation(
         setTaxistaAsignado(null);
         setTaxiPos(null);
         setChatAbierto(false);
+        setGeometriaRuta([]);
         toast.success("¡Viaje finalizado!");
       }
     });

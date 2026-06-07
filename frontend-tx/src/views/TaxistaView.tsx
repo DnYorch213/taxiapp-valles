@@ -77,7 +77,7 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   const [isAccepting, setIsAccepting] = useState(false);
 
   useEffect(() => {
-  if (estado === "finalizado" || estado === "activo") {
+  if (estado === "finalizado" || estado === "activo" || estado === "encamino") {
     setTimeout(() => setGeometriaRuta([]), 300);
   }
 }, [estado]);
@@ -432,6 +432,14 @@ socket.on("trip_status_update", (data: any) => {
     detenerSonido();
     setChatAbierto(false);
 
+     // 🚩 Recalcula polyline hacia el destino
+ if (pasajeroAsignado?.lat && pasajeroAsignado?.lng && taxiPos?.lat && taxiPos?.lng) {
+   setGeometriaRuta([
+     L.latLng(taxiPos.lat, taxiPos.lng),
+     L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng)
+   ]);
+ }
+
     setPasajeroAsignado((prev: any) => ({
       ...prev,
       pickupAddress: prev?.pickupAddress && prev.pickupAddress !== "Calculando ubicación..." 
@@ -443,6 +451,15 @@ socket.on("trip_status_update", (data: any) => {
     toast.info("¡Viaje iniciado! Rumbo al destino final.");
   }
 });
+
+socket.on("update_trip_path", (data: { lat: number, lng: number }) => {
+  // 🚖 Añade puntos al historial del viaje en curso
+  setHistorialRuta((prev) => [...prev, [data.lat, data.lng]]);
+
+  // 🚩 Actualiza polyline dinámica hacia el destino
+  setGeometriaRuta((prev) => [...prev, L.latLng(data.lat, data.lng)]);
+});
+
     // 🚩 Listener de rehidratación
   socket.on("rehydrate_trip_result", (data) => {
     if (data.success) {
@@ -464,6 +481,7 @@ socket.on("trip_status_update", (data: any) => {
       setChatAbierto(false);
       setIsAccepting(false);
       setHistorialRuta([]); // Limpiar rastro
+      setGeometriaRuta([]); // Limpiar polyline
     });
 
    socket.on("trip_finished", (payload) => {
@@ -482,6 +500,7 @@ socket.on("trip_status_update", (data: any) => {
   setEstado("finalizado"); 
   setChatAbierto(false);
   setHistorialRuta([]); 
+  setGeometriaRuta([]);
 
   // 3. 🕒 ESPERA DE CORTESÍA: Dejamos la info en pantalla 5 segundos
   setTimeout(() => {
@@ -496,6 +515,7 @@ socket.on("trip_status_update", (data: any) => {
       socket.off("pasajero_asignado");
       socket.off("assignment_confirmed");
       socket.off("trip_status_update");
+      socket.off("update_trip_path");
       socket.off("dispatch_timeout");
       socket.off("rehydrate_trip_result");
       socket.off("trip_cancelled_by_passenger");
@@ -592,7 +612,13 @@ const confirmarAbordo = () => {
 
   setEstado("encurso");
   setChatAbierto(false);
-  setGeometriaRuta([]); // Limpiamos la ruta de aproximación
+   // 🚩 Recalcula polyline hacia el destino
+ if (pasajeroAsignado?.lat && pasajeroAsignado?.lng && taxiPos?.lat && taxiPos?.lng) {
+   setGeometriaRuta([
+     L.latLng(taxiPos.lat, taxiPos.lng),
+     L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng)
+   ]);
+ }
   
   if (taxiPos?.lat && taxiPos?.lng) {
   setHistorialRuta([[taxiPos.lat, taxiPos.lng]]);
