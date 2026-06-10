@@ -43,7 +43,7 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
 
         const pasajeroRelacionado = await Position.findOne({
             taxistaAsignado: email,
-            estado: { $in: ["encurso", "encamino"] }
+            estado: { $in: ["asignado", "encurso", "encamino"] }
         });
 
         if (pasajeroRelacionado) {

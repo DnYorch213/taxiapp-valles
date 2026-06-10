@@ -187,7 +187,8 @@ useGeolocation(
         setEstado("pendiente"); // 🛡️ CORRECCIÓN: Volvemos al inicio seguro
         setTaxistaAsignado(null);
         setTaxiPos(null);
-        setHistorialRuta([]); 
+        setHistorialRuta([]);
+        setGeometriaRuta([]); 
         setChatAbierto(false);
 
         // 🚀 ¡AQUÍ VA EL TOAST FALTANTE! 

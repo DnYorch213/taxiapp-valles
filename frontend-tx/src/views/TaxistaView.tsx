@@ -498,8 +498,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     });
 
    socket.on("trip_finished", (payload) => {
-   detenerSonido();
-  
+   detenerSonido();  
   // 1. Actualizamos los datos del pasajero con la dirección que viene del server
   if (payload?.destinationAddress) {
     setPasajeroAsignado((prev: any) => ({
@@ -508,7 +507,6 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       distancia: payload.distancia || prev?.distancia || null
     }));
   }
-
   // 2. Cambiamos el estado para que la interfaz sepa que terminó
   setEstado("finalizado"); 
   setChatAbierto(false);
