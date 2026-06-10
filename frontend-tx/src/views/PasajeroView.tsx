@@ -105,23 +105,22 @@ useGeolocation(
       }
     });
 
-    socket.on("taxi_moved", (data: any) => {
-      const emailAsignado = taxistaAsignadoRef.current?.email?.toLowerCase().trim();
-      const emailEntrante = (data.tEmail || data.email || data.taxistaEmail)?.toLowerCase().trim();
+   socket.on("taxi_moved", (data: any) => {
+  const emailAsignado = taxistaAsignadoRef.current?.email?.toLowerCase().trim();
+  const emailEntrante = (data.tEmail || data.email || data.taxistaEmail)?.toLowerCase().trim();
 
-      if (emailAsignado && emailEntrante === emailAsignado) {
-        setTaxiPos((prev) => {
-          const heading = calcularHeading(
-            prev ? { lat: prev.lat, lng: prev.lng } : null,
-            { lat: data.lat, lng: data.lng },
-            userPosition ? { lat: userPosition.lat!, lng: userPosition.lng! } : null,
-           estadoRef.current // 🎯 Usamos la ref para leer el estado fresco sin reiniciar el effect
-          );
-          return { lat: data.lat, lng: data.lng, heading };
-        });
-        setGeometriaRuta((prev) => [...prev, [data.lat, data.lng]]);
-      }
-    });
+  if (emailAsignado && emailEntrante === emailAsignado) {
+    setTaxiPos({ lat: data.lat, lng: data.lng, heading: 0 });
+
+    if (userPosition?.lat && userPosition?.lng) {
+      setGeometriaRuta([
+        L.latLng(data.lat, data.lng),
+        L.latLng(userPosition.lat, userPosition.lng),
+      ]);
+    }
+  }
+});
+
 
   socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   setHistorialRuta((prev) => [...prev, [data.lat, data.lng]]);
@@ -343,9 +342,8 @@ const obtenerTextoEstado = () => {
   <Polyline
     positions={geometriaRuta}
     pathOptions={{
-      color: '#d02692',
+      color: 'rgb(245, 33, 65)',
       weight: 4,
-      opacity: 0.9,
       lineJoin: 'round',
       lineCap: 'round'
     }}
@@ -373,7 +371,6 @@ const obtenerTextoEstado = () => {
     pathOptions={{ 
       color: '#22c55e', 
       weight: 4, 
-      opacity: 0.8,
       lineJoin: 'round'
     }} 
   />
@@ -385,7 +382,6 @@ const obtenerTextoEstado = () => {
     pathOptions={{
       color: '#22c55e',
       weight: 4,
-      opacity: 0.6,
       lineJoin: 'round'
     }}
   />

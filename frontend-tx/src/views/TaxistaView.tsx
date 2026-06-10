@@ -461,19 +461,17 @@ socket.on("trip_status_update", (data: any) => {
 });
 
 socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
-  // 🚖 Añade puntos al historial del viaje en curso
   setHistorialRuta((prev) => [...prev, [data.lat, data.lng]]);
   setTaxiPos({ lat: data.lat, lng: data.lng, heading: 0 });
 
-  // 🚩 Recalcular polyline hacia destino
   if (estadoRef.current === "encurso" && pasajeroAsignado?.lat && pasajeroAsignado?.lng) {
-    const nuevaRuta = [
+    setGeometriaRuta([
       L.latLng(data.lat, data.lng), // posición actual del taxi
-      L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng), // destino del pasajero
-    ];
-    setGeometriaRuta(nuevaRuta);
+      L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng), // destino final
+    ]);
   }
 });
+
 
     // 🚩 Listener de rehidratación
   socket.on("rehydrate_trip_result", (data) => {
@@ -785,7 +783,6 @@ return (
     pathOptions={{ 
       color: 'rgb(245, 33, 65)', 
       weight: 4, 
-      opacity: 0.8,
       lineJoin: 'round' 
     }} 
   />
@@ -798,7 +795,6 @@ return (
     pathOptions={{ 
       color: 'rgb(55, 227, 55)', 
       weight: 4, 
-      opacity: 0.8,
       lineJoin: 'round' 
     }} 
   />
@@ -811,7 +807,6 @@ return (
     pathOptions={{ 
       color: 'rgb(55, 227, 55)', 
       weight: 4, 
-      opacity: 0.7 
     }} 
   />
 )}
