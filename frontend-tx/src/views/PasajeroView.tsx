@@ -141,24 +141,26 @@ useGeolocation(
     // INICIO Y FIN DE VIAJE (CONFIRMAR ABORDO DESDE SERVER)
   socket.on("trip_status_update", (data: { estado: string, pasajeroEmail?: string }) => {
   const miEmail = userPosition?.email?.toLowerCase().trim();
+const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
 
-  if (data.estado === "encurso" && (!data.pasajeroEmail || data.pasajeroEmail === miEmail)) {
-    setEstado("encurso");
-    setChatAbierto(false);
+if (data.estado === "encurso" && (!emailRecibido || emailRecibido === miEmail)) {
+  setEstado("encurso");
+  setChatAbierto(false);
 
-    if (taxiPosRef.current) {
-      setHistorialRuta([[taxiPosRef.current.lat, taxiPosRef.current.lng]]);
-    }
-
-    if (taxistaAsignado?.lat && taxistaAsignado?.lng && taxiPosRef.current) {
-      setGeometriaRuta([
-        L.latLng(taxiPosRef.current.lat, taxiPosRef.current.lng),
-        L.latLng(taxistaAsignado.lat, taxistaAsignado.lng)
-      ]);
-    }
-
-    toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
+  if (taxiPosRef.current) {
+    setHistorialRuta([[taxiPosRef.current.lat, taxiPosRef.current.lng]]);
   }
+
+  if (taxistaAsignado?.lat && taxistaAsignado?.lng && taxiPosRef.current) {
+    setGeometriaRuta([
+      L.latLng(taxiPosRef.current.lat, taxiPosRef.current.lng),
+      L.latLng(taxistaAsignado.lat, taxistaAsignado.lng)
+    ]);
+  }
+
+  toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
+}
+
 
        // 🛡️ Escudo extra: si ya estamos en encurso, finalizado o pendiente, ignoramos cualquier 'buscando'
  if (["encurso", "finalizado", "pendiente"].includes(estadoRef.current) && data.estado === "buscando") {
