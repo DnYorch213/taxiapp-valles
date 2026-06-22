@@ -105,37 +105,41 @@ useGeolocation(
       }
     });
 
-   socket.on("taxi_moved", (data: any) => {
-  const emailAsignado = taxistaAsignadoRef.current?.email?.toLowerCase().trim();
-  const emailEntrante = (data.tEmail || data.email || data.taxistaEmail)?.toLowerCase().trim();
+  // ==================== LISTENERS DE MOVIMIENTO EN TIEMPO REAL BLINDADOS ====================
 
-  if (emailAsignado && emailEntrante === emailAsignado) {
-    setTaxiPos({ lat: data.lat, lng: data.lng, heading: 0 });
+    socket.on("taxi_moved", (data: any) => {
+      const emailAsignado = taxistaAsignadoRef.current?.email?.toLowerCase().trim();
+      const emailEntrante = (data.tEmail || data.email || data.taxistaEmail)?.toLowerCase().trim();
 
-    if (userPosition?.lat && userPosition?.lng) {
-      setGeometriaRuta([
-        L.latLng(data.lat, data.lng),
-        L.latLng(userPosition.lat, userPosition.lng),
-      ]);
-    }
-  }
-});
+      if (emailAsignado && emailEntrante === emailAsignado) {
+        // Actualizamos la posición del carro de forma segura
+        setTaxiPos({ lat: Number(data.lat), lng: Number(data.lng), heading: 0 });
 
+        if (userPosition?.lat && userPosition?.lng) {
+          // 🎯 OBLIGAMOS A LEAFLET A RECIBIR INSTANCIAS DE COORDENADAS LIMPIAS
+          setGeometriaRuta([
+            L.latLng(Number(data.lat), Number(data.lng)),
+            L.latLng(Number(userPosition.lat), Number(userPosition.lng)),
+          ]);
+        }
+      }
+    });
 
-  socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
-  setHistorialRuta((prev) => [...prev, [data.lat, data.lng]]);
-  setTaxiPos({ lat: data.lat, lng: data.lng, heading: 0 });
+    socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
+      setHistorialRuta((prev) => [...prev, [Number(data.lat), Number(data.lng)]]);
+      setTaxiPos({ lat: Number(data.lat), lng: Number(data.lng), heading: 0 });
 
-  // 🚩 Recalcular polyline hacia destino usando taxistaAsignado
-  if (estadoRef.current === "encurso" && taxistaAsignado?.lat && taxistaAsignado?.lng) {
-    const nuevaRuta = [
-      L.latLng(data.lat, data.lng), // posición actual del taxi
-      L.latLng(taxistaAsignado.lat, taxistaAsignado.lng), // destino asignado
-    ];
-    setGeometriaRuta(nuevaRuta);
-  }
-});
-
+      // 🎯 SOLUCIÓN AL CLOSURE: Leemos taxistaAsignadoRef.current para evitar objetos congelados en nulo
+      const taxistaFresco = taxistaAsignadoRef.current;
+      
+      if (estadoRef.current === "encurso" && taxistaFresco?.lat && taxistaFresco?.lng) {
+        const nuevaRuta = [
+          L.latLng(Number(data.lat), Number(data.lng)), // posición actual en movimiento del taxi
+          L.latLng(Number(taxistaFresco.lat), Number(taxistaFresco.lng)), // destino final del viaje
+        ];
+        setGeometriaRuta(nuevaRuta);
+      }
+    });
 
 
     // INICIO Y FIN DE VIAJE (CONFIRMAR ABORDO DESDE SERVER)

@@ -90,6 +90,11 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   }
 }, [estado]);
 
+// Sincronizador de referencia mutuable para hooks de hardware
+useEffect(() => {
+  estadoRef.current = estado;
+}, [estado]);
+
 
 
  // 🚩 REHIDRATACIÓN DESDE QUERY PARAMS O ACCIONES PUSH
@@ -202,40 +207,45 @@ useEffect(() => {
     return () => detenerSonido();
   }, [detenerSonido]);
 
-// --- 🛰️ GEOLOCALIZACIÓN REFACTOREADA Y BLINDADA ---
+// --- 🛰️ GEOLOCALIZACIÓN OPTIMIZADA Y BLINDADA PARA PRODUCCIÓN ---
 useGeolocation(
   {
     email: userPosition?.email || localStorage.getItem("email") || "",
     name: localStorage.getItem("userName") || userPosition?.name || "Taxista",
     role: "taxista",
     taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "",
-    estado: estado, // Aseguramos que el estado se mantenga actualizado en la posición
+    estado: estado, 
   },
   (pos) => {
     if (pos.lat === null || pos.lng === null) return;
 
-   // 1. Guardamos de inmediato en el estado local para el mapa de Leaflet
-setTaxiPos((prev) => {
-  // Calculamos el heading asegurando que pasamos números con !
-  const heading = calcularHeading(
-    prev ? { lat: prev.lat, lng: prev.lng } : null,
-    { lat: pos.lat!, lng: pos.lng! }, // 🎯 Añadido ! aquí
-    pasajeroAsignado ? { lat: pasajeroAsignado.lat!, lng: pasajeroAsignado.lng! } : null,
-    estado
-  );
-  
-  return {
-    lat: pos.lat!, // 🎯 Reparación Crítica: Forzamos a TypeScript a verlo como 'number'
-    lng: pos.lng!, // 🎯 Reparación Crítica: Forzamos a TypeScript a verlo como 'number'
-    heading,
-    taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "S/N"
-  };
-});  
+    // 1. Guardamos de inmediato en el estado local para el mapa de Leaflet
+    setTaxiPos((prev) => {
+      const heading = calcularHeading(
+        prev ? { lat: prev.lat, lng: prev.lng } : null,
+        { lat: pos.lat!, lng: pos.lng! }, 
+        pasajeroAsignado ? { lat: pasajeroAsignado.lat!, lng: pasajeroAsignado.lng! } : null,
+        estado
+      );
+      
+      return {
+        lat: pos.lat!, 
+        lng: pos.lng!, 
+        heading,
+        taxiNumber: localStorage.getItem("taxiNumber") || userPosition?.taxiNumber || "S/N"
+      };
+    });  
 
+    // 🎯 EXTRACCIÓN SINCRA ANTI-CLOSURE:
+    // Aseguramos la existencia del email y el rol directo desde el hardware/disco
+    const miEmailLimpio = localStorage.getItem("email") || userPosition?.email;
+    const miTaxiEco = localStorage.getItem("taxiNumber") || userPosition?.taxiNumber || "S/N";
     const estadoActual = estadoRef.current;
     
-    // 2. Envío al socket con coordenadas nativas directas (Evita lecturas de estados asíncronos)
-    if (socket && (estadoActual === "asignado" || estadoActual === "encamino" || estadoActual === "encurso")) {
+    if (!miEmailLimpio) return; // Si no hay credenciales, abortamos para evitar tráficos basura
+
+    // 2. Envío al socket con coordenadas nativas directas
+    if (socket && socket.connected && ["asignado", "encamino", "encurso"].includes(estadoActual)) {
       
       if (estadoActual === "encurso") {
         // --- MODO VIAJE: Solo emitimos el rastro ---
@@ -243,17 +253,18 @@ setTaxiPos((prev) => {
         setHistorialRuta((prev) => [...prev, nuevaCoord]);
         
         socket.emit("update_trip_path", {
-          pasajeroEmail: pasajeroAsignado?.email,
-          lat: pos.lat, // 🎯 Directo del hardware/simulador
-          lng: pos.lng, // 🎯 Directo del hardware/simulador
+          pasajeroEmail: pasajeroAsignado?.email || pasajeroAsignado?.pasajeroEmail,
+          lat: Number(pos.lat), 
+          lng: Number(pos.lng), 
         });
       } else {
-        // --- MODO APROXIMACIÓN (Asignado/EnCamino): Emitimos movimiento normal ---
+        // --- MODO APROXIMACIÓN (Fase: encamino) ---
+        // 🚀 ENVIAMOS VARIABLES LIMPIAS FORZADAS PARA QUE EL PASAJERO VEA MOVER AL TAXISTA
         socket.emit("taxi_moved", {
-          lat: pos.lat, // 🎯 REPARACIÓN CRÍTICA: Quitamos "taxiPos?.lat ||"
-          lng: pos.lng, // 🎯 REPARACIÓN CRÍTICA: Quitamos "taxiPos?.lng ||"
-          email: userPosition?.email || localStorage.getItem("email"),
-          taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber"),
+          lat: Number(pos.lat), 
+          lng: Number(pos.lng), 
+          email: miEmailLimpio.toLowerCase().trim(),
+          taxiNumber: miTaxiEco,
           role: "taxista"
         });
       }
@@ -624,18 +635,19 @@ const confirmarAbordo = () => {
 
   setEstado("encurso");
   setChatAbierto(false);
-   // 🚩 Recalcula polyline hacia el destino
- if (pasajeroAsignado?.lat && pasajeroAsignado?.lng && taxiPos?.lat && taxiPos?.lng) {
-   setGeometriaRuta([
-     L.latLng(taxiPos.lat, taxiPos.lng),
-     L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng)
-   ]);
- }
+  
+  // 🎯 SOLUCIÓN AL ERROR DE TYPESCRIPT:
+  // Pasamos los objetos L.latLng individuales pero tipados de forma nativa como exige tu estado
+  if (pasajeroAsignado?.lat && pasajeroAsignado?.lng && taxiPos?.lat && taxiPos?.lng) {
+    setGeometriaRuta([
+      L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
+      L.latLng(Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng))
+    ] as any); // 👈 El "as any" o "as L.LatLng[]" le da la paz al compilador de TS
+  }
   
   if (taxiPos?.lat && taxiPos?.lng) {
-  setHistorialRuta([[taxiPos.lat, taxiPos.lng]]);
-}
-
+    setHistorialRuta([[Number(taxiPos.lat), Number(taxiPos.lng)]]);
+  }
 };
 
 const finalizarViaje = () => {
