@@ -291,6 +291,38 @@ if (data.estado === "encurso" && (!emailRecibido || emailRecibido === miEmail)) 
     setChatAbierto(false);
   };
 
+  // 🛰️ EFECTO DE RECORTE Y RECALCULO DINÁMICO DE RUTA (PASAJERO)
+useEffect(() => {
+  if (!taxiPos?.lat || !taxiPos?.lng || geometriaRuta.length === 0) return;
+  if (!["asignado", "encamino"].includes(estado)) return;
+
+  const posTaxi = L.latLng(Number(taxiPos.lat), Number(taxiPos.lng));
+  let indiceMasCercano = -1;
+  let distanciaMinima = Infinity;
+
+  // 1. Buscamos el punto de la ruta más cercano al taxista
+  geometriaRuta.forEach((punto: any, index: number) => {
+    const pLeaflet = L.latLng(punto.lat ?? punto[0], punto.lng ?? punto[1]);
+    const d = posTaxi.distanceTo(pLeaflet);
+    if (d < distanciaMinima) {
+      distanciaMinima = d;
+      indiceMasCercano = index;
+    }
+  });
+
+  // 🎯 CONDICIÓN A: El taxista sigue la ruta -> Vamos borrando el rastro de la polilínea
+  if (distanciaMinima < 45 && indiceMasCercano > 0) {
+    setGeometriaRuta((prev) => prev.slice(indiceMasCercano));
+  }
+
+  // 🎯 CONDICIÓN B: ¡DESVÍO DETECTADO! Si el taxista se aleja más de 45 metros de la ruta, 
+  // vaciamos geometriaRuta para forzar a la RoutingMachine a recalcular una nueva calle
+  if (distanciaMinima >= 45) {
+    console.log("🔄 [Ruta Dinámica] Taxista tomó otra calle. Recalculando polilínea...");
+    setGeometriaRuta([]); // Al vaciarlo, el candado del JSX se abre y se redibuja la ruta
+  }
+}, [taxiPos, estado]);
+
   // 🎯 Agrega esto arriba de tu return principal en PasajeroView.tsx
 const obtenerTextoEstado = () => {
   if (estado === 'pendiente') return 'ACTIVO';
@@ -342,24 +374,22 @@ const obtenerTextoEstado = () => {
                 </RotatedMarker>
               )}
 
-           {/* ==================== SECCIÓN DE LÍNEAS DEL MAPA (SIN PARPADEO) ==================== */}
+          {/* ==================== SECCIÓN DE LÍNEAS DEL MAPA OPTIMIZADA ==================== */}
 
-{/* 🟪 LINEA 1: Se dibuja fluidamente porque geometríaRuta ya no se borra ni se sobreescribe en bucle */}
+{/* 🟪 LINEA 1: Ruta de aproximación adaptativa (Se va borrando y actualizando sola) */}
 {(estado === "asignado" || estado === "encamino") && geometriaRuta.length > 0 && (
   <Polyline
     positions={geometriaRuta}
     pathOptions={{
-      color: 'rgb(245, 33, 65)',
-      weight: 4,
+      color: 'rgb(245, 33, 65)', // Rojo/magenta premium original
+      weight: 5,
       lineJoin: 'round',
       lineCap: 'round'
     }}
   />
 )}
 
-{/* 🗺️ CONTROL DE ENRUTAMIENTO (🎯 CANDADO DE DISPARO ÚNICO) */}
-{/* Al añadir "geometriaRuta.length === 0", el componente calcula la ruta UNA sola vez. */}
-{/* En cuanto encuentra las coordenadas, se desmonta y deja la línea fija y hermosa en el mapa */}
+{/* 🗺️ CONTROL DE ENRUTAMIENTO INTELIGENTE */}
 {taxiPos?.lat && taxiPos?.lng && userPosition?.lat && userPosition?.lng && 
  (estado === "asignado" || estado === "encamino") && geometriaRuta.length === 0 && (
   <RoutingMachine 
@@ -367,7 +397,10 @@ const obtenerTextoEstado = () => {
       L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
       L.latLng(Number(userPosition.lat), Number(userPosition.lng))
     ]} 
-    onRouteFound={(coords: L.LatLng[]) => setGeometriaRuta(coords)}
+    onRouteFound={(coords: L.LatLng[]) => {
+      console.log("🗺️ [Enrutador] Nueva trayectoria trazada por cambio de calle. Longitud:", coords.length);
+      setGeometriaRuta(coords);
+    }}
   />
 )}
 

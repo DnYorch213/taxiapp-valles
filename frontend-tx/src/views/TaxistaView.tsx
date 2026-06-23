@@ -547,7 +547,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }, [handleAsignacion, checkStatus, detenerSonido]);
 
  useEffect(() => {
-  console.log("🔄 useEffect disparado");
+  console.log("🔄 useEffect de rastreo disparado");
   console.log("👉 Estado actual:", estado);
   console.log("👉 Longitud geometriaRuta:", geometriaRuta.length);
   console.log("👉 taxiPos:", taxiPos?.lat, taxiPos?.lng);
@@ -567,19 +567,25 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     });
 
     console.log("👉 índice más cercano:", indiceMasCercano);
-    console.log("👉 distancia mínima:", distanciaMinima);
+    console.log("👉 distancia mínima a la ruta actual:", distanciaMinima);
 
-    if (indiceMasCercano > 0) {
+    // 🎯 CONDICIÓN 1: El taxista sigue la ruta -> Vamos borrando el camino recorrido
+    if (distanciaMinima < 45 && indiceMasCercano > 0) {
       console.log("✅ Avance detectado, borrando puntos hasta índice:", indiceMasCercano);
       setGeometriaRuta(prev => prev.slice(indiceMasCercano));
+    } 
+    // 🎯 CONDICIÓN 2: ¡DESVÍO DETECTADO! Si te alejas más de 45 metros de la línea original,
+    // vaciamos la geometría para forzar a la RoutingMachine del JSX a trazar el nuevo camino por la otra calle
+    else if (distanciaMinima >= 45) {
+      console.log("🔄 [Ruta Taxista] Cambio de calle detectado. Vaciando polilínea para recalcular...");
+      setGeometriaRuta([]); // Al quedar en cero, se activa automáticamente la RoutingMachine en el mapa
     } else {
-      console.log("⚠️ No se detectó avance suficiente, no se borran puntos");
+      console.log("⚠️ No se detectó avance suficiente dentro del rango de la ruta.");
     }
   } else {
     console.log("⚠️ Condiciones no cumplidas: estado !== 'encamino' o geometriaRuta vacía");
   }
-}, [taxiPos, estado]); // 🚩 ahora dependemos de taxiPos
-
+}, [taxiPos, estado]); // 🚩 dependemos de taxiPos y estado
 
  // --- ACCIONES DEL TAXISTA ---
 const aceptarViaje = () => {
