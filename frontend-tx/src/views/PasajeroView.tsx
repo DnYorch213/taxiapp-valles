@@ -105,20 +105,35 @@ useGeolocation(
       }
     });
 
-  // ==================== LISTENERS DE MOVIMIENTO EN TIEMPO REAL BLINDADOS ====================
+  // ==================== LISTENERS DE MOVIMIENTO CON ORIENTACIÓN GEOGRÁFICA REAL ====================
 
     socket.on("taxi_moved", (data: any) => {
       const emailAsignado = taxistaAsignadoRef.current?.email?.toLowerCase().trim();
       const emailEntrante = (data.tEmail || data.email || data.taxistaEmail)?.toLowerCase().trim();
 
       if (emailAsignado && emailEntrante === emailAsignado) {
-        // Actualizamos la posición del carro de forma segura
-        setTaxiPos({ lat: Number(data.lat), lng: Number(data.lng), heading: 0 });
+        const latNum = Number(data.lat);
+        const lngNum = Number(data.lng);
+
+        // 🎯 LEEMOS LA POSICIÓN ANTERIOR DESDE LA REF PARA CALCULAR EL ÁNGULO DE GIRO REAL
+        const posAnterior = taxiPosRef.current;
+        const nuevoHeading = calcularHeading(
+          posAnterior ? { lat: posAnterior.lat, lng: posAnterior.lng } : null,
+          { lat: latNum, lng: lngNum },
+          userPosition ? { lat: Number(userPosition.lat), lng: Number(userPosition.lng) } : null,
+          estadoRef.current
+        );
+
+        // Actualizamos la posición y forzamos la rotación geográfica calculada
+        setTaxiPos({ 
+          lat: latNum, 
+          lng: lngNum, 
+          heading: nuevoHeading || 0 
+        });
 
         if (userPosition?.lat && userPosition?.lng) {
-          // 🎯 OBLIGAMOS A LEAFLET A RECIBIR INSTANCIAS DE COORDENADAS LIMPIAS
           setGeometriaRuta([
-            L.latLng(Number(data.lat), Number(data.lng)),
+            L.latLng(latNum, lngNum),
             L.latLng(Number(userPosition.lat), Number(userPosition.lng)),
           ]);
         }
@@ -126,53 +141,67 @@ useGeolocation(
     });
 
     socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
-      setHistorialRuta((prev) => [...prev, [Number(data.lat), Number(data.lng)]]);
-      setTaxiPos({ lat: Number(data.lat), lng: Number(data.lng), heading: 0 });
-
-      // 🎯 SOLUCIÓN AL CLOSURE: Leemos taxistaAsignadoRef.current para evitar objetos congelados en nulo
-      const taxistaFresco = taxistaAsignadoRef.current;
+      const latNum = Number(data.lat);
+      const lngNum = Number(data.lng);
       
-      if (estadoRef.current === "encurso" && taxistaFresco?.lat && taxistaFresco?.lng) {
-        const nuevaRuta = [
-          L.latLng(Number(data.lat), Number(data.lng)), // posición actual en movimiento del taxi
-          L.latLng(Number(taxistaFresco.lat), Number(taxistaFresco.lng)), // destino final del viaje
-        ];
-        setGeometriaRuta(nuevaRuta);
+      // 1. Añadimos el punto al rastro histórico del viaje
+      setHistorialRuta((prev) => [...prev, [latNum, lngNum]]);
+      
+      // 2. 🎯 CÁLCULO DE ORIENTACIÓN EN FASE DE VIAJE EN CURSO
+      const posAnterior = taxiPosRef.current;
+      const nuevoHeading = calcularHeading(
+        posAnterior ? { lat: posAnterior.lat, lng: posAnterior.lng } : null,
+        { lat: latNum, lng: lngNum },
+        taxistaAsignadoRef.current ? { lat: Number(taxistaAsignadoRef.current.lat), lng: Number(taxistaAsignadoRef.current.lng) } : null,
+        estadoRef.current
+      );
+
+      // Desplazamos e inclinamos el icono del taxista en tiempo real hacia la calle correcta
+      setTaxiPos({ 
+        lat: latNum, 
+        lng: lngNum, 
+        heading: nuevoHeading || 0 
+      });
+
+      // Sincronizamos la polilínea de rumbo al destino final
+      if (estadoRef.current === "encurso") {
+        setGeometriaRuta((prev) => {
+          if (prev.length > 0) {
+            return [L.latLng(latNum, lngNum), ...prev.slice(1)];
+          }
+          return [L.latLng(latNum, lngNum)];
+        });
       }
     });
 
+    socket.on("trip_status_update", (data: { estado: string, pasajeroEmail?: string }) => {
+      const miEmail = userPosition?.email?.toLowerCase().trim();
+      const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
 
-    // INICIO Y FIN DE VIAJE (CONFIRMAR ABORDO DESDE SERVER)
-  socket.on("trip_status_update", (data: { estado: string, pasajeroEmail?: string }) => {
-  const miEmail = userPosition?.email?.toLowerCase().trim();
-const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
+      if (data.estado === "encurso" && (!emailRecibido || emailRecibido === miEmail)) {
+        setEstado("encurso");
+        setChatAbierto(false);
 
-if (data.estado === "encurso" && (!emailRecibido || emailRecibido === miEmail)) {
-  setEstado("encurso");
-  setChatAbierto(false);
+        // 🎯 Forzamos el inicio del rastro limpio usando la última posición conocida del taxista de la ref
+        const taxiActual = taxiPosRef.current;
+        if (taxiActual?.lat && taxiActual?.lng) {
+          setHistorialRuta([[Number(taxiActual.lat), Number(taxiActual.lng)]]);
+          
+          // La geometría de navegación se inicializa limpia y nativa
+          setGeometriaRuta([
+            L.latLng(Number(taxiActual.lat), Number(taxiActual.lng))
+          ]);
+        }
 
-  if (taxiPosRef.current) {
-    setHistorialRuta([[taxiPosRef.current.lat, taxiPosRef.current.lng]]);
-  }
+        toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
+      }
 
-  if (taxistaAsignado?.lat && taxistaAsignado?.lng && taxiPosRef.current) {
-    setGeometriaRuta([
-      L.latLng(taxiPosRef.current.lat, taxiPosRef.current.lng),
-      L.latLng(taxistaAsignado.lat, taxistaAsignado.lng)
-    ]);
-  }
-
-  toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
-}
-
-
-       // 🛡️ Escudo extra: si ya estamos en encurso, finalizado o pendiente, ignoramos cualquier 'buscando'
- if (["encurso", "finalizado", "pendiente"].includes(estadoRef.current) && data.estado === "buscando") {
-    console.warn("🛡️ [Frontend Escudo] Ignorado salto a 'buscando' porque el viaje ya está cerrado o en curso.");
-    return;
-  }
+      // Escudo protector contra saltos accidentales a 'buscando'
+      if (["encurso", "finalizado", "pendiente"].includes(estadoRef.current) && data.estado === "buscando") {
+        console.warn("🛡️ [Frontend Escudo] Ignorado salto a 'buscando' porque el viaje ya está cerrado o en curso.");
+        return;
+      }
       
-      // 🛡️ CORRECCIÓN: Al finalizar regresamos a 'pendiente', NO a 'buscando'
       if (data.estado === "finalizado") {
         setEstado("pendiente"); 
         setHistorialRuta([]);

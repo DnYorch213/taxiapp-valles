@@ -207,7 +207,7 @@ useEffect(() => {
     return () => detenerSonido();
   }, [detenerSonido]);
 
-// --- 🛰️ GEOLOCALIZACIÓN OPTIMIZADA Y BLINDADA PARA PRODUCCIÓN ---
+// --- 🛰️ GEOLOCALIZACIÓN OPTIMIZADA Y BLINDADA CON HEADING REAL (TAXISTA) ---
 useGeolocation(
   {
     email: userPosition?.email || localStorage.getItem("email") || "",
@@ -219,37 +219,38 @@ useGeolocation(
   (pos) => {
     if (pos.lat === null || pos.lng === null) return;
 
-    // 1. Guardamos de inmediato en el estado local para el mapa de Leaflet
+    // 🎯 Capturamos el estado real y fresco directamente desde la referencia mutable
+    const estadoActual = estadoRef.current;
+
+    // 1. Guardamos de inmediato en el estado local calculando el ángulo de rumbo real
     setTaxiPos((prev) => {
       const heading = calcularHeading(
         prev ? { lat: prev.lat, lng: prev.lng } : null,
-        { lat: pos.lat!, lng: pos.lng! }, 
-        pasajeroAsignado ? { lat: pasajeroAsignado.lat!, lng: pasajeroAsignado.lng! } : null,
-        estado
+        { lat: Number(pos.lat), lng: Number(pos.lng) }, 
+        pasajeroAsignado ? { lat: Number(pasajeroAsignado.lat), lng: Number(pasajeroAsignado.lng) } : null,
+        estadoActual // 🎯 CORRECCIÓN CRÍTICA: Cambiado 'estado' por 'estadoActual' (evita el closure)
       );
       
       return {
-        lat: pos.lat!, 
-        lng: pos.lng!, 
-        heading,
+        lat: Number(pos.lat), 
+        lng: Number(pos.lng), 
+        heading: heading || 0, // Si da nulo, mantiene la última dirección frontal
         taxiNumber: localStorage.getItem("taxiNumber") || userPosition?.taxiNumber || "S/N"
       };
     });  
 
-    // 🎯 EXTRACCIÓN SINCRA ANTI-CLOSURE:
-    // Aseguramos la existencia del email y el rol directo desde el hardware/disco
+    // 🎯 EXTRACCIÓN SINCRA ANTI-CLOSURE DEL HARDWARE:
     const miEmailLimpio = localStorage.getItem("email") || userPosition?.email;
     const miTaxiEco = localStorage.getItem("taxiNumber") || userPosition?.taxiNumber || "S/N";
-    const estadoActual = estadoRef.current;
     
-    if (!miEmailLimpio) return; // Si no hay credenciales, abortamos para evitar tráficos basura
+    if (!miEmailLimpio) return; 
 
-    // 2. Envío al socket con coordenadas nativas directas
+    // 2. Envío de telemetría limpia al socket en tiempo real
     if (socket && socket.connected && ["asignado", "encamino", "encurso"].includes(estadoActual)) {
       
       if (estadoActual === "encurso") {
         // --- MODO VIAJE: Solo emitimos el rastro ---
-        const nuevaCoord: L.LatLngExpression = [pos.lat, pos.lng];
+        const nuevaCoord: L.LatLngExpression = [Number(pos.lat), Number(pos.lng)];
         setHistorialRuta((prev) => [...prev, nuevaCoord]);
         
         socket.emit("update_trip_path", {
@@ -259,7 +260,6 @@ useGeolocation(
         });
       } else {
         // --- MODO APROXIMACIÓN (Fase: encamino) ---
-        // 🚀 ENVIAMOS VARIABLES LIMPIAS FORZADAS PARA QUE EL PASAJERO VEA MOVER AL TAXISTA
         socket.emit("taxi_moved", {
           lat: Number(pos.lat), 
           lng: Number(pos.lng), 
@@ -271,7 +271,6 @@ useGeolocation(
     }
   }
 );
-
   // --- 🔄 LÓGICA DE SOCKETS ---
   const checkStatus = useCallback(() => {
     const miEmail = userPosition?.email || localStorage.getItem("email");
