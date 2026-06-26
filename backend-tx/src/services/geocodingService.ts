@@ -30,50 +30,63 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<string> 
             const f = features[0];
             const fullText = f.place_name;
 
-            // 1. Limpiamos lo que NO queremos ver para no alterar el split
+            // 1. Limpieza base
             const cleanText = fullText
                 .replace(/, San Luis Potosí/gi, '')
                 .replace(/, México/gi, '')
                 .replace(/, SLP/gi, '')
                 .replace(/\d{5}/g, '') // Quita Códigos Postales
-                .replace(/,\s*,/g, ',') // Corrige comas dobles si quedaron
+                .replace(/,\s*,/g, ',')
                 .trim();
 
             const parts = cleanText.split(',').map(p => p.trim());
-            const calleYNum = parts[0]; // La calle siempre es el primer elemento
+            const calleYNum = parts[0];
 
-            // 2. 🎯 EXTRACCIÓN MAESTRA DEL CONTEXTO
+            // 2. 🎯 EXTRACCIÓN MAESTRA CON ESCANEO PROFUNDO (Multi-Feature & Context)
             let coloniaContext = "";
+
+            // Intento A: Buscar en el contexto del primer feature
             f.context?.forEach((c: any) => {
-                // Mapbox clasifica las colonias/fraccionamientos como 'neighborhood' o 'locality'
-                if (c.id.includes('neighborhood') || c.id.includes('locality')) {
+                if (c.id.includes('neighborhood') || c.id.includes('locality') || c.id.includes('suburb')) {
                     coloniaContext = c.text;
                 }
             });
 
-            // 3. RECONSTRUCCIÓN INTELIGENTE ADAPTATIVA
-            if (coloniaContext) {
-                direccion = `${calleYNum}, Col. ${coloniaContext}, Ciudad Valles`;
-            } else if (parts.length >= 3) {
-                const coloniaText = parts[1];
-                if (coloniaText.toLowerCase() !== "ciudad valles") {
-                    direccion = `${calleYNum}, Col. ${coloniaText}, Ciudad Valles`;
-                } else {
-                    direccion = `${calleYNum}, Ciudad Valles`;
+            // Intento B: Si sigue vacío, escaneamos las características secundarias que mandó Mapbox
+            if (!coloniaContext && features.length > 1) {
+                for (const feat of features) {
+                    if (feat.id?.includes('neighborhood') || feat.id?.includes('locality')) {
+                        coloniaContext = feat.text;
+                        break;
+                    }
                 }
+            }
+
+            // Intento C: Fallback definitivo si Mapbox nos da un texto plano de 3 partes
+            if (!coloniaContext && parts.length >= 3) {
+                const posibleColonia = parts[1];
+                if (posibleColonia.toLowerCase() !== "ciudad valles") {
+                    coloniaContext = posibleColonia;
+                }
+            }
+
+            // 3. RECONSTRUCCIÓN FINAL CON COLONIA GARANTIZADA SI EXISTE
+            if (coloniaContext && coloniaContext.toLowerCase() !== "ciudad valles") {
+                // Limpiamos palabras repetidas por si Mapbox manda la colonia dos veces
+                const coloniaLimpia = coloniaContext.replace(/Colonia|Col\./gi, '').trim();
+                direccion = `${calleYNum}, Col. ${coloniaLimpia}, Ciudad Valles`;
             } else if (parts.length === 2) {
                 direccion = `${calleYNum}, ${parts[1]}`;
             } else {
-                direccion = parts[0];
+                direccion = parts[0].includes("Ciudad Valles") ? parts[0] : `${parts[0]}, Ciudad Valles`;
             }
         }
 
         geoCache[cacheKey] = direccion;
         console.log(`✅ DIRECCIÓN DETALLADA GENERADA: ${direccion}`);
         return direccion;
-
-    } catch (error: any) { // 🎯 BLINDAJE DE TYPESCRIPT
-        console.error("❌ Error en reverseGeocode:", error.response?.data || error.message);
-        return `Ubicación: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    } catch (error) {
+        console.error("❌ Error en reverseGeocode:", error);
+        return "Dirección no disponible";
     }
 };

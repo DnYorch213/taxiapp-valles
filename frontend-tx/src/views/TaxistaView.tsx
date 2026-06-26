@@ -769,26 +769,27 @@ return (
         taxiPos?.lat ? (
           <div className="relative w-full h-full">
             
-            {/* 🚨 MODAL FLOTANTE DE ACCIÓN MEDIA-ALTA (SOLO CUANDO SE ASIGNA) */}
-            {estado === "asignado" && pasajeroAsignado ? (
-                <div className="absolute inset-x-0 top-6 mx-4 z-[4000] bg-slate-900/95 border-2 border-[#22c55e] rounded-[2.5rem] p-5 shadow-[0_15px_40px_rgba(0,0,0,0.6)] backdrop-blur-md animate-pulse-subtle">
-                <div className="flex items-center gap-4 mb-3">
-                  <div className="w-12 h-12 rounded-2xl bg-[#22c55e] flex items-center justify-center text-2xl shadow-lg">⚡</div>
-                  <div className="flex-1">
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#22c55e]">¡SOLICITUD INMEDIATA!</p>
-                    <h3 className="text-lg font-black leading-tight text-white">{pasajeroAsignado.name}</h3>
-                  </div>
-                </div>
+           {/* 🚨 MODAL FLOTANTE DE ACCIÓN MEDIA-ALTA (SOLO CUANDO SE ASIGNA) */}
+{estado === "asignado" && pasajeroAsignado ? (
+    <div className="absolute inset-x-0 top-6 mx-4 z-[4000] bg-slate-900/95 border-2 border-[#22c55e] rounded-[2.5rem] p-5 shadow-[0_15px_40px_rgba(0,0,0,0.6)] backdrop-blur-md animate-pulse-subtle">
+        <div className="flex items-center gap-4 mb-3">
+            <div className="w-12 h-12 rounded-2xl bg-[#22c55e] flex items-center justify-center text-2xl shadow-lg">⚡</div>
+            <div className="flex-1">
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#22c55e]">¡SOLICITUD INMEDIATA!</p>
+                <h3 className="text-lg font-black leading-tight text-white">{pasajeroAsignado.name}</h3>
+            </div>
+        </div>
 
-                <div className="bg-white/5 p-3 rounded-2xl flex items-start gap-3 mb-4">
-                  <span className="text-xl">📍</span>
-                  <div className="flex flex-col">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Recoger en:</span>
-                    <p className="text-sm font-bold text-amber-300 leading-tight">
-                      {pasajeroAsignado.pickupAddress || "Calculando ubicación..."}
-                    </p>
-                  </div>
-                </div>
+        <div className="bg-white/5 p-3 rounded-2xl flex items-start gap-3 mb-4">
+            <span className="text-xl">📍</span>
+            <div className="flex flex-col w-full">
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Recoger en:</span>
+                <p className="text-sm font-bold text-amber-300 leading-tight">
+                    {/* 🎯 MULTI-FALLBACK: Intentamos leer todas las variantes de dirección del backend */}
+                    {pasajeroAsignado.pickupAddress || pasajeroAsignado.direccion || pasajeroAsignado.address || "Calculando ubicación..."}
+                </p>
+            </div>
+        </div>
 
                 {/* BARRA DE TIEMPO INCORPORADA */}
                 <div className="mb-4">

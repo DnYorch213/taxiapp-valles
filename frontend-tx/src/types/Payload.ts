@@ -26,6 +26,10 @@ export interface Payload {
     pickupAddress?: string;
     destinationAddress?: string;
 
+    // 🎯 ADICIONES CRÍTICAS: Soportar variantes de geocoding inverso del backend
+    direccion?: string;
+    address?: string;
+
     // ✅ Usamos el tipo específico para evitar errores de dedo
     estado: ViajeEstado;
 
