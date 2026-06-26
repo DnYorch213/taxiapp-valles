@@ -66,4 +66,44 @@ router.post("/login", async (req: Request, res: Response) => {
     }
 });
 
+// ==================== 🎯 NUEVA RUTA: RESPALDO DE TELEMETRÍA GPS ====================
+// Esta ruta va a salvar el rastreo del Pasajero cuando el taxista sufra microcortes de red celular
+router.post("/positions/update-gps", async (req: Request, res: Response) => {
+    try {
+        const { email, lat, lng, estado } = req.body;
+
+        if (!email || lat === undefined || lng === undefined) {
+            return res.status(400).json({ success: false, message: "Datos de GPS incompletos" });
+        }
+
+        // 🚀 RESPALDO DIRECTO EN MONGO ATLAS:
+        // Buscamos el correo de la unidad y machacamos las coordenadas en caliente
+        const posicionActualizada = await Position.findOneAndUpdate(
+            { email: email.toLowerCase().trim() },
+            {
+                $set: {
+                    lat: Number(lat),
+                    lng: Number(lng),
+                    estado: estado,
+                    updatedAt: new Date()
+                }
+            },
+            { upsert: true, new: true } // Si no existe el registro, lo genera automáticamente
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Telemetría guardada en Atlas correctamente",
+            data: {
+                lat: posicionActualizada.lat,
+                lng: posicionActualizada.lng
+            }
+        });
+
+    } catch (error) {
+        console.error("❌ Error HTTP en update-gps:", error);
+        return res.status(500).json({ success: false, message: "Error interno del servidor en la telemetría" });
+    }
+});
+
 export default router;

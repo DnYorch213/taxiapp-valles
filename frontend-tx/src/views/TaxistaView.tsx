@@ -245,31 +245,43 @@ useGeolocation(
     
     if (!miEmailLimpio) return; 
 
-    // 2. Envío de telemetría limpia al socket en tiempo real
-    if (socket && socket.connected && ["asignado", "encamino", "encurso"].includes(estadoActual)) {
-      
-      if (estadoActual === "encurso") {
-        // --- MODO VIAJE: Solo emitimos el rastro ---
-        const nuevaCoord: L.LatLngExpression = [Number(pos.lat), Number(pos.lng)];
-        setHistorialRuta((prev) => [...prev, nuevaCoord]);
-        
-        socket.emit("update_trip_path", {
-          pasajeroEmail: pasajeroAsignado?.email || pasajeroAsignado?.pasajeroEmail,
-          lat: Number(pos.lat), 
-          lng: Number(pos.lng), 
-        });
-      } else {
-        // --- MODO APROXIMACIÓN (Fase: encamino) ---
-        socket.emit("taxi_moved", {
-          lat: Number(pos.lat), 
-          lng: Number(pos.lng), 
-          email: miEmailLimpio.toLowerCase().trim(),
-          taxiNumber: miTaxiEco,
-          role: "taxista"
-        });
+    // 2. Envío de telemetría limpia en tiempo real (Dentro de useGeolocation en TaxistaView.tsx)
+    if (["asignado", "encamino", "encurso"].includes(estadoActual)) {
+      const latNum = Number(pos.lat);
+      const lngNum = Number(pos.lng);
+
+      // 🎯 RESPALDO EN BASE DE DATOS MEDIANTE TU NUEVO ENDPOINT DE AUTH:
+      // Si el WebSocket parpadea, Axios se encarga de guardar el avance real directamente en Atlas
+      axios.post(`${API_URL}/api/auth/positions/update-gps`, {
+        email: miEmailLimpio.toLowerCase().trim(),
+        lat: latNum,
+        lng: lngNum,
+        estado: estadoActual
+      }).catch(err => console.warn("🛰️ [GPS Backup] Esperando red para actualizar Atlas..."));
+
+      // 3. Envío al canal virtual del Socket si hay señal de datos activa
+      if (socket && socket.connected) {
+        if (estadoActual === "encurso") {
+          const nuevaCoord: L.LatLngExpression = [latNum, lngNum];
+          setHistorialRuta((prev) => [...prev, nuevaCoord]);
+          
+          socket.emit("update_trip_path", {
+            pasajeroEmail: pasajeroAsignado?.email || pasajeroAsignado?.pasajeroEmail,
+            lat: latNum, 
+            lng: lngNum, 
+          });
+        } else {
+          socket.emit("taxi_moved", {
+            lat: latNum, 
+            lng: lngNum, 
+            email: miEmailLimpio.toLowerCase().trim(),
+            taxiNumber: miTaxiEco,
+            role: "taxista"
+          });
+        }
       }
     }
-  }
+  },
 );
   // --- 🔄 LÓGICA DE SOCKETS ---
   const checkStatus = useCallback(() => {
