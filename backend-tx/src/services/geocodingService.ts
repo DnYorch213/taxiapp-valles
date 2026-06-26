@@ -6,87 +6,82 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<string> 
     if (lat == null || lng == null) return "Dirección no disponible";
 
     const token = process.env.MAPBOX_TOKEN;
-
-    // 🎯 CACHÉ DE ALTA PRECISIÓN: 6 decimales equivalen a 10 centímetros de precisión. 
-    // Evita colisiones de direcciones en calles muy densas de Valles.
     const cacheKey = `${lat.toFixed(6)},${lng.toFixed(6)}`;
     if (geoCache[cacheKey]) return geoCache[cacheKey];
 
     try {
-        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json`;
-
-        const res = await axios.get<any>(url, {
-            params: {
-                access_token: token,
-                limit: 1, // Evita error 422
-                language: 'es'
-            }
+        // ==================== MOTOR 1: MAPBOX ====================
+        const urlMapbox = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json`;
+        const resMapbox = await axios.get<any>(urlMapbox, {
+            params: { access_token: token, limit: 1, language: 'es' }
         });
 
-        const features = res.data?.features;
+        const features = resMapbox.data?.features;
         let direccion = "Dirección desconocida";
+        let tieneColonia = false;
 
         if (features && features.length > 0) {
             const f = features[0];
-            const fullText = f.place_name;
-
-            // 1. Limpieza base
-            const cleanText = fullText
-                .replace(/, San Luis Potosí/gi, '')
-                .replace(/, México/gi, '')
-                .replace(/, SLP/gi, '')
-                .replace(/\d{5}/g, '') // Quita Códigos Postales
-                .replace(/,\s*,/g, ',')
-                .trim();
+            const cleanText = f.place_name
+                .replace(/, San Luis Potosí/gi, '').replace(/, México/gi, '').replace(/, SLP/gi, '').replace(/\d{5}/g, '').replace(/,\s*,/g, ',').trim();
 
             const parts = cleanText.split(',').map(p => p.trim());
             const calleYNum = parts[0];
 
-            // 2. 🎯 EXTRACCIÓN MAESTRA CON ESCANEO PROFUNDO (Multi-Feature & Context)
             let coloniaContext = "";
-
-            // Intento A: Buscar en el contexto del primer feature
             f.context?.forEach((c: any) => {
                 if (c.id.includes('neighborhood') || c.id.includes('locality') || c.id.includes('suburb')) {
                     coloniaContext = c.text;
                 }
             });
 
-            // Intento B: Si sigue vacío, escaneamos las características secundarias que mandó Mapbox
-            if (!coloniaContext && features.length > 1) {
-                for (const feat of features) {
-                    if (feat.id?.includes('neighborhood') || feat.id?.includes('locality')) {
-                        coloniaContext = feat.text;
-                        break;
-                    }
-                }
+            if (!coloniaContext && parts.length >= 3 && parts[1].toLowerCase() !== "ciudad valles") {
+                coloniaContext = parts[1];
             }
 
-            // Intento C: Fallback definitivo si Mapbox nos da un texto plano de 3 partes
-            if (!coloniaContext && parts.length >= 3) {
-                const posibleColonia = parts[1];
-                if (posibleColonia.toLowerCase() !== "ciudad valles") {
-                    coloniaContext = posibleColonia;
-                }
-            }
-
-            // 3. RECONSTRUCCIÓN FINAL CON COLONIA GARANTIZADA SI EXISTE
             if (coloniaContext && coloniaContext.toLowerCase() !== "ciudad valles") {
-                // Limpiamos palabras repetidas por si Mapbox manda la colonia dos veces
                 const coloniaLimpia = coloniaContext.replace(/Colonia|Col\./gi, '').trim();
                 direccion = `${calleYNum}, Col. ${coloniaLimpia}, Ciudad Valles`;
-            } else if (parts.length === 2) {
-                direccion = `${calleYNum}, ${parts[1]}`;
+                tieneColonia = true;
             } else {
                 direccion = parts[0].includes("Ciudad Valles") ? parts[0] : `${parts[0]}, Ciudad Valles`;
             }
         }
 
+        // ==================== 🎯 MOTOR 2: FALLBACK OPENSTREETMAP (NOMINATIM) ====================
+        // Si Mapbox no encontró ninguna colonia, le preguntamos a OpenStreetMap que tiene mapeado Valles a nivel barrio
+        if (!tieneColonia) {
+            try {
+                console.log("🔄 Mapbox sin colonia. Activando motor de respaldo OpenStreetMap...");
+                const urlOsm = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`;
+
+                const resOsm = await axios.get<any>(urlOsm, {
+                    headers: { "User-Agent": "TaxiAppValles/1.0" } // Nominatim exige un User-Agent
+                });
+
+                const addr = resOsm.data?.address;
+                if (addr) {
+                    // Extraemos cualquier variante de colonia o barrio
+                    const barrio = addr.suburb || addr.neighbourhood || addr.quarter || addr.residential || addr.village;
+                    const calleOsm = addr.road || direccion.split(',')[0];
+                    const numeroOsm = addr.house_number || "";
+
+                    if (barrio) {
+                        direccion = `${calleOsm} ${numeroOsm}`.trim() + `, Col. ${barrio}, Ciudad Valles`;
+                        console.log(`🏡 ¡Colonia rescatada por OpenStreetMap!: Col. ${barrio}`);
+                    }
+                }
+            } catch (osmErr) {
+                console.warn("⚠️ Fallback de OpenStreetMap no disponible, manteniendo resultado de Mapbox.");
+            }
+        }
+
         geoCache[cacheKey] = direccion;
-        console.log(`✅ DIRECCIÓN DETALLADA GENERADA: ${direccion}`);
+        console.log(`✅ DIRECCIÓN DETALLADA FINAL: ${direccion}`);
         return direccion;
-    } catch (error) {
-        console.error("❌ Error en reverseGeocode:", error);
-        return "Dirección no disponible";
+
+    } catch (error: any) {
+        console.error("❌ Error en reverseGeocode:", error.response?.data || error.message);
+        return `Ubicación: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
     }
 };
