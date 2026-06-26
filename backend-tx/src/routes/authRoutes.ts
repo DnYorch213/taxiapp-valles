@@ -88,7 +88,7 @@ router.post("/positions/update-gps", async (req: Request, res: Response) => {
                     updatedAt: new Date()
                 }
             },
-            { upsert: true, new: true } // Si no existe el registro, lo genera automáticamente
+            { upsert: true, returnDocument: "after" } // Si no existe el registro, lo genera automáticamente
         );
 
         return res.status(200).json({

@@ -697,10 +697,9 @@ const finalizarViaje = () => {
   };
 
 return (
- 
   <div className="h-dvh bg-[#0f172a] flex flex-col overflow-hidden font-sans relative text-slate-100">
     <ToastContainer theme="dark" />
-   
+    
     {/* OVERLAY OSCURO */}
     {isMenuOpen && (
       <div 
@@ -709,7 +708,7 @@ return (
       />
     )}
 
-    {/* MENÚ LATERAL (Actualizado con tus estilos) */}
+    {/* MENÚ LATERAL */}
     <div className={`fixed top-0 left-0 h-full w-72 bg-[#1e293b] z-[1005] transform ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out shadow-2xl border-r border-white/5`}>
       <div className="p-8 bg-gradient-to-br from-[#22c55e] to-[#16a34a] text-[#0f172a]">
         <div className="h-16 w-16 bg-white rounded-2xl mb-4 flex items-center justify-center text-2xl shadow-lg font-black">
@@ -745,123 +744,133 @@ return (
       </nav>
     </div>
 
-   {/* HEADER COMPACTO CON BOTÓN INTEGRADO */}
-<header className="w-full max-w-md mx-auto flex justify-between items-center py-1 px-3 shrink-0 bg-[#0f172a] z-[1002]">
-  
-  {/* BOTÓN HAMBURGUESA (Ahora integrado) */}
-  <button 
-    onClick={() => setIsMenuOpen(true)}
-    className="bg-[#1e293b] p-2.5 rounded-full shadow-lg border border-white/10 active:scale-90 transition-transform"
-  >
-    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-    </svg>
-  </button>
+    {/* HEADER COMPACTO CON BOTÓN INTEGRADO */}
+    <header className="w-full max-w-md mx-auto flex justify-between items-center py-1 px-3 shrink-0 bg-[#0f172a] z-[1002]">
+      <button 
+        onClick={() => setIsMenuOpen(true)}
+        className="bg-[#1e293b] p-2.5 rounded-full shadow-lg border border-white/10 active:scale-90 transition-transform"
+      >
+        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
 
-  {/* INDICADOR DE ESTADO (Lado derecho) */}
-  <div className="flex items-center gap-2 bg-[#1e293b] px-3 py-1 rounded-full border border-white/5">
-  <div className={`h-1.5 w-1.5 rounded-full ${taxiPos?.lat && taxiPos?.lng ? 'bg-[#22c55e]' : 'bg-red-500 animate-ping'}`}></div>
-    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
-      ECO-{user.taxiNumber}
-    </span>
-  </div>
+      <div className="flex items-center gap-2 bg-[#1e293b] px-3 py-1 rounded-full border border-white/5">
+        <div className={`h-1.5 w-1.5 rounded-full ${taxiPos?.lat && taxiPos?.lng ? 'bg-[#22c55e]' : 'bg-red-500 animate-ping'}`}></div>
+        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
+          ECO-{user.taxiNumber}
+        </span>
+      </div>
+    </header>
 
-</header>
-
-    {/* CONTENIDO DINÁMICO (Cambia entre Mapa e Historial) */}
+    {/* CONTENIDO DINÁMICO (Mapa o Historial) */}
     <main className="flex-1 w-full relative bg-[#1e293b] overflow-hidden">
       {vistaActual === 'mapa' ? (
-        /* VISTA DEL MAPA (Tu código actual) */
-       taxiPos?.lat ? (
-  <MapContainer 
-    center={[taxiPos.lat, taxiPos.lng]} 
-    zoom={15} 
-    style={{ height: "100vh", width: "100%" }} // 🚩 clave    zoomControl={false}
-  >
-        <MapFixer />
-
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-           {/* --- DENTRO DEL MAPA --- */}
-
-{estado === "encamino" &&
-  pasajeroAsignado?.lat &&
-  pasajeroAsignado?.lng &&
-  taxiPos?.lat &&
-  taxiPos?.lng &&
-  geometriaRuta.length === 0 && (
-    <RoutingMachine
-      waypoints={[
-        L.latLng(taxiPos.lat, taxiPos.lng),
-        L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng)
-      ]}
-      onRouteFound={(coords: L.LatLng[]) => {
-        console.log("✅ Ruta encontrada, longitud:", coords.length);
-        setGeometriaRuta(coords);
-      }}
-    />
-  )}
-
-
-
-{/* 🟪 LINEA 1: Ruta de aproximación al cliente (Color Púrpura/Magenta) */}
-{estado === "encamino" && geometriaRuta.length > 0 && (
-  <Polyline 
-    positions={geometriaRuta} 
-    pathOptions={{ 
-      color: 'rgb(245, 33, 65)', 
-      weight: 4, 
-      lineJoin: 'round' 
-    }} 
-  />
-)}
-
-{/* 🟦 LINEA 2: Ruta hacia el destino final del cliente (Color Cyan o Azul si está en curso) */}
-{estado === "encurso" && geometriaRuta.length > 0 && (
-  <Polyline 
-    positions={geometriaRuta} 
-    pathOptions={{ 
-      color: 'rgb(55, 227, 55)', 
-      weight: 4, 
-      lineJoin: 'round' 
-    }} 
-  />
-)}
-
-{/* 🟩 LINEA 3: Historial del rastro que el taxi ya recorrió (Color Verde) */}
-{estado === "encurso" && historialRuta.length > 0 && (
-  <Polyline 
-    positions={historialRuta} 
-    pathOptions={{ 
-      color: 'rgb(55, 227, 55)', 
-      weight: 4, 
-    }} 
-  />
-)}
-{taxiPos && (
-  <RotatedMarker 
-    position={[taxiPos.lat, taxiPos.lng]} 
-    icon={taxistaIcon} 
-    rotationAngle={taxiPos.heading || 0} 
-  >
-    <Popup>Unidad {taxiPos.taxiNumber}</Popup>
-  </RotatedMarker>
-)}
-
+        taxiPos?.lat ? (
+          <div className="relative w-full h-full">
             
-            {pasajeroAsignado?.lat && estado !== "encurso" && <Marker position={[pasajeroAsignado.lat!, pasajeroAsignado.lng!]} icon={pasajeroIcon}/>}
-          </MapContainer>
+            {/* 🚨 MODAL FLOTANTE DE ACCIÓN MEDIA-ALTA (SOLO CUANDO SE ASIGNA) */}
+            {estado === "asignado" && pasajeroAsignado ? (
+                <div className="absolute inset-x-0 top-6 mx-4 z-[4000] bg-slate-900/95 border-2 border-[#22c55e] rounded-[2.5rem] p-5 shadow-[0_15px_40px_rgba(0,0,0,0.6)] backdrop-blur-md animate-pulse-subtle">
+                <div className="flex items-center gap-4 mb-3">
+                  <div className="w-12 h-12 rounded-2xl bg-[#22c55e] flex items-center justify-center text-2xl shadow-lg">⚡</div>
+                  <div className="flex-1">
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#22c55e]">¡SOLICITUD INMEDIATA!</p>
+                    <h3 className="text-lg font-black leading-tight text-white">{pasajeroAsignado.name}</h3>
+                  </div>
+                </div>
+
+                <div className="bg-white/5 p-3 rounded-2xl flex items-start gap-3 mb-4">
+                  <span className="text-xl">📍</span>
+                  <div className="flex flex-col">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Recoger en:</span>
+                    <p className="text-sm font-bold text-amber-300 leading-tight">
+                      {pasajeroAsignado.pickupAddress || "Calculando ubicación..."}
+                    </p>
+                  </div>
+                </div>
+
+                {/* BARRA DE TIEMPO INCORPORADA */}
+                <div className="mb-4">
+                  <TimerBar duration={15000} onFinish={rechazarViaje} />
+                </div>
+
+                {/* BOTÓN ERGONÓMICO GIGANTE PARA EL PULGAR */}
+                <div className="grid grid-cols-5 gap-3">
+                  <button 
+                    onClick={aceptarViaje} 
+                    disabled={isAccepting}
+                    className={`col-span-3 py-4 rounded-2xl font-black text-xl border-b-4 shadow-lg transition-all active:translate-y-1 ${
+                      isAccepting 
+                        ? "bg-gray-500 animate-pulse border-gray-700 text-white" 
+                        : "bg-[#22c55e] border-[#16a34a] text-[#0f172a] active:bg-[#16a34a]"
+                    }`}
+                  >
+                    {isAccepting ? "⏳ ESPERA..." : "👍 ACEPTAR"}
+                  </button>
+                  <button 
+                    onClick={rechazarViaje} 
+                    className="col-span-2 py-4 bg-slate-800 border-b-4 border-slate-950 text-slate-400 rounded-2xl font-black text-xs uppercase tracking-widest active:translate-y-1"
+                  >
+                    Ignorar
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            <MapContainer 
+              center={[taxiPos.lat, taxiPos.lng]} 
+              zoom={15} 
+              style={{ height: "100vh", width: "100%" }}
+              zoomControl={false}
+            >
+              <MapFixer />
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+
+              {estado === "encamino" && pasajeroAsignado?.lat && pasajeroAsignado?.lng && geometriaRuta.length === 0 && (
+                <RoutingMachine
+                  waypoints={[
+                    L.latLng(taxiPos.lat, taxiPos.lng),
+                    L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng)
+                  ]}
+                  onRouteFound={(coords: L.LatLng[]) => setGeometriaRuta(coords)}
+                />
+              )}
+
+              {estado === "encamino" && geometriaRuta.length > 0 && (
+                <Polyline positions={geometriaRuta} pathOptions={{ color: 'rgb(245, 33, 65)', weight: 4, lineJoin: 'round' }} />
+              )}
+
+              {estado === "encurso" && geometriaRuta.length > 0 && (
+                <Polyline positions={geometriaRuta} pathOptions={{ color: 'rgb(55, 227, 55)', weight: 4, lineJoin: 'round' }} />
+              )}
+
+              {estado === "encurso" && historialRuta.length > 0 && (
+                <Polyline positions={historialRuta} pathOptions={{ color: 'rgb(55, 227, 55)', weight: 4 }} />
+              )}
+
+              <RotatedMarker position={[taxiPos.lat, taxiPos.lng]} icon={taxistaIcon} rotationAngle={taxiPos.heading || 0}>
+                <Popup>Unidad {taxiPos.taxiNumber}</Popup>
+              </RotatedMarker>
+              
+             {pasajeroAsignado?.lat && estado !== "encurso" && (
+                <Marker 
+                  position={[Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng)]} 
+                  icon={pasajeroIcon}
+                />
+              )}
+            </MapContainer>
+          </div>
         ) : (
           <div className="h-full w-full flex items-center justify-center text-slate-500 text-[10px] font-black uppercase italic animate-pulse">🛰️ Sincronizando GPS...</div>
         )
       ) : (
-        /* VISTA DEL HISTORIAL (El componente que hicimos antes) */
         <div className="h-full w-full bg-[#0f172a] overflow-y-auto pt-4">
-           {/* Asegúrate de importar tu componente HistorialViajes o pegarlo aquí */}
-           <HistorialViajes email={user.email} />
+          <HistorialViajes email={user.email} />
         </div>
       )}
 
-      {/* Badge de estado (Solo mostrar en el mapa) */}
+      {/* Badge de estado flotante */}
       {vistaActual === 'mapa' && (
         <div className="absolute top-4 right-4 z-[1000] bg-[#1e293b]/90 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 flex items-center gap-3">
           <div className={`h-2.5 w-2.5 rounded-full ${estado === "activo" ? "bg-[#22c55e]" : "bg-orange-500 animate-ping"}`}></div>
@@ -870,55 +879,43 @@ return (
       )}
     </main>
   
-    {/* 3. PANEL DE ACCIONES (Chat + Controles) */}
+    {/* PANEL DE ACCIONES INFERIOR (Solo para EnCamino, EnCurso o Buscando) */}
     <div className="w-full max-w-md mx-auto bg-[#1e293b] rounded-t-[2.5rem] shadow-[0_-25px_60px_rgba(0,0,0,0.5)] shrink-0 z-[1001] relative border-t border-white/5">
       <div className="absolute top-3 left-1/2 -translate-x-1/2 w-12 h-1 bg-slate-700 rounded-full"></div>
 
-      {pasajeroAsignado ? (
+      {pasajeroAsignado && estado !== "asignado" ? (
         <div className="flex flex-col">
-          {/* 🚩 INFO DEL PASAJERO Y DIRECCIÓN */}
-      <div className="px-6 pt-6 pb-2">
-        <div className={`p-5 rounded-[2.5rem] transition-all duration-500 ${estado === "asignado" ? "bg-[#22c55e]" : "bg-[#0f172a]/50 border border-white/5"}`}>
-          <div className="flex flex-col gap-3">
-            
-            {/* Fila Superior: Avatar y Nombre */}
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shadow-lg">👤</div>
-              <div className="flex-1">
-                <p className={`text-[8px] font-black uppercase tracking-[0.2em] ${estado === "asignado" ? "text-[#0f172a]/60" : "text-slate-500"}`}>
-                  {estado === "encurso" ? "Viaje Activo" : "Solicitud Entrante"}
-                </p>
-                <h3 className={`text-lg font-black leading-tight ${estado === "asignado" ? "text-[#0f172a]" : "text-white"}`}>
-                  {pasajeroAsignado.name}
-                </h3>
+          <div className="px-6 pt-6 pb-2">
+            <div className="p-5 rounded-[2.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-3">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shadow-lg">👤</div>
+                <div className="flex-1">
+                  <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-500">
+                    {estado === "encurso" ? "Viaje Activo" : "Trayecto de Recogida"}
+                  </p>
+                  <h3 className="text-lg font-black leading-tight text-white">{pasajeroAsignado.name}</h3>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-2xl flex items-start gap-3 bg-white/5">
+                <span className="text-xl">{estado === "encurso" ? "🚖" : "📍"}</span>
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                    {estado === "encurso" ? "Destino:" : "Punto de recogida:"}
+                  </span>
+                  <p className="text-sm font-bold text-white leading-tight">
+                    {estado === "encurso" 
+                      ? (pasajeroAsignado.destinationAddress || "Rumbo al destino...") 
+                      : (pasajeroAsignado.pickupAddress || "Calculando ubicación...")
+                    }
+                  </p>
+                </div>
               </div>
             </div>
-
-           {/* CAJA DE DIRECCIÓN */}
-<div className={`mt-2 p-3 rounded-2xl flex items-start gap-3 ${estado === "asignado" ? "bg-[#0f172a]/10" : "bg-white/5"}`}>
-  <span className="text-xl">{estado === "encurso" ? "🚖" : "📍"}</span>
-  <div className="flex flex-col">
-    <span className={`text-[9px] font-black uppercase tracking-widest ${estado === "asignado" ? "text-[#0f172a]/70" : "text-slate-400"}`}>
-      {estado === "encurso" ? "Destino:" : "Punto de recogida:"}
-    </span>
-    <p className={`text-sm font-bold leading-tight ${estado === "asignado" ? "text-[#0f172a]" : "text-white"}`}>
-      {/* 🚩 LÓGICA MEJORADA */}
-      {estado === "encurso" 
-        ? (pasajeroAsignado.destinationAddress || "Rumbo al destino...") 
-        : (pasajeroAsignado.pickupAddress || "Calculando ubicación...")
-      }
-    </p>
-  </div>
-</div>
-
-            {/* Barra de tiempo si está asignado */}
-            {estado === "asignado" && <TimerBar duration={15000} onFinish={rechazarViaje} />}
           </div>
-        </div>
-      </div>
 
-          {/* CHAT INTEGRADO: Solo si ya aceptó el viaje y no ha finalizado */}
-          {(estado === "encamino") && (
+          {/* CHAT INTEGRADO EN RUTA */}
+          {estado === "encamino" && (
             <div className="border-y border-white/5 bg-[#0f172a]/30">
               <div 
                 onClick={() => setChatAbierto(!chatAbierto)}
@@ -938,40 +935,28 @@ return (
             </div>
           )}
 
-          {/* BOTONES DE ACCIÓN */}
+          {/* BOTONES OPERATIVOS EN RUTA */}
           <div className="p-6 pb-10">
-            {estado === "asignado" && (
-              <div className="grid grid-cols-5 gap-3">
-                <button 
-  onClick={aceptarViaje} 
-  disabled={isAccepting}
-  className={`col-span-3 py-5 rounded-2xl font-black text-lg transition-transform ${
-    isAccepting ? "bg-gray-500 animate-pulse" : "bg-[#22c55e] text-[#0f172a]"
-  }`}
->
-  {isAccepting ? "PROCESANDO..." : "ACEPTAR"}
-</button>
-                <button onClick={rechazarViaje} className="col-span-2 py-5 bg-slate-800 text-slate-400 rounded-2xl font-black text-[10px] uppercase tracking-widest">
-                  Ignorar
-                </button>
-              </div>
-            )}
-
             {estado === "encamino" && (
-              <button onClick={confirmarAbordo} className="w-full py-3 bg-white text-[#0f172a] rounded-2xl font-black text-lg flex items-center justify-center gap-3 border-b-4 border-slate-300 active:translate-y-1 transition-all">
+              <button onClick={confirmarAbordo} className="w-full py-4 bg-white text-[#0f172a] rounded-2xl font-black text-lg flex items-center justify-center gap-3 border-b-4 border-slate-300 active:translate-y-1 transition-all shadow-lg">
                 📍 CONFIRMAR ABORDO
               </button>
             )}
 
             {estado === "encurso" && (
-              <button onClick={finalizarViaje} className="w-full py-3 bg-red-600 text-white rounded-2xl font-black text-lg border-b-4 border-red-900 shadow-xl active:translate-y-1 transition-all">
+              <button onClick={finalizarViaje} className="w-full py-4 bg-red-600 text-white rounded-2xl font-black text-lg border-b-4 border-red-900 shadow-xl active:translate-y-1 transition-all">
                 🏁 FINALIZAR SERVICIO
               </button>
             )}
           </div>
         </div>
+      ) : estado === "asignado" ? (
+        /* PANEL INFERIOR VACÍO O CON ESPERA MIENTRAS LA ALERTA ESTÁ ARRIBA */
+        <div className="py-8 flex flex-col items-center justify-center">
+          <p className="text-slate-400 text-xs font-black uppercase tracking-widest animate-pulse">⚡ Responde arriba ⚡</p>
+        </div>
       ) : (
-        /* ESTADO BUSCANDO */
+        /* ESTADO BUSCANDO DEFAULT */
         <div className="py-12 flex flex-col items-center justify-center">
           <div className="w-16 h-16 bg-[#0f172a] border-4 border-[#22c55e] rounded-[2rem] flex items-center justify-center text-3xl mb-4 shadow-2xl animate-bounce">🚕</div>
           <h2 className="text-xl font-black text-white uppercase italic tracking-tighter">VALLES<span className="text-[#22c55e]">CONECTA</span></h2>
