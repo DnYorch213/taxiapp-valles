@@ -30,12 +30,6 @@ export const useGeolocation = (user: UserData, onRegistered?: (pos: Position) =>
                 let lat = latitude;
                 let lng = longitude;
 
-                // OFFSET (Solo para visualización simulada del pasajero)
-                if (userRef.current.role === "pasajero") {
-                    lat += 0.00015;
-                    lng += 0.00015;
-                }
-
                 const currentRole = userRef.current.role;
                 const currentEstado = userRef.current.estado || "activo";
 
