@@ -98,7 +98,7 @@ router.post("/positions/update-gps", verifyToken, async (req: Request, res: Resp
                     updatedAt: new Date()
                 }
             },
-            { upsert: true, new: true }
+            { upsert: true, returnDocument: "after" } // Devuelve el documento actualizado
         );
 
         return res.status(200).json({

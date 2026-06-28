@@ -49,26 +49,31 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<string> 
         }
 
         // ==================== 🎯 MOTOR 2: FALLBACK OPENSTREETMAP (NOMINATIM) ====================
-        // Si Mapbox no encontró ninguna colonia, le preguntamos a OpenStreetMap que tiene mapeado Valles a nivel barrio
         if (!tieneColonia) {
             try {
                 console.log("🔄 Mapbox sin colonia. Activando motor de respaldo OpenStreetMap...");
                 const urlOsm = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`;
 
                 const resOsm = await axios.get<any>(urlOsm, {
-                    headers: { "User-Agent": "TaxiAppValles/1.0" } // Nominatim exige un User-Agent
+                    headers: { "User-Agent": "TaxiAppValles/1.0" }
                 });
 
                 const addr = resOsm.data?.address;
                 if (addr) {
-                    // Extraemos cualquier variante de colonia o barrio
                     const barrio = addr.suburb || addr.neighbourhood || addr.quarter || addr.residential || addr.village;
                     const calleOsm = addr.road || direccion.split(',')[0];
                     const numeroOsm = addr.house_number || "";
 
                     if (barrio) {
-                        direccion = `${calleOsm} ${numeroOsm}`.trim() + `, Col. ${barrio}, Ciudad Valles`;
-                        console.log(`🏡 ¡Colonia rescatada por OpenStreetMap!: Col. ${barrio}`);
+                        // 🎯 LIMPIEZA ULTRA-PRECISA: Removemos duplicados
+                        const barrioLimpio = barrio
+                            .replace(/Colonia|Col\./gi, '')
+                            .replace(/Fraccionamiento|Fracc\./gi, '')
+                            .trim();
+
+                        // Armamos el string final de forma limpia y estandarizada
+                        direccion = `${calleOsm} ${numeroOsm}`.trim() + `, Col. ${barrioLimpio}, Ciudad Valles`;
+                        console.log(`🏡 ¡Colonia rescatada por OpenStreetMap!: Col. ${barrioLimpio}`);
                     }
                 }
             } catch (osmErr) {
@@ -76,6 +81,7 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<string> 
             }
         }
 
+        // 🎯 GUARDAMOS EN CACHÉ Y RETORNAMOS EL STRING FINAL COMPILADO
         geoCache[cacheKey] = direccion;
         console.log(`✅ DIRECCIÓN DETALLADA FINAL: ${direccion}`);
         return direccion;

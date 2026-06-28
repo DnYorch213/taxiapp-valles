@@ -40,7 +40,7 @@ export const updateTaxistaStatus = async (req: Request, res: Response) => {
         const user = await User.findByIdAndUpdate(
             id,
             { $set: updateData },
-            { new: true, runValidators: true }
+            { returnDocument: "after", runValidators: true }
         ).select('-password');
 
         if (!user) {
