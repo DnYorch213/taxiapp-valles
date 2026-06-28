@@ -40,12 +40,14 @@ const PanelCentral: React.FC = () => {
   const [pasajeroSeleccionadoEmail, setPasajeroSeleccionadoEmail] = useState<string | null>(null);
 
   const CENTER_VALLES: [number, number] = [21.9850, -99.0150];
+  const excludedPositionStates = [...TAXI_DISPLAY_STATES.DISCONNECTED, POSITION_STATES.CANCELADO, ...TAXI_DISPLAY_STATES.INACTIVE] as string[];
+  const taxiOnlineBlockedStates = [...TAXI_DISPLAY_STATES.DISCONNECTED] as string[];
 
  const posicionesValidas = useMemo(() => {
   console.log("📡 Posiciones recibidas en Panel:", positions);
   return positions.filter(p => 
     esPosicionValida(p.lat, p.lng) &&
-    ![...TAXI_DISPLAY_STATES.DISCONNECTED, POSITION_STATES.CANCELADO, ...TAXI_DISPLAY_STATES.INACTIVE].includes(p.estado.toLowerCase())
+    !excludedPositionStates.includes(p.estado.toLowerCase())
   );
 }, [positions]);
 
@@ -67,7 +69,7 @@ const viajesEnCurso = useMemo(() =>
 
 
   const taxistasOnline = useMemo(() => 
-    posicionesValidas.filter(u => u.role === "taxista" && !TAXI_DISPLAY_STATES.DISCONNECTED.includes(u.estado.toLowerCase())),
+    posicionesValidas.filter(u => u.role === "taxista" && !taxiOnlineBlockedStates.includes(u.estado.toLowerCase())),
     [posicionesValidas]
   );
 
@@ -81,7 +83,7 @@ const viajesEnCurso = useMemo(() =>
   if (!pasajeroSeleccionado || !pasajeroSeleccionado.lat || !pasajeroSeleccionado.lng) return [];
 
   return [...taxistasOnline]
-    .filter(t => ![...TAXI_DISPLAY_STATES.DISCONNECTED, POSITION_STATES.CANCELADO, ...TAXI_DISPLAY_STATES.INACTIVE].includes(t.estado.toLowerCase()))
+    .filter(t => !["desconectado", "cancelado", "inactivo"].includes(t.estado.toLowerCase()))
     .sort((a, b) => {
       const distA = getDistanceKm(pasajeroSeleccionado.lat!, pasajeroSeleccionado.lng!, a.lat!, a.lng!);
       const distB = getDistanceKm(pasajeroSeleccionado.lat!, pasajeroSeleccionado.lng!, b.lat!, b.lng!);
@@ -102,7 +104,7 @@ useEffect(() => {
 useEffect(() => {
   if (pasajeroSeleccionado) {
     const estadoActual = pasajeroSeleccionado.estado.toLowerCase();
-    const yaNoDisponible = [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, "viajando", "aceptado", "ocupado", POSITION_STATES.CANCELADO].map(s => s.toLowerCase()).includes(estadoActual);
+    const yaNoDisponible = ["asignado", "encamino", "encurso", "viajando", "aceptado", "ocupado", "cancelado"].includes(estadoActual);
     if (yaNoDisponible) {
       setPasajeroSeleccionadoEmail(null);
     }
@@ -150,7 +152,7 @@ useEffect(() => {
 
           return (
             <Marker 
-              key={`${u.email}-${u.estado}`} 
+              key={u.email}
               position={[u.lat!, u.lng!]} 
               icon={u.role === "taxista" ? taxistaIcon : pasajeroIcon}
               eventHandlers={{ 

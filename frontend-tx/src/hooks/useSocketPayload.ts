@@ -2,6 +2,21 @@ import { useState, useEffect } from "react";
 import { socket } from "../lib/socket";
 import { Payload } from "../types/Payload";
 
+const normalizeEmail = (payload: Partial<Payload>) => {
+    const email = payload.email || payload.pasajeroEmail || payload.taxistaEmail;
+    return typeof email === "string" ? email.toLowerCase().trim() : "";
+};
+
+const dedupeByEmail = (items: Payload[]) => {
+    const map = new Map<string, Payload>();
+    items.forEach(item => {
+        const email = normalizeEmail(item);
+        if (!email) return;
+        map.set(email, { ...item, email });
+    });
+    return Array.from(map.values());
+};
+
 export function useSocketPayload() {
     const [positions, setPositions] = useState<Payload[]>([]);
     const [panelUpdate, setPanelUpdate] = useState<Payload | null>(null);
@@ -11,33 +26,35 @@ export function useSocketPayload() {
 
     useEffect(() => {
         socket.on("positions", (data: Payload[]) => {
-            // Normalizar coordenadas
-            setPositions(data.map(d => ({
+            // Normalizar coordenadas y eliminar entradas duplicadas por email
+            const sanitized = data.map(d => ({
                 ...d,
+                email: normalizeEmail(d),
                 lat: d.lat ?? null,
                 lng: d.lng ?? null,
-            })));
+            })).filter(d => !!d.email) as Payload[];
+            setPositions(dedupeByEmail(sanitized));
         });
 
         socket.on("panel_update", (data: Payload) => {
-            setPanelUpdate(data);
-            setPositions((prev) => {
-                const estado = data.estado?.toLowerCase();
+            const email = normalizeEmail(data);
+            const state = data.estado?.toLowerCase();
+            const sanitized = {
+                ...data,
+                email,
+                lat: data.lat ?? null,
+                lng: data.lng ?? null,
+            } as Payload;
 
-                // 🚀 Limpieza inmediata de cancelados, inactivos o desconectados
-                if (["desconectado", "cancelado", "inactivo"].includes(estado)) {
-                    return prev.filter((u) => u.email !== data.email);
+            setPanelUpdate(sanitized);
+            setPositions((prev) => {
+                if (["desconectado", "cancelado", "inactivo"].includes(state)) {
+                    return prev.filter((u) => u.email !== email);
                 }
 
-                const exists = prev.some((u) => u.email === data.email);
-                const sanitized = {
-                    ...data,
-                    lat: data.lat ?? null,
-                    lng: data.lng ?? null,
-                };
-
+                const exists = prev.some((u) => u.email === email);
                 return exists
-                    ? prev.map((u) => (u.email === data.email ? { ...u, ...sanitized } : u))
+                    ? prev.map((u) => (u.email === email ? { ...u, ...sanitized } : u))
                     : [...prev, sanitized];
             });
         });
@@ -45,7 +62,8 @@ export function useSocketPayload() {
         // Manejo explícito de trip_finished
         socket.on("trip_finished", (data: Payload) => {
             setTripStatus(data);
-            setPositions((prev) => prev.filter((u) => u.email !== data.pasajeroEmail));
+            const email = normalizeEmail(data);
+            setPositions((prev) => prev.filter((u) => u.email !== email));
         });
 
         socket.on("taxista_asignado", (data: Payload) => setTaxistaAsignado(data));
@@ -53,15 +71,18 @@ export function useSocketPayload() {
 
         socket.on("trip_cancelled_panel", (data: Payload) => {
             setTripStatus(data);
+            const email = normalizeEmail(data);
+            const sanitized = {
+                ...data,
+                email,
+                lat: data.lat ?? null,
+                lng: data.lng ?? null,
+            } as Payload;
+
             setPositions((prev) => {
-                const exists = prev.some((u) => u.email === data.email);
-                const sanitized = {
-                    ...data,
-                    lat: data.lat ?? null,
-                    lng: data.lng ?? null,
-                };
+                const exists = prev.some((u) => u.email === email);
                 return exists
-                    ? prev.map((u) => (u.email === data.email ? { ...u, ...sanitized } : u))
+                    ? prev.map((u) => (u.email === email ? { ...u, ...sanitized } : u))
                     : [...prev, sanitized];
             });
         });

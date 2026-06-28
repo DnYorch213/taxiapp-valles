@@ -8,13 +8,22 @@ import { registerLocationHandlers } from "./handlers/locationHandler";
 import { registerTripHandlers } from "./handlers/tripHandler";
 import { logMotor } from "../utils/logger";
 import { calculateDistance } from "../utils/distance";
-import { POSITION_STATES, STATE_GROUPS } from "../constants/states";
+import { POSITION_STATES, STATE_GROUPS, PositionState } from "../constants/states";
 
 export const initSocketEngine = (io: Server) => {
     io.on("connection", async (socket) => {
         const rawEmail = socket.handshake.auth?.email || socket.handshake.query?.email;
         const email = rawEmail ? rawEmail.toString().toLowerCase().trim() : null;
         const role = socket.handshake.auth?.role || socket.handshake.query?.role;
+
+        const activePassengerStates: PositionState[] = [
+            POSITION_STATES.ASIGNADO,
+            POSITION_STATES.ENCURSO,
+            POSITION_STATES.ENCAMINO,
+            POSITION_STATES.PREASIGNADO
+        ];
+        const taxiRouteStates: PositionState[] = [POSITION_STATES.ENCURSO, POSITION_STATES.ENCAMINO];
+        const activeTripStateValues: PositionState[] = [...STATE_GROUPS.ACTIVE_TRIP];
 
         // 🎯 LOG DE DIAGNÓSTICO:
         logMotor("Conexión Iniciada", `Intento de conexión: Email[${email}] | Role[${role}] | SocketID[${socket.id}]`);
@@ -62,7 +71,7 @@ export const initSocketEngine = (io: Server) => {
             const currentDoc = await Position.findOne({ email });
 
             // Seteamos los estados base por defecto por rol
-            let nuevoEstado = role === "taxista" ? POSITION_STATES.ACTIVO : POSITION_STATES.BUSCANDO;
+            let nuevoEstado: PositionState = role === "taxista" ? POSITION_STATES.ACTIVO : POSITION_STATES.BUSCANDO;
 
             // 🎯 ESCUDO CRÍTICO DE RECONEXIÓN POR ROLES (BLINDAJE RENDER)
             if (viajeActivo) {
@@ -74,12 +83,12 @@ export const initSocketEngine = (io: Server) => {
                 else if (role === "taxista") {
                     // Si el que se reconecta es el taxista, mantenemos su estado de ocupación (encamino o encurso)
                     // mapeándolo con el estado real que lleva el pasajero en la BD
-                    nuevoEstado = [POSITION_STATES.ENCURSO, POSITION_STATES.ENCAMINO].includes(viajeActivo.estado)
+                    nuevoEstado = taxiRouteStates.includes(viajeActivo.estado)
                         ? viajeActivo.estado
                         : POSITION_STATES.ENCAMINO;
                     logMotor("Conexión Recuperada", `Taxista ${email} recuperado en ruta. Manteniendo sincronía en: ${nuevoEstado}`);
                 }
-            } else if (currentDoc && STATE_GROUPS.ACTIVE_TRIP.includes(currentDoc.estado as any)) {
+            } else if (currentDoc && activeTripStateValues.includes(currentDoc.estado)) {
                 // Respaldo histórico por documento individual
                 nuevoEstado = currentDoc.estado;
             }
@@ -188,7 +197,7 @@ export const initSocketEngine = (io: Server) => {
             try {
                 const pPos = await Position.findOne({ email: pasajero });
                 const tPos = await Position.findOne({ email: taxista });
-                if (pPos && tPos && [POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(pPos.estado)) {
+                if (pPos && tPos && taxiRouteStates.includes(pPos.estado)) {
                     socket.emit("assignment_confirmed", { success: true, pasajero: buildPayload(pPos, pPos, pPos.estado) });
                 }
             } catch (err) {

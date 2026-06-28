@@ -23,10 +23,10 @@ const TripSchema: Schema = new Schema({
     destinationAddress: { type: String, default: "Destino no especificado" },
     fecha: { type: Date, default: Date.now },
     // 🔐 Estados únicamente para viajes completados (historial)
-    estado: { 
-        type: String, 
+    estado: {
+        type: String,
         enum: VALID_TRIP_STATES,
-        default: TRIP_STATES.PENDIENTE 
+        default: TRIP_STATES.PENDIENTE
     }
 });
 
