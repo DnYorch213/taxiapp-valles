@@ -9,6 +9,7 @@ import adminRoutes from "./routes/adminRoutes";
 import authRoutes from "./routes/authRoutes";
 import { handleAcceptTripPush, handleSaveSubscription } from "./controllers/pushController";
 import { initSocketEngine } from "./socket/socketEngine";
+import { verifyToken } from "./middleware/authMiddleware";
 import { Trip } from "./models/Trip";
 import { isAutoMode } from "./services/dispatchService";
 
@@ -58,14 +59,25 @@ const io = new Server(server, {
 app.use("/api/admin", adminRoutes);
 app.use("/api/auth", authRoutes);
 
-// Endpoints delegados a controladores inyectando dependencias
-app.post("/api/accept-trip-push", handleAcceptTripPush(io));
-app.post("/api/save-subscription", handleSaveSubscription);
+// 🔐 Endpoints delegados a controladores inyectando dependencias (PROTEGIDOS)
+app.post("/api/accept-trip-push", verifyToken, handleAcceptTripPush(io));
+app.post("/api/save-subscription", verifyToken, handleSaveSubscription);
 
-app.get("/api/history/:email", async (req, res) => {
+// 🔐 Historial de viajes (PROTEGIDO - verificar autorización del usuario)
+app.get("/api/history/:email", verifyToken, async (req: any, res) => {
   try {
-    const email = req.params.email.toLowerCase().trim();
-    const viajes = await Trip.find({ taxistaEmail: email }).sort({ fecha: -1 }).limit(50);
+    const paramEmail = req.params.email.toLowerCase().trim();
+    const userEmail = req.user?.email?.toLowerCase().trim();
+
+    // 🛡️ El usuario solo puede ver su propio historial
+    // excepto si es admin
+    if (userEmail !== paramEmail && req.user?.role !== 'admin') {
+      return res.status(403).json({
+        message: "❌ No puedes ver el historial de otro usuario"
+      });
+    }
+
+    const viajes = await Trip.find({ taxistaEmail: paramEmail }).sort({ fecha: -1 }).limit(50);
     return res.json(viajes);
   } catch (error) {
     return res.status(500).json({ message: "Error al obtener historial" });

@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from "mongoose";
+import { POSITION_STATES, VALID_POSITION_STATES, PositionState } from "../constants/states";
 
 export interface IPosition extends Document {
     email: string;
@@ -7,12 +8,12 @@ export interface IPosition extends Document {
     lat: number;
     lng: number;
     role: "pasajero" | "taxista" | "admin";
-    estado: string;
+    estado: PositionState;
     taxistaAsignado?: string | null;
-    pasajeroAsignado?: string | null; // 👈 AGREGADO
+    pasajeroAsignado?: string | null;
     pickupAddress?: string;
-    destinationAddress?: string;    // 👈 AGREGADO
-    requestId?: string; // 🚩 nuevo campo
+    destinationAddress?: string;
+    requestId?: string;
     pushSubscription?: {
         endpoint: string;
         keys: {
@@ -25,7 +26,7 @@ export interface IPosition extends Document {
 }
 
 const PositionSchema = new Schema<IPosition>({
-    requestId: { type: String, default: null }, // 🚩 nuevo campo
+    requestId: { type: String, default: null },
     email: {
         type: String,
         required: true,
@@ -43,9 +44,11 @@ const PositionSchema = new Schema<IPosition>({
         enum: ["pasajero", "taxista", "admin"],
         required: true
     },
+    // 🔐 Estados de posición en tiempo real - Utiliza constantes centralizadas
     estado: {
         type: String,
-        default: "disponible" // 💡 Nota: Lo cambié a minúsculas para seguir tu nueva lógica
+        enum: VALID_POSITION_STATES,
+        default: POSITION_STATES.ACTIVO
     },
     taxistaAsignado: {
         type: String,
@@ -53,17 +56,17 @@ const PositionSchema = new Schema<IPosition>({
         lowercase: true,
         trim: true
     },
-    pasajeroAsignado: { // 👈 AGREGADO
+    pasajeroAsignado: {
         type: String,
         default: null,
         lowercase: true,
         trim: true
     },
-    pickupAddress: {    // 👈 AGREGADO
+    pickupAddress: {
         type: String,
         default: ""
     },
-    destinationAddress: {    // 👈 AGREGADO
+    destinationAddress: {
         type: String,
         default: ""
     },
@@ -86,7 +89,7 @@ const PositionSchema = new Schema<IPosition>({
 PositionSchema.index({ role: 1, estado: 1, email: 1 });
 PositionSchema.index({ "pushSubscription.endpoint": 1 }, { sparse: true });
 PositionSchema.index({ taxistaAsignado: 1, role: 1 });
-PositionSchema.index({ pasajeroAsignado: 1 }); // 👈 Índice nuevo para búsquedas de taxistas
+PositionSchema.index({ pasajeroAsignado: 1 });
 PositionSchema.index({ updatedAt: 1 });
 
 const Position = mongoose.model<IPosition>("Position", PositionSchema);

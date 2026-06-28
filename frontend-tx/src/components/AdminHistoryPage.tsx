@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import axiosInstance from '../lib/axiosConfig';
 import { Search, MapPin, Calendar, User, CarTaxiFront } from 'lucide-react'; // Íconos para que se vea pro
 
 // 1. Interfaz actualizada con los campos reales de tu MongoDB
@@ -22,10 +22,6 @@ const AdminHistoryPage = () => {
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('');
 
-// Reemplaza tu constante API_URL por esta:
-const API_URL = window.location.hostname === 'localhost' 
-    ? "http://localhost:3001/api/admin/historial-viajes" 
-    : "https://taxiapp-valles.onrender.com/api/admin/historial-viajes";
     useEffect(() => {
         fetchHistory();
     }, []);
@@ -33,7 +29,8 @@ const API_URL = window.location.hostname === 'localhost'
     const fetchHistory = async () => {
         try {
             setLoading(true);
-            const res = await axios.get<Trip[]>(API_URL); // 3. Tipar la respuesta de axios
+            // 🔐 Usa axiosInstance que automáticamente agrega el token JWT
+            const res = await axiosInstance.get<Trip[]>("/api/admin/historial-viajes");
             setTrips(res.data);
         } catch (error) {
             console.error("Error cargando historial:", error);

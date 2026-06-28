@@ -8,6 +8,7 @@ import { registerLocationHandlers } from "./handlers/locationHandler";
 import { registerTripHandlers } from "./handlers/tripHandler";
 import { logMotor } from "../utils/logger";
 import { calculateDistance } from "../utils/distance";
+import { POSITION_STATES, STATE_GROUPS } from "../constants/states";
 
 export const initSocketEngine = (io: Server) => {
     io.on("connection", async (socket) => {
@@ -55,13 +56,13 @@ export const initSocketEngine = (io: Server) => {
                     { email: email },
                     { taxistaAsignado: email }
                 ],
-                estado: { $in: ["asignado", "encurso", "encamino", "preasignado"] }
+                estado: { $in: [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCURSO, POSITION_STATES.ENCAMINO, POSITION_STATES.PREASIGNADO] }
             });
 
             const currentDoc = await Position.findOne({ email });
 
             // Seteamos los estados base por defecto por rol
-            let nuevoEstado = role === "taxista" ? "activo" : "buscando";
+            let nuevoEstado = role === "taxista" ? POSITION_STATES.ACTIVO : POSITION_STATES.BUSCANDO;
 
             // 🎯 ESCUDO CRÍTICO DE RECONEXIÓN POR ROLES (BLINDAJE RENDER)
             if (viajeActivo) {
@@ -73,12 +74,12 @@ export const initSocketEngine = (io: Server) => {
                 else if (role === "taxista") {
                     // Si el que se reconecta es el taxista, mantenemos su estado de ocupación (encamino o encurso)
                     // mapeándolo con el estado real que lleva el pasajero en la BD
-                    nuevoEstado = ["encurso", "encamino"].includes(viajeActivo.estado)
+                    nuevoEstado = [POSITION_STATES.ENCURSO, POSITION_STATES.ENCAMINO].includes(viajeActivo.estado)
                         ? viajeActivo.estado
-                        : "encamino";
+                        : POSITION_STATES.ENCAMINO;
                     logMotor("Conexión Recuperada", `Taxista ${email} recuperado en ruta. Manteniendo sincronía en: ${nuevoEstado}`);
                 }
-            } else if (currentDoc && ["encamino", "encurso", "asignado", "preasignado"].includes(currentDoc.estado)) {
+            } else if (currentDoc && STATE_GROUPS.ACTIVE_TRIP.includes(currentDoc.estado as any)) {
                 // Respaldo histórico por documento individual
                 nuevoEstado = currentDoc.estado;
             }
@@ -91,7 +92,7 @@ export const initSocketEngine = (io: Server) => {
             );
 
             const allPositions = await Position.find();
-            socket.emit("positions", allPositions.map(p => buildPayload(p, p, p.estado || "activo")));
+            socket.emit("positions", allPositions.map(p => buildPayload(p, p, p.estado || POSITION_STATES.ACTIVO)));
             socket.emit("dispatch_mode_changed", { auto: isAutoMode });
 
             // 🚀 Rehidratación relámpago para el Taxista
@@ -172,8 +173,8 @@ export const initSocketEngine = (io: Server) => {
                         });
                     }
 
-                    if (miEstado && miEstado.estado === "buscando") {
-                        return socket.emit("trip_status_update", { estado: "buscando" });
+                    if (miEstado && miEstado.estado === POSITION_STATES.BUSCANDO) {
+                        return socket.emit("trip_status_update", { estado: POSITION_STATES.BUSCANDO });
                     }
 
                     socket.emit("trip_status_update", { estado: "pendiente" });
@@ -187,7 +188,7 @@ export const initSocketEngine = (io: Server) => {
             try {
                 const pPos = await Position.findOne({ email: pasajero });
                 const tPos = await Position.findOne({ email: taxista });
-                if (pPos && tPos && ["encamino", "encurso"].includes(pPos.estado)) {
+                if (pPos && tPos && [POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(pPos.estado)) {
                     socket.emit("assignment_confirmed", { success: true, pasajero: buildPayload(pPos, pPos, pPos.estado) });
                 }
             } catch (err) {

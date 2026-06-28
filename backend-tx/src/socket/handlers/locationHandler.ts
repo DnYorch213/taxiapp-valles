@@ -3,6 +3,7 @@ import { Server, Socket } from "socket.io";
 import { Position } from "../../models/Position";
 import { buildPayload } from "../../utils/payloadBuilder";
 import { logMotor } from "../../utils/logger";
+import { POSITION_STATES } from "../../constants/states";
 
 export const registerLocationHandlers = (io: Server, socket: Socket, email: string) => {
     socket.on("update_trip_path", async (data) => {
@@ -24,7 +25,7 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                         lat: data.lat,
                         lng: data.lng,
                         name: finalName,
-                        estado: currentDoc?.estado || data.estado || (data.role === "taxista" ? "activo" : "buscando"),
+                        estado: currentDoc?.estado || data.estado || (data.role === "taxista" ? POSITION_STATES.ACTIVO : POSITION_STATES.BUSCANDO),
                         updatedAt: new Date()
                     }
                 },
@@ -43,7 +44,7 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
 
         const pasajeroRelacionado = await Position.findOne({
             taxistaAsignado: email,
-            estado: { $in: ["asignado", "encurso", "encamino"] }
+            estado: { $in: [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCURSO, POSITION_STATES.ENCAMINO] }
         });
 
         if (pasajeroRelacionado) {

@@ -13,17 +13,18 @@ import { RoutingMachine } from "../components/RoutingMachine";
 import { taxistaIcon, pasajeroIcon } from "../utils/icons";
 import RotatedMarker from "../components/RotatedMarker";
 import { calcularHeading } from "../utils/heading";
+import { TRIP_STATES } from "../constants/states";
 
 const PasajeroView: React.FC = () => {
   const { userPosition, setUserPosition, taxiPos, setTaxiPos } = useTravel();
-  const [estado, setEstado] = useState<ViajeEstado>("pendiente");
+  const [estado, setEstado] = useState<ViajeEstado>(TRIP_STATES.PENDIENTE);
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
   const [chatAbierto, setChatAbierto] = useState(false);
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
   const [geometriaRuta, setGeometriaRuta] = useState<L.LatLngExpression[]>([]);
   const taxistaAsignadoRef = useRef<Payload | null>(null);
   // 🎯 NUEVAS REFS PARA EVITAR RESETEAR EL EFFECT
-  const estadoRef = useRef<ViajeEstado>("pendiente");
+  const estadoRef = useRef<ViajeEstado>(TRIP_STATES.PENDIENTE);
   const taxiPosRef = useRef<any>(null);
 
   useEffect(() => {
@@ -78,7 +79,7 @@ useGeolocation(
         const cleanEmail = data.tEmail?.toLowerCase().trim();
         
         setTimeout(() => {
-          setEstado("asignado");
+          setEstado(TRIP_STATES.ASIGNADO);
 
           const infoTaxista = {
             email: cleanEmail,
@@ -179,7 +180,7 @@ useGeolocation(
       const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
 
       if (data.estado === "encurso" && (!emailRecibido || emailRecibido === miEmail)) {
-        setEstado("encurso");
+        setEstado(TRIP_STATES.ENCURSO);
         setChatAbierto(false);
 
         // 🎯 Forzamos el inicio del rastro limpio usando la última posición conocida del taxista de la ref
@@ -203,7 +204,7 @@ useGeolocation(
       }
       
       if (data.estado === "finalizado") {
-        setEstado("pendiente"); 
+        setEstado(TRIP_STATES.PENDIENTE); 
         setHistorialRuta([]);
         setTaxistaAsignado(null);
         setTaxiPos(null);
@@ -219,7 +220,7 @@ useGeolocation(
       const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
 
       if (emailRecibido === miEmail || !data.pasajeroEmail) { 
-        setEstado("pendiente"); // 🛡️ CORRECCIÓN: Volvemos al inicio seguro
+        setEstado(TRIP_STATES.PENDIENTE); // 🛡️ CORRECCIÓN: Volvemos al inicio seguro
         setTaxistaAsignado(null);
         setTaxiPos(null);
         setHistorialRuta([]);
@@ -237,7 +238,7 @@ useGeolocation(
     socket.on("taxi_rejected_request", () => {
       setTaxistaAsignado(null); 
       setTaxiPos(null);
-      setEstado("buscando"); 
+      setEstado(TRIP_STATES.PENDIENTE); 
       toast.info("Buscando otra unidad cercana...");
     });
 
@@ -285,7 +286,7 @@ useGeolocation(
   }
 
    
-  setEstado("buscando");
+  setEstado(TRIP_STATES.PENDIENTE);
   
   socket.emit("request_taxi", {
     email: userPosition.email.toLowerCase().trim(),
@@ -299,7 +300,7 @@ useGeolocation(
 };
 
   const cancelarSolicitud = () => {
-    setEstado("pendiente"); // Primero apagamos el estado local para congelar el Heartbeat
+    setEstado(TRIP_STATES.PENDIENTE); // Primero apagamos el estado local para congelar el Heartbeat
     
     socket.emit("passenger_cancel", {
       pasajeroEmail: userPosition?.email?.toLowerCase().trim(),
@@ -313,7 +314,7 @@ useGeolocation(
   };
 
   const resetearApp = () => {
-    setEstado("pendiente");
+    setEstado(TRIP_STATES.PENDIENTE);
     setTaxistaAsignado(null);
     setTaxiPos(null);
     setHistorialRuta([]);

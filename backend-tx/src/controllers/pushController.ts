@@ -5,6 +5,7 @@ import { Position } from "../models/Position";
 import { User } from "../models/User";
 import { buildPayload } from "../utils/payloadBuilder";
 import { pendingTimeouts } from "../services/dispatchService";
+import { POSITION_STATES, STATE_GROUPS } from "../constants/states";
 
 // 🚖 1. CONTROLADOR PARA ACEPTAR EL VIAJE VIA PUSH
 export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Response) => {
@@ -20,8 +21,8 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
         }
 
         const pPosActualizado = await Position.findOneAndUpdate(
-            { email: pEmail, estado: { $in: ["buscando", "preasignado", "activo"] } },
-            { $set: { estado: "encamino", taxistaAsignado: tEmail } },
+            { email: pEmail, estado: { $in: [POSITION_STATES.BUSCANDO, POSITION_STATES.PREASIGNADO, POSITION_STATES.ACTIVO] } },
+            { $set: { estado: POSITION_STATES.ENCAMINO, taxistaAsignado: tEmail } },
             { returnDocument: "after" }
         );
 
@@ -30,20 +31,20 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
             return res.status(410).json({ error: "El viaje ya no está disponible." });
         }
 
-        await Position.updateOne({ email: tEmail }, { $set: { estado: "encamino", pasajeroAsignado: pEmail } });
+        await Position.updateOne({ email: tEmail }, { $set: { estado: POSITION_STATES.ENCAMINO, pasajeroAsignado: pEmail } });
         const tPos = await Position.findOne({ email: tEmail });
 
-        const pasajeroPayload = buildPayload(pPosActualizado, pPosActualizado, "encamino");
+        const pasajeroPayload = buildPayload(pPosActualizado, pPosActualizado, POSITION_STATES.ENCAMINO);
 
         io.to(pEmail).emit("response_from_taxi", {
             accepted: true,
             tEmail,
             name: tPos?.name || "Conductor",
             taxiNumber: tPos?.taxiNumber || "S/N",
-            estado: "encamino",
+            estado: POSITION_STATES.ENCAMINO,
             lat: tPos?.lat,
             lng: tPos?.lng,
-            taxiData: buildPayload(tPos, tPos, "encamino")
+            taxiData: buildPayload(tPos, tPos, POSITION_STATES.ENCAMINO)
         });
 
         io.to(tEmail).emit("assignment_confirmed", {
@@ -52,14 +53,14 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
         });
 
         io.to(tEmail).emit("trip_status_update", {
-            estado: "encamino",
+            estado: POSITION_STATES.ENCAMINO,
             pasajeroAsignado: pasajeroPayload
         });
 
-        io.to(pEmail).emit("trip_status_update", { estado: "encamino" });
+        io.to(pEmail).emit("trip_status_update", { estado: POSITION_STATES.ENCAMINO });
 
-        io.emit("panel_update", buildPayload(tPos, tPos, "encamino", { pasajeroAsignado: pEmail }));
-        io.emit("panel_update", buildPayload(pPosActualizado, pPosActualizado, "encamino", { taxistaAsignado: tEmail }));
+        io.emit("panel_update", buildPayload(tPos, tPos, POSITION_STATES.ENCAMINO, { pasajeroAsignado: pEmail }));
+        io.emit("panel_update", buildPayload(pPosActualizado, pPosActualizado, POSITION_STATES.ENCAMINO, { taxistaAsignado: tEmail }));
 
         console.log(`✅ [Push Engine] Viaje vinculado de forma robusta: ${tEmail} -> ${pEmail}`);
         return res.status(200).json({ success: true });

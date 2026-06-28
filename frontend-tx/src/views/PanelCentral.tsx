@@ -6,6 +6,7 @@ import { socket } from "../lib/socket";
 import { useSocketPayload } from "../hooks/useSocketPayload";
 import { Car, User, Bell, Radio } from "lucide-react";
 import DispatchControl from "../components/DispatchControl";
+import { POSITION_STATES, TAXI_DISPLAY_STATES, PASSENGER_DISPLAY_STATES } from "../constants/states";
 
 // 🛡️ Validador de coordenadas
 const esPosicionValida = (lat?: number | null, lng?: number | null) => {
@@ -44,21 +45,21 @@ const PanelCentral: React.FC = () => {
   console.log("📡 Posiciones recibidas en Panel:", positions);
   return positions.filter(p => 
     esPosicionValida(p.lat, p.lng) &&
-    !["desconectado", "cancelado", "inactivo"].includes(p.estado.toLowerCase())
+    ![...TAXI_DISPLAY_STATES.DISCONNECTED, POSITION_STATES.CANCELADO, ...TAXI_DISPLAY_STATES.INACTIVE].includes(p.estado.toLowerCase())
   );
 }, [positions]);
 
 const pasajerosEspera = useMemo(() => 
   posicionesValidas.filter(u => 
     u.role === "pasajero" && 
-    ["activo", "esperando", "solicitando", "pendiente", "buscando"].includes(u.estado.toLowerCase())
+    [POSITION_STATES.ACTIVO, "esperando", "solicitando", POSITION_STATES.BUSCANDO].map(s => s.toLowerCase()).includes(u.estado.toLowerCase())
   ),
   [posicionesValidas]
 );
 
 const viajesEnCurso = useMemo(() =>
   posicionesValidas.filter(u => 
-    ["asignado", "encamino", "aceptado", "viajando", "encurso", "ocupado"].includes(u.estado.toLowerCase())
+    [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, "aceptado", "viajando", POSITION_STATES.ENCURSO, "ocupado"].map(s => s.toLowerCase()).includes(u.estado.toLowerCase())
   )
   .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()),
   [posicionesValidas]
@@ -66,7 +67,7 @@ const viajesEnCurso = useMemo(() =>
 
 
   const taxistasOnline = useMemo(() => 
-    posicionesValidas.filter(u => u.role === "taxista" && u.estado.toLowerCase() !== "desconectado"),
+    posicionesValidas.filter(u => u.role === "taxista" && !TAXI_DISPLAY_STATES.DISCONNECTED.includes(u.estado.toLowerCase())),
     [posicionesValidas]
   );
 
@@ -80,7 +81,7 @@ const viajesEnCurso = useMemo(() =>
   if (!pasajeroSeleccionado || !pasajeroSeleccionado.lat || !pasajeroSeleccionado.lng) return [];
 
   return [...taxistasOnline]
-    .filter(t => !["desconectado", "cancelado", "inactivo"].includes(t.estado.toLowerCase()))
+    .filter(t => ![...TAXI_DISPLAY_STATES.DISCONNECTED, POSITION_STATES.CANCELADO, ...TAXI_DISPLAY_STATES.INACTIVE].includes(t.estado.toLowerCase()))
     .sort((a, b) => {
       const distA = getDistanceKm(pasajeroSeleccionado.lat!, pasajeroSeleccionado.lng!, a.lat!, a.lng!);
       const distB = getDistanceKm(pasajeroSeleccionado.lat!, pasajeroSeleccionado.lng!, b.lat!, b.lng!);
@@ -91,7 +92,7 @@ const viajesEnCurso = useMemo(() =>
 
 useEffect(() => {
   if (pasajeroSeleccionado) {
-    const estaOcupado = ["asignado", "encamino", "encurso", "viajando", "aceptado", "ocupado"].includes(pasajeroSeleccionado.estado.toLowerCase());
+    const estaOcupado = [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, "viajando", "aceptado", "ocupado"].map(s => s.toLowerCase()).includes(pasajeroSeleccionado.estado.toLowerCase());
     if (estaOcupado) {
       setPasajeroSeleccionadoEmail(null);
     }
@@ -101,7 +102,7 @@ useEffect(() => {
 useEffect(() => {
   if (pasajeroSeleccionado) {
     const estadoActual = pasajeroSeleccionado.estado.toLowerCase();
-    const yaNoDisponible = ["asignado", "encamino", "encurso", "viajando", "aceptado", "ocupado", "cancelado"].includes(estadoActual);
+    const yaNoDisponible = [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, "viajando", "aceptado", "ocupado", POSITION_STATES.CANCELADO].map(s => s.toLowerCase()).includes(estadoActual);
     if (yaNoDisponible) {
       setPasajeroSeleccionadoEmail(null);
     }

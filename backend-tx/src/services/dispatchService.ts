@@ -5,6 +5,7 @@ import { calculateDistance } from "../utils/distance";
 import { reverseGeocode } from "./geocodingService";
 import { enviarNotificacionPush } from "./pushService";
 import { logMotor } from "../utils/logger";
+import { POSITION_STATES, STATE_GROUPS } from "../constants/states";
 
 // 🎯 CAMBIO CRÍTICO: Ahora guardamos los timeouts usando como clave el email del PASAJERO
 export const pendingTimeouts = new Map<string, NodeJS.Timeout>();
@@ -35,7 +36,7 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     // Pero si sigue en "buscando" o "preasignado" y el requestId cambió, abortamos el hilo viejo.
     if (!pStatusCheck) return;
 
-    if (["encamino", "encurso", "finalizado"].includes(pStatusCheck.estado)) {
+    if (STATE_GROUPS.ACTIVE_TRIP.includes(pStatusCheck.estado as any) || pStatusCheck.estado === POSITION_STATES.FINALIZADO || pStatusCheck.estado === POSITION_STATES.CANCELADO) {
         logMotor("dispatch_retry", `Pasajero=${pEmail} Estado=${pStatusCheck.estado} Intento=${attempt} -> Viaje ya en curso`, "WARN");
         // 🚩 Aquí sí existe pEmail y puedes limpiar
         const oldTimeout = pendingTimeouts.get(pEmail);
@@ -48,7 +49,7 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     }
 
 
-    if (pStatusCheck.estado === "buscando" && pStatusCheck.requestId && pStatusCheck.requestId !== reqId) {
+    if (pStatusCheck.estado === POSITION_STATES.BUSCANDO && pStatusCheck.requestId && pStatusCheck.requestId !== reqId) {
         logMotor("dispatch_retry", `Pasajero=${pEmail} Intento=${attempt} -> RequestId obsoleto`, "WARN"); return;
     }
 
@@ -56,7 +57,7 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
 
     if (attempt > MAX_RETRIES) {
         logMotor("dispatch_retry", `Pasajero=${pEmail} Intento=${attempt} -> Límite de intentos alcanzado`, "ERROR");
-        await Position.updateOne({ email: pEmail }, { $set: { estado: "cancelado", pasajeroAsignado: null } });
+        await Position.updateOne({ email: pEmail }, { $set: { estado: POSITION_STATES.CANCELADO, pasajeroAsignado: null } });
         io.to(pEmail).emit("no_taxis_available", { message: "Sin unidades disponibles." });
         return;
     }
@@ -65,7 +66,7 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     // 🚖 BUSQUEDA DE CANDIDATOS ACTIVOS
     const taxistasCandidatos = await Position.find({
         role: "taxista",
-        estado: "activo",
+        estado: POSITION_STATES.ACTIVO,
         lat: { $exists: true, $ne: null, $gt: 0 },
         lng: { $exists: true, $nin: [null, 0] },
         email: { $nin: currentExcluidos }
@@ -88,10 +89,10 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
     const direccion = await reverseGeocode(pasajeroData.lat, pasajeroData.lng);
 
     // Asignamos temporalmente al taxista
-    await Position.updateOne({ email: tEmail }, { $set: { estado: "asignado", pasajeroAsignado: pEmail } });
+    await Position.updateOne({ email: tEmail }, { $set: { estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail } });
     await Position.updateOne(
         { email: pEmail },
-        { $set: { estado: "preasignado", pickupAddress: direccion, requestId: reqId } }
+        { $set: { estado: POSITION_STATES.PREASIGNADO, pickupAddress: direccion, requestId: reqId } }
     );
     logMotor("geocoding", `Dirección generada e inyectada: ${direccion} para ${pEmail}`, "INFO");
 
@@ -128,7 +129,7 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
         const pRefresh = await Position.findOne({ email: pEmail }).lean();
 
         // 🚦 Candado crítico: si el pasajero ya está en viaje, ignoramos el timeout
-        if (pRefresh && ["encamino", "encurso", "finalizado"].includes(pRefresh.estado)) {
+        if (pRefresh && STATE_GROUPS.ACTIVE_TRIP.includes(pRefresh.estado as any)) {
             logMotor("dispatch_timeout", `Pasajero=${pEmail} Estado=${pRefresh.estado} -> Timeout ignorado, viaje activo`, "INFO"); pendingTimeouts.delete(pEmail); // limpiamos el registro para no dejar hilos colgados
             return;
         }
@@ -140,11 +141,11 @@ export const dispatchWithRetry = async (io: Server, pasajeroData: any, excludedE
         }
 
         // 👉 Si el taxista sigue asignado y el requestId coincide, relanzamos cascada
-        if (tCheck && tCheck.estado === "asignado" && pRefresh && pRefresh.requestId === reqId) {
+        if (tCheck && tCheck.estado === POSITION_STATES.ASIGNADO && pRefresh && pRefresh.requestId === reqId) {
             logMotor("dispatch_timeout", `Pasajero=${pEmail} Taxista=${tEmail} Intento=${attempt} -> Taxista no respondió, relanzando cascada`, "INFO");
             io.to(tEmail).emit("dispatch_timeout");
-            await Position.updateOne({ email: tEmail }, { $set: { estado: "activo", pasajeroAsignado: null } });
-            io.emit("panel_update", { email: tEmail, estado: "activo" });
+            await Position.updateOne({ email: tEmail }, { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null } });
+            io.emit("panel_update", { email: tEmail, estado: POSITION_STATES.ACTIVO });
 
             dispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt + 1);
         }

@@ -1,13 +1,10 @@
 import React, { useState } from "react";
-import axios from "axios";
+import axiosInstance from "../lib/axiosConfig";
 import { useNavigate } from "react-router-dom";
 import { useTravel } from "../context/TravelContext";
 import { socket, connectSocket } from "../lib/socket";
 // Busca esta línea y cámbiala así:
 
-const API_URL = window.location.hostname === 'localhost' 
-    ? "http://localhost:3001" 
-    : import.meta.env.VITE_API_URL;
 interface LoginResponse {
   token: string;
   role: "pasajero" | "taxista" | "admin";
@@ -61,7 +58,7 @@ const LoginView: React.FC = () => {
     setLoading(true);
 
     try {
-      const { data } = await axios.post<LoginResponse>(`${API_URL}/api/auth/login`, {
+      const { data } = await axiosInstance.post<LoginResponse>(`/api/auth/login`, {
         ...form,
         email: form.email.toLowerCase().trim(),
       });

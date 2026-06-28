@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+import axiosInstance from '../lib/axiosConfig';
 
 export const HistorialViajes: React.FC<{ email: string }> = ({ email }) => {
   const [viajes, setViajes] = useState<any[]>([]);
@@ -10,7 +8,8 @@ export const HistorialViajes: React.FC<{ email: string }> = ({ email }) => {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const res = await axios.get(`${API_URL}/api/history/${email}`);
+        // 🔐 axiosInstance automáticamente agrega el token JWT
+        const res = await axiosInstance.get(`/api/history/${email}`);
         setViajes(res.data as any[]);
       } catch (err) {
         console.error("Error al cargar historial", err);

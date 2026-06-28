@@ -4,6 +4,7 @@ import { User } from "../models/User";
 import { Position } from "../models/Position"; // Asegúrate de que la ruta sea correcta
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { verifyToken } from "../middleware/authMiddleware";
 
 const router = Router();
 
@@ -47,7 +48,7 @@ router.post("/login", async (req: Request, res: Response) => {
 
         const lastPos = await Position.findOne({ email: user.email });
         const token = jwt.sign(
-            { email: user.email, name: user.name, role: user.role },
+            { email: user.email, name: user.name, role: user.role, taxiNumber: user.taxiNumber },
             process.env.JWT_SECRET as string,
             { expiresIn: '30d' }
         );
@@ -66,11 +67,20 @@ router.post("/login", async (req: Request, res: Response) => {
     }
 });
 
-// ==================== 🎯 NUEVA RUTA: RESPALDO DE TELEMETRÍA GPS ====================
-// Esta ruta va a salvar el rastreo del Pasajero cuando el taxista sufra microcortes de red celular
-router.post("/positions/update-gps", async (req: Request, res: Response) => {
+// ==================== 🔐 RUTA PROTEGIDA: ACTUALIZAR GPS ====================
+// 🛡️ Requiere token JWT válido para evitar actualizaciones no autorizadas
+router.post("/positions/update-gps", verifyToken, async (req: Request, res: Response) => {
     try {
         const { email, lat, lng, estado } = req.body;
+        const authenticatedEmail = (req as any).user?.email;
+
+        // 🛡️ Valida que el usuario solo actualice su propia posición
+        if (authenticatedEmail?.toLowerCase().trim() !== email?.toLowerCase().trim()) {
+            return res.status(403).json({
+                success: false,
+                message: "❌ No puedes actualizar la posición de otro usuario"
+            });
+        }
 
         if (!email || lat === undefined || lng === undefined) {
             return res.status(400).json({ success: false, message: "Datos de GPS incompletos" });
@@ -88,7 +98,7 @@ router.post("/positions/update-gps", async (req: Request, res: Response) => {
                     updatedAt: new Date()
                 }
             },
-            { upsert: true, returnDocument: "after" } // Si no existe el registro, lo genera automáticamente
+            { upsert: true, new: true }
         );
 
         return res.status(200).json({

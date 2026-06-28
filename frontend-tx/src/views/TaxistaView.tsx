@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from "react-leaflet"; // 🚩 Importamos Polyline
 import { toast, ToastContainer } from "react-toastify";
 import L from 'leaflet';
-import axios, { head } from "axios";
+import axiosInstance from "../lib/axiosConfig";
 import "react-toastify/dist/ReactToastify.css";
 import "leaflet/dist/leaflet.css";
 import RotatedMarker from "../components/RotatedMarker";
@@ -15,6 +15,7 @@ import { HistorialViajes } from "../components/HistorialViajes";
 import { RoutingMachine } from "../components/RoutingMachine";
 import { taxistaIcon, pasajeroIcon } from "../utils/icons";
 import { calcularHeading } from "../utils/heading"; // Función para calcular el heading entre dos puntos
+import { POSITION_STATES, STATE_GROUPS, PositionState } from "../constants/states";
 
 // --- UTILIDADES ---
 function urlBase64ToUint8Array(base64String: string) {
@@ -28,7 +29,6 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 const VAPID_PUBLIC_KEY = "BHtVjCOYiH1nbyPq-mPS_ZqA0oHjGcONq5r5PV-sTC1jXzAvgGuFFwL5iv0ymk725NUX4_obl82JLilVs9W49-A";
 
 const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ duration, onFinish }) => {
@@ -67,7 +67,7 @@ const MapFixer = () => {
 
 const TaxistaView: React.FC = () => {
   const { userPosition, taxiPos, setTaxiPos } = useTravel();
-  const [estado, setEstado] = useState<"activo" | "asignado" | "encurso" | "encamino" | "finalizado">("activo");
+  const [estado, setEstado] = useState<PositionState>(POSITION_STATES.ACTIVO);
   const [viajeSolicitado, setViajeSolicitado] = useState<Payload | null>(null);
   const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(null);
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
@@ -110,7 +110,7 @@ useEffect(() => {
     // Si viene del botón aceptar del Push, forzamos un estado de carga inmediato
     if (autoAccept === "true") {
       setIsAccepting(true);
-      setEstado("encamino"); // Lo movemos visualmente a ruta mientras responde el socket
+      setEstado(POSITION_STATES.ENCAMINO); // Lo movemos visualmente a ruta mientras responde el socket
     }
     
     socket.emit("rehydrate_trip", { 
@@ -157,7 +157,7 @@ const gestionarSuscripcion = async () => {
     if (subscription) {
       console.log(`🔄 Sincronizando token push en servidor para: ${userEmail}`);
       
-      await axios.post(`${API_URL}/api/save-subscription`, {
+      await axiosInstance.post(`/api/save-subscription`, {
         email: userEmail.toLowerCase().trim(),
         subscription: subscription
       });
@@ -252,7 +252,7 @@ useGeolocation(
 
       // 🎯 RESPALDO EN BASE DE DATOS MEDIANTE TU NUEVO ENDPOINT DE AUTH:
       // Si el WebSocket parpadea, Axios se encarga de guardar el avance real directamente en Atlas
-      axios.post(`${API_URL}/api/auth/positions/update-gps`, {
+      axiosInstance.post(`/api/auth/positions/update-gps`, {
         email: miEmailLimpio.toLowerCase().trim(),
         lat: latNum,
         lng: lngNum,
@@ -347,27 +347,27 @@ setPasajeroAsignado({
        * CASO A: Oferta Nueva (Viene del salto de Jorge o solicitud inicial)
        * Forzamos estado "Asignado" para que React muestre el botón de ACEPTAR.
        */
-      setEstado("asignado"); 
+      setEstado(POSITION_STATES.ASIGNADO); 
       reproducirAlerta();
     } 
    else if (estadoServidor === "encurso") {
   // CASO B: Viaje ya iniciado
-  setEstado("encurso");
+  setEstado(POSITION_STATES.ENCURSO);
   detenerSonido();
 } 
 else if (estadoServidor === "encamino") {
   // CASO C: Taxista en camino al pasajero
-  setEstado("encamino");
+  setEstado(POSITION_STATES.ENCAMINO);
   detenerSonido();
 } 
 else if (estadoServidor === "asignado") {
   // CASO D: Reconexión (ya aceptó pero aún no se mueve)
-  setEstado("asignado");
+  setEstado(POSITION_STATES.ASIGNADO);
   detenerSonido();
 } 
 else {
   // Backup de seguridad
-  setEstado("asignado"); 
+  setEstado(POSITION_STATES.ASIGNADO); 
   reproducirAlerta();
 }
 
@@ -383,7 +383,7 @@ else {
 socket.on("assignment_confirmed", (data) => {
   if (data.success) {
     console.log("✅ Confirmación recibida del servidor:", data);
-    setEstado("encamino"); 
+    setEstado(POSITION_STATES.ENCAMINO); 
     detenerSonido();
     toast.success("¡Viaje vinculado! Dirígete al pasajero.");
     setIsAccepting(false);
@@ -422,7 +422,7 @@ socket.on("assignment_confirmed", (data) => {
         // 2. IMPORTANTE: Limpiamos el estado para que la solicitud desaparezca
         // y el taxista pueda recibir nuevas alertas de inmediato.
         setViajeSolicitado(null); 
-        setEstado("activo"); // Volvemos a estado inicial para que pueda recibir nuevas ofertas
+        setEstado(POSITION_STATES.ACTIVO); // Volvemos a estado inicial para que pueda recibir nuevas ofertas
         
         // Si usas algún contador o sonido de alerta, deténlo aquí
     });
@@ -507,12 +507,12 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     socket.on("dispatch_timeout", () => {
       detenerSonido();
       setPasajeroAsignado(null);
-      setEstado("activo");
+      setEstado(POSITION_STATES.ACTIVO);
     });
     socket.on("trip_cancelled_by_passenger", () => {
       detenerSonido();
       setPasajeroAsignado(null);
-      setEstado("activo");
+      setEstado(POSITION_STATES.ACTIVO);
       setChatAbierto(false);
       setIsAccepting(false);
       setHistorialRuta([]); // Limpiar rastro
@@ -530,7 +530,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     }));
   }
   // 2. Cambiamos el estado para que la interfaz sepa que terminó
-  setEstado("finalizado"); 
+  setEstado(POSITION_STATES.FINALIZADO); 
   setChatAbierto(false);
   setHistorialRuta([]); 
   setGeometriaRuta([]);
@@ -538,7 +538,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
   // 3. 🕒 ESPERA DE CORTESÍA: Dejamos la info en pantalla 5 segundos
   setTimeout(() => {
-    setEstado("activo");
+    setEstado(POSITION_STATES.ACTIVO);
     setPasajeroAsignado(null);
   }, 5000); 
 });
@@ -633,7 +633,7 @@ const rechazarViaje = () => {
     excludedEmails 
   });
   setPasajeroAsignado(null);
-  setEstado("activo");
+  setEstado(POSITION_STATES.ACTIVO);
 };
 
 const confirmarAbordo = () => {
@@ -650,7 +650,7 @@ const confirmarAbordo = () => {
     pasajeroEmail: pEmail.toLowerCase().trim() 
   });
 
-  setEstado("encurso");
+  setEstado(POSITION_STATES.ENCURSO);
   setChatAbierto(false);
   
   // 🎯 SOLUCIÓN AL ERROR DE TYPESCRIPT:
@@ -672,7 +672,7 @@ const finalizarViaje = () => {
   const pEmail = pasajeroAsignado?.email;
 
   if (!tEmail || !pEmail) {
-    setEstado("activo");
+    setEstado(POSITION_STATES.ACTIVO);
     setPasajeroAsignado(null);
     return;
   }

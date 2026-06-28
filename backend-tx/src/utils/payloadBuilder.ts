@@ -1,3 +1,5 @@
+import { POSITION_STATES } from "../constants/states";
+
 export function buildPayload(user: any, pos: any, estado: string, extra: any = {}) {
     return {
         email: user?.email || pos?.email,
@@ -15,7 +17,7 @@ export function buildPayload(user: any, pos: any, estado: string, extra: any = {
         pickupAddress: extra.pickupAddress || pos?.pickupAddress || user?.pickupAddress || "Calculando ubicación...",
         destinationAddress: extra.destinationAddress || pos?.destinationAddress || user?.destinationAddress || "Destino no especificado",
 
-        estado: estado ?? pos?.estado ?? "pendiente",
+        estado: estado ?? pos?.estado ?? POSITION_STATES.ACTIVO,
 
         // 🚩 Campos explícitos para notificaciones y métricas
         pasajeroEmail: extra.pasajeroEmail || pos?.pasajeroEmail || null,

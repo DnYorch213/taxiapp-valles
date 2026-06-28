@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { User } from '../models/User';
 import { Trip } from '../models/Trip';
+import { TRIP_STATES } from '../constants/states';
 
 // 1. Obtener todos los taxistas pendientes
 export const getPendingTaxistas = async (req: Request, res: Response) => {
@@ -77,7 +78,7 @@ export const getVerifiedTaxistas = async (req: Request, res: Response) => {
 export const getAllTripsHistory = async (req: Request, res: Response) => {
     try {
         // Cambiamos 'status' por 'estado'
-        const trips = await Trip.find({ estado: 'finalizado' })
+        const trips = await Trip.find({ estado: TRIP_STATES.FINALIZADO })
             .sort({ fecha: -1 }); // También cambiamos 'endDate' por 'fecha' aquí
 
         res.json(trips);
@@ -92,7 +93,7 @@ export const getTripsByDriver = async (req: Request, res: Response) => {
         const { email } = req.params;
         const trips = await Trip.find({
             driverEmail: email,
-            estado: 'finalizado'
+            estado: TRIP_STATES.FINALIZADO
         }).sort({ fecha: -1 });
 
         res.json(trips);

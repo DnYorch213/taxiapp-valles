@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import axiosInstance from '../lib/axiosConfig';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 
@@ -23,7 +23,6 @@ const AdminVerificacion: React.FC = () => {
   const navigate = useNavigate();
   const token = localStorage.getItem('token'); 
   const role = localStorage.getItem('role');
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
   // 🛡️ PROTECCIÓN DE RUTA
   useEffect(() => {
@@ -38,9 +37,8 @@ const AdminVerificacion: React.FC = () => {
     setLoading(true);
     try {
       const endpoint = tab === 'pendientes' ? 'pending' : 'verified';
-      const res = await axios.get<Taxista[]>(`${API_URL}/api/admin/${endpoint}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      // 🔐 axiosInstance automáticamente agrega el token JWT
+      const res = await axiosInstance.get<Taxista[]>(`/api/admin/${endpoint}`);
       
       if (tab === 'pendientes') setPendientes(res.data);
       else setVerificados(res.data);
@@ -62,10 +60,8 @@ const AdminVerificacion: React.FC = () => {
     if (actionLoading) return;
     setActionLoading(id);
     try {
-  await axios.put(`${API_URL}/api/admin/update-status/${id}`, 
-    { action },
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
+  // 🔐 axiosInstance automáticamente agrega el token JWT
+  await axiosInstance.put(`/api/admin/update-status/${id}`, { action });
   
   toast.success(`Operador ${action === 'aprobar' ? 'AUTORIZADO ✅' : 'RECHAZADO ❌'}`);
   

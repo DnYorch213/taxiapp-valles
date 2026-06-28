@@ -1,24 +1,23 @@
 import { Router } from 'express';
 import { updateTaxistaStatus, getPendingTaxistas, getVerifiedTaxistas, getTripsByDriver, getAllTripsHistory } from '../controllers/adminController';
-// Aquí deberías importar tus middlewares de autenticación
-// import { authenticateToken, isAdmin } from '../middleware/auth'; 
+import { verifyToken, isAdmin } from '../middleware/authMiddleware';
 
 const router = Router();
 
+// 🔐 TODAS LAS RUTAS REQUIEREN: Token válido + Rol admin
 // Listar pendientes
-router.get('/pending', getPendingTaxistas);
+router.get('/pending', verifyToken, isAdmin, getPendingTaxistas);
 
 // Acción de aprobar/rechazar
-router.put('/update-status/:id', updateTaxistaStatus);
+router.put('/update-status/:id', verifyToken, isAdmin, updateTaxistaStatus);
 
 // Listar aprobados
-router.get('/verified', getVerifiedTaxistas);
+router.get('/verified', verifyToken, isAdmin, getVerifiedTaxistas);
 
-// backend-tx/src/routes/adminRoutes.ts
+// Historial de viajes
+router.get('/historial-viajes', verifyToken, isAdmin, getAllTripsHistory);
 
-router.get('/historial-viajes', getAllTripsHistory);
-
-router.get('/historial-viajes/:email', getTripsByDriver);
+router.get('/historial-viajes/:email', verifyToken, isAdmin, getTripsByDriver);
 
 
 export default router;

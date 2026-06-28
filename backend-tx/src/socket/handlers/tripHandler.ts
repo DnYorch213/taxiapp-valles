@@ -7,6 +7,7 @@ import { reverseGeocode } from "../../services/geocodingService";
 import { dispatchWithRetry, pendingTimeouts } from "../../services/dispatchService";
 import { logMotor } from "../../utils/logger";
 import { calculateDistance } from "../../utils/distance";
+import { POSITION_STATES, STATE_GROUPS, TRIP_STATES } from "../../constants/states";
 
 export const registerTripHandlers = (io: Server, socket: Socket, email: string) => {
 
@@ -19,7 +20,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             // o si de forma cruzada ya tiene un taxista asignado en la colección.
             const viajeExistente = await Position.findOne({
                 $or: [
-                    { email: pEmail, estado: { $in: ["encamino", "encurso", "asignado", "preasignado"] } },
+                    { email: pEmail, estado: { $in: [POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO, POSITION_STATES.PREASIGNADO] } },
                     { email: pEmail, role: "pasajero", taxistaAsignado: { $ne: null } }
                 ]
             }).lean();
@@ -51,7 +52,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 { email: pEmail },
                 {
                     $set: {
-                        estado: "buscando",
+                        estado: POSITION_STATES.BUSCANDO,
                         lat: data.lat,
                         lng: data.lng,
                         name: data.name || "Pasajero",
@@ -118,9 +119,9 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
         // 🚨 CASO: EL TAXISTA RECHAZA EL VIAJE
         if (!accepted) {
-            await Position.updateOne({ email: tEmail }, { $set: { estado: "activo" } });
+            await Position.updateOne({ email: tEmail }, { $set: { estado: POSITION_STATES.ACTIVO } });
             const tPos = await Position.findOne({ email: tEmail });
-            io.emit("panel_update", buildPayload(tPos, tPos, "activo"));
+            io.emit("panel_update", buildPayload(tPos, tPos, POSITION_STATES.ACTIVO));
             io.to(pEmail).emit("taxi_rejected_request");
 
             const pData = await Position.findOne({ email: pEmail });
@@ -133,8 +134,8 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         // 🚖 CASO: EL TAXISTA ACEPTA EL VIAJE
         try {
             const pPosActualizado = await Position.findOneAndUpdate(
-                { email: pEmail, estado: { $in: ["buscando", "preasignado", "activo"] } },
-                { $set: { estado: "encamino", taxistaAsignado: tEmail } },
+                { email: pEmail, estado: { $in: [POSITION_STATES.BUSCANDO, POSITION_STATES.PREASIGNADO, POSITION_STATES.ACTIVO] } },
+                { $set: { estado: POSITION_STATES.ENCAMINO, taxistaAsignado: tEmail } },
                 { returnDocument: "after" }
             );
 
@@ -149,7 +150,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 pendingTimeouts.delete(pEmail);
             }
 
-            await Position.updateOne({ email: tEmail }, { $set: { estado: "encamino", pasajeroAsignado: pEmail } });
+            await Position.updateOne({ email: tEmail }, { $set: { estado: POSITION_STATES.ENCAMINO, pasajeroAsignado: pEmail } });
             const tPos = await Position.findOne({ email: tEmail });
 
             io.to(pEmail).emit("response_from_taxi", {
@@ -215,8 +216,8 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             logMotor("passenger_on_board", `Pasajero=${pEmail} -> RequestId limpiado al subir a bordo`, "INFO");
 
             // 2. Actualizamos de forma segura los estados en la base de datos
-            await Position.updateOne({ email: tEmail }, { $set: { estado: "encurso", updatedAt: new Date() } });
-            await Position.updateOne({ email: pEmail }, { $set: { estado: "encurso", updatedAt: new Date() } });
+            await Position.updateOne({ email: tEmail }, { $set: { estado: POSITION_STATES.ENCURSO, updatedAt: new Date() } });
+            await Position.updateOne({ email: pEmail }, { $set: { estado: POSITION_STATES.ENCURSO, updatedAt: new Date() } });
 
             // Extraemos los documentos frescos y actualizados con sus variables intactas
             const pPos = await Position.findOne({ email: pEmail });
@@ -224,17 +225,17 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
             // 3. Notificaciones dirigidas y estructuradas a los canales privados de los usuarios
             io.to(pEmail).emit("trip_status_update", {
-                estado: "encurso",
+                estado: POSITION_STATES.ENCURSO,
                 pasajeroEmail: pEmail,
-                taxiData: tPos ? buildPayload(tPos, tPos, "encurso") : null
+                taxiData: tPos ? buildPayload(tPos, tPos, POSITION_STATES.ENCURSO) : null
             });
             // 🚩 Refuerzo UI: emitimos explícitamente encurso al pasajero
-            io.to(pEmail).emit("trip_status_update", { estado: "encurso" });
-            io.to(tEmail).emit("trip_status_update", { estado: "encurso" });
+            io.to(pEmail).emit("trip_status_update", { estado: POSITION_STATES.ENCURSO });
+            io.to(tEmail).emit("trip_status_update", { estado: POSITION_STATES.ENCURSO });
 
             // 🎯 4. CORRECCIÓN CRÍTICA: Emetimos payloads completos e industriales a los paneles globales
-            if (pPos) io.emit("panel_update", buildPayload(pPos, pPos, "encurso"));
-            if (tPos) io.emit("panel_update", buildPayload(tPos, tPos, "encurso"));
+            if (pPos) io.emit("panel_update", buildPayload(pPos, pPos, POSITION_STATES.ENCURSO));
+            if (tPos) io.emit("panel_update", buildPayload(tPos, tPos, POSITION_STATES.ENCURSO));
 
         } catch (error) {
             logMotor("error", `Error en passenger_on_board para ${pEmail}: ${error}`, "ERROR");
