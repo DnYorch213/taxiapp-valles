@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { Suspense, lazy, useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from "react-leaflet"; // 🚩 Importamos Polyline
 import { toast, ToastContainer } from "react-toastify";
 import L from 'leaflet';
@@ -12,10 +12,15 @@ import { useGeolocation } from "../hooks/useGeolocation";
 import { Payload } from "../types/Payload";
 import { ChatBox } from "../components/ChatBox";
 import { HistorialViajes } from "../components/HistorialViajes";
-import { RoutingMachine } from "../components/RoutingMachine";
 import { taxistaIcon, pasajeroIcon } from "../utils/icons";
 import { calcularHeading } from "../utils/heading"; // Función para calcular el heading entre dos puntos
 import { POSITION_STATES, STATE_GROUPS, PositionState } from "../constants/states";
+
+const RoutingMachine = lazy(() =>
+  import("../components/RoutingMachine").then((module) => ({
+    default: module.RoutingMachine,
+  }))
+);
 
 // --- UTILIDADES ---
 function urlBase64ToUint8Array(base64String: string) {
@@ -829,13 +834,15 @@ return (
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
               {estado === "encamino" && pasajeroAsignado?.lat && pasajeroAsignado?.lng && geometriaRuta.length === 0 && (
-                <RoutingMachine
-                  waypoints={[
-                    L.latLng(taxiPos.lat, taxiPos.lng),
-                    L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng)
-                  ]}
-                  onRouteFound={(coords: L.LatLng[]) => setGeometriaRuta(coords)}
-                />
+                <Suspense fallback={null}>
+                  <RoutingMachine
+                    waypoints={[
+                      L.latLng(taxiPos.lat, taxiPos.lng),
+                      L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng)
+                    ]}
+                    onRouteFound={(coords: L.LatLng[]) => setGeometriaRuta(coords)}
+                  />
+                </Suspense>
               )}
 
               {estado === "encamino" && geometriaRuta.length > 0 && (

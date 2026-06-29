@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { updateTaxistaStatus, getPendingTaxistas, getVerifiedTaxistas, getTripsByDriver, getAllTripsHistory } from '../controllers/adminController';
-// Aquí deberías importar tus middlewares de autenticación
-// import { authenticateToken, isAdmin } from '../middleware/auth'; 
+import { verifyToken, isAdmin } from '../middleware/authMiddleware';
 
 const router = Router();
+
+router.use(verifyToken, isAdmin);
 
 // Listar pendientes
 router.get('/pending', getPendingTaxistas);

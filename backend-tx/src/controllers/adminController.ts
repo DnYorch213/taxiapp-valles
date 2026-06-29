@@ -90,9 +90,9 @@ export const getAllTripsHistory = async (req: Request, res: Response) => {
 // 5. Obtener viajes de un taxista específico (Filtro por Unidad)
 export const getTripsByDriver = async (req: Request, res: Response) => {
     try {
-        const { email } = req.params;
+        const email = req.params.email.toLowerCase().trim();
         const trips = await Trip.find({
-            driverEmail: email,
+            taxistaEmail: email,
             estado: TRIP_STATES.FINALIZADO
         }).sort({ fecha: -1 });
 

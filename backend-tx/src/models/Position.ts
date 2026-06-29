@@ -1,97 +1,53 @@
+// src/models/Position.ts
 import mongoose, { Schema, Document } from "mongoose";
-import { POSITION_STATES, VALID_POSITION_STATES, PositionState } from "../constants/states";
 
+// 🆕 Definir la interfaz con TODAS las propiedades necesarias
 export interface IPosition extends Document {
     email: string;
-    name: string;
+    name?: string;
+    role: string;
+    lat?: number;
+    lng?: number;
+    estado: string;
+    socketId?: string; // 🆕 AGREGAR ESTA LÍNEA
     taxiNumber?: string;
-    lat: number;
-    lng: number;
-    role: "pasajero" | "taxista" | "admin";
-    estado: PositionState;
-    taxistaAsignado?: string | null;
-    pasajeroAsignado?: string | null;
+    taxistaAsignado?: string;
+    pasajeroAsignado?: string;
     pickupAddress?: string;
-    destinationAddress?: string;
     requestId?: string;
-    pushSubscription?: {
-        endpoint: string;
-        keys: {
-            auth: string;
-            p256dh: string;
-        };
-    } | null;
-    updatedAt: Date;
-    createdAt: Date;
+    pushSubscription?: any;
+    updatedAt?: Date;
+    createdAt?: Date;
 }
 
-const PositionSchema = new Schema<IPosition>({
-    requestId: { type: String, default: null },
-    email: {
-        type: String,
-        required: true,
-        unique: true,
-        lowercase: true,
-        trim: true,
-        index: true
+const positionSchema = new Schema(
+    {
+        email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+        name: { type: String, trim: true },
+        role: { type: String, required: true, enum: ["pasajero", "taxista", "admin"] },
+        lat: { type: Number },
+        lng: { type: Number },
+        estado: { type: String, default: "pendiente" },
+        socketId: { type: String }, // 🆕 AGREGAR ESTA LÍNEA
+        taxiNumber: { type: String },
+        taxistaAsignado: { type: String, lowercase: true, trim: true },
+        pasajeroAsignado: { type: String, lowercase: true, trim: true },
+        pickupAddress: { type: String },
+        requestId: { type: String },
+        pushSubscription: { type: Schema.Types.Mixed },
+        updatedAt: { type: Date, default: Date.now },
+        createdAt: { type: Date, default: Date.now }
     },
-    name: { type: String, required: true },
-    taxiNumber: { type: String, required: false },
-    lat: { type: Number, required: true },
-    lng: { type: Number, required: true },
-    role: {
-        type: String,
-        enum: ["pasajero", "taxista", "admin"],
-        required: true
-    },
-    // 🔐 Estados de posición en tiempo real - Utiliza constantes centralizadas
-    estado: {
-        type: String,
-        enum: VALID_POSITION_STATES,
-        default: POSITION_STATES.ACTIVO
-    },
-    taxistaAsignado: {
-        type: String,
-        default: null,
-        lowercase: true,
-        trim: true
-    },
-    pasajeroAsignado: {
-        type: String,
-        default: null,
-        lowercase: true,
-        trim: true
-    },
-    pickupAddress: {
-        type: String,
-        default: ""
-    },
-    destinationAddress: {
-        type: String,
-        default: ""
-    },
-    pushSubscription: {
-        type: {
-            endpoint: String,
-            keys: {
-                auth: String,
-                p256dh: String
-            }
-        },
-        default: null
+    {
+        timestamps: true,
+        collection: "positions"
     }
-}, {
-    timestamps: true
-});
+);
 
-// --- ⚡ SECCIÓN DE ÍNDICES ESTRATÉGICOS ---
+// 🆕 Índices para optimizar consultas frecuentes
+positionSchema.index({ email: 1, estado: 1 });
+positionSchema.index({ role: 1, estado: 1 });
+positionSchema.index({ lat: 1, lng: 1 });
+positionSchema.index({ socketId: 1 });
 
-PositionSchema.index({ role: 1, estado: 1, email: 1 });
-PositionSchema.index({ "pushSubscription.endpoint": 1 }, { sparse: true });
-PositionSchema.index({ taxistaAsignado: 1, role: 1 });
-PositionSchema.index({ pasajeroAsignado: 1 });
-PositionSchema.index({ updatedAt: 1 });
-
-const Position = mongoose.model<IPosition>("Position", PositionSchema);
-
-export { Position };
+export const Position = mongoose.model<IPosition>("Position", positionSchema);

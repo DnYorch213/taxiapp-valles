@@ -12,17 +12,18 @@ const router = Router();
 router.post("/register", async (req: Request, res: Response) => {
     try {
         const { name, email, password, role, taxiNumber } = req.body;
+        const normalizedEmail = email?.toLowerCase().trim();
 
         // Aquí pegas todas tus validaciones (role === "admin", emailRegex, etc.)
         // ... (Tu lógica de validación de Valles)
 
-        const existingUser = await User.findOne({ email });
+        const existingUser = await User.findOne({ email: normalizedEmail });
         if (existingUser) return res.status(400).json({ message: "El correo ya existe" });
 
         const hashed = await bcrypt.hash(password, 10);
         const user = new User({
             name: name.trim(),
-            email: email.toLowerCase().trim(),
+            email: normalizedEmail,
             password: hashed,
             role,
             taxiNumber: role === "taxista" ? taxiNumber.trim() : undefined,

@@ -1,15 +1,16 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import { BrowserRouter as Router, Routes, Route, Link, useNavigate } from "react-router-dom";
-import PasajeroView from "./views/PasajeroView";
-import TaxistaView from "./views/TaxistaView";
-import PanelCentral from "./views/PanelCentral";
-import LoginView from "./views/LoginView";
-import RegisterView from "./views/RegisterView";
 import { PrivateRoute } from "./components/PrivateRoute";
 import { TravelProvider, useTravel } from "./context/TravelContext";
 import { socket } from "./lib/socket";
-import AdminVerificacion from "./views/AdminVerificacion";
-import AdminHistoryPage from './components/AdminHistoryPage'; 
+
+const PasajeroView = lazy(() => import("./views/PasajeroView"));
+const TaxistaView = lazy(() => import("./views/TaxistaView"));
+const PanelCentral = lazy(() => import("./views/PanelCentral"));
+const LoginView = lazy(() => import("./views/LoginView"));
+const RegisterView = lazy(() => import("./views/RegisterView"));
+const AdminVerificacion = lazy(() => import("./views/AdminVerificacion"));
+const AdminHistoryPage = lazy(() => import("./components/AdminHistoryPage"));
 
 if (typeof window !== "undefined") {
   (window as any).socket = socket;
@@ -73,20 +74,22 @@ const App: React.FC = () => {
     <TravelProvider>
       <Router>
         <Navbar />
-        <Routes>
-          <Route path="/" element={<div className="p-8 text-center font-bold">Bienvenido a Valles Viaje 🚕</div>} />
-          <Route path="/login" element={<LoginView />} />
-          <Route path="/register" element={<RegisterView />} />
+        <Suspense fallback={<div className="p-8 text-center font-bold">Cargando...</div>}>
+          <Routes>
+            <Route path="/" element={<div className="p-8 text-center font-bold">Bienvenido a Valles Viaje 🚕</div>} />
+            <Route path="/login" element={<LoginView />} />
+            <Route path="/register" element={<RegisterView />} />
 
-          {/* Rutas protegidas */}
-          <Route path="/pasajero" element={<PrivateRoute role="pasajero"><PasajeroView /></PrivateRoute>} />
-          <Route path="/taxista" element={<PrivateRoute role="taxista"><TaxistaView /></PrivateRoute>} />
-          <Route path="/panel" element={<PrivateRoute role="admin"><PanelCentral /></PrivateRoute>} />
-          
-          {/* ✅ Esta es la ruta principal de administración ahora */}
-          <Route path="/verificar-taxistas" element={<PrivateRoute role="admin"><AdminVerificacion /></PrivateRoute>} />
-          <Route path="/historial-viajes" element={<PrivateRoute role="admin"><AdminHistoryPage /></PrivateRoute>} />
-        </Routes>
+            {/* Rutas protegidas */}
+            <Route path="/pasajero" element={<PrivateRoute role="pasajero"><PasajeroView /></PrivateRoute>} />
+            <Route path="/taxista" element={<PrivateRoute role="taxista"><TaxistaView /></PrivateRoute>} />
+            <Route path="/panel" element={<PrivateRoute role="admin"><PanelCentral /></PrivateRoute>} />
+            
+            {/* ✅ Esta es la ruta principal de administración ahora */}
+            <Route path="/verificar-taxistas" element={<PrivateRoute role="admin"><AdminVerificacion /></PrivateRoute>} />
+            <Route path="/historial-viajes" element={<PrivateRoute role="admin"><AdminHistoryPage /></PrivateRoute>} />
+          </Routes>
+        </Suspense>
       </Router>
     </TravelProvider>
   );

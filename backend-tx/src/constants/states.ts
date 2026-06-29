@@ -9,6 +9,9 @@ export const POSITION_STATES = {
     ACTIVO: "activo",
 
     // Pasajero: buscando un taxi
+    PENDIENTE: "pendiente",
+
+    // Pasajero: buscando un taxi
     BUSCANDO: "buscando",
 
     // Estado temporal: Taxista ha sido asignado pero pasajero aún no confirmó
@@ -28,6 +31,9 @@ export const POSITION_STATES = {
 
     // Viaje cancelado
     CANCELADO: "cancelado",
+
+    // Estado especial para taxistas que se desconectan de la app
+    DESCONECTADO: "desconectado",
 } as const;
 
 // ========== ESTADOS DE VIAJE (Solo para historial en Trip collection) ==========
@@ -39,6 +45,7 @@ export const TRIP_STATES = {
     ENCURSO: "encurso",           // Pasajero dentro del taxi
     FINALIZADO: "finalizado",     // Completado
     CANCELADO: "cancelado",        // Cancelado
+    DESCONECTADO: "desconectado",  // Desconectado
 } as const;
 
 // ========== TIPOS HELPER ==========
@@ -53,6 +60,7 @@ export const VALID_TRIP_STATES = Object.values(TRIP_STATES);
 // Define qué estados pueden transicionar a cuáles
 export const STATE_TRANSITIONS: Record<PositionState, PositionState[]> = {
     [POSITION_STATES.ACTIVO]: [POSITION_STATES.ASIGNADO],
+    [POSITION_STATES.PENDIENTE]: [POSITION_STATES.BUSCANDO],
     [POSITION_STATES.BUSCANDO]: [POSITION_STATES.PREASIGNADO, POSITION_STATES.CANCELADO],
     [POSITION_STATES.PREASIGNADO]: [POSITION_STATES.ASIGNADO, POSITION_STATES.CANCELADO],
     [POSITION_STATES.ASIGNADO]: [POSITION_STATES.ENCAMINO, POSITION_STATES.ACTIVO],
@@ -60,6 +68,7 @@ export const STATE_TRANSITIONS: Record<PositionState, PositionState[]> = {
     [POSITION_STATES.ENCURSO]: [POSITION_STATES.FINALIZADO, POSITION_STATES.CANCELADO],
     [POSITION_STATES.FINALIZADO]: [POSITION_STATES.ACTIVO],
     [POSITION_STATES.CANCELADO]: [POSITION_STATES.ACTIVO, POSITION_STATES.BUSCANDO],
+    [POSITION_STATES.DESCONECTADO]: [POSITION_STATES.ACTIVO],
 };
 
 // ========== STATE GROUPS ==========
