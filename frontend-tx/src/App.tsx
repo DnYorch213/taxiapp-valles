@@ -21,7 +21,6 @@ const Navbar: React.FC = () => {
   const navigate = useNavigate();
 
   const handleLogout = () => {
-    socket.emit("force_disconnect", { email: userPosition?.email });
     logout(); 
     socket.disconnect(); 
     navigate("/login");

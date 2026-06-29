@@ -308,12 +308,13 @@ export const dispatchWithRetry = async (
             timeoutMs: calculateDynamicTimeout(distancia) // 🆕 Timeout dinámico
         };
 
-        // 🎯 7. EMITIR EVENTOS (con verificación de socket)
-        const taxiSocket = io.sockets.sockets.get(tEmail);
+        // 🎯 7. EMITIR EVENTOS (verificando sockets por sala/email)
+        // Nota: io.sockets.sockets se indexa por socketId, no por email.
+        const taxiSockets = await io.in(tEmail).fetchSockets();
 
-        if (taxiSocket && taxiSocket.connected) {
+        if (taxiSockets.length > 0) {
             io.to(tEmail).emit("pasajero_asignado", fullPayload);
-            logMotor("dispatch_retry", `Emitido pasajero_asignado a ${tEmail} (socket conectado)`, "INFO");
+            logMotor("dispatch_retry", `Emitido pasajero_asignado a ${tEmail} (${taxiSockets.length} socket/s en sala)`, "INFO");
         } else {
             logMotor(
                 "dispatch_retry",
