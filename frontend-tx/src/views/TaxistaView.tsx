@@ -71,12 +71,17 @@ const MapFixer = () => {
 };
 
 const TaxistaView: React.FC = () => {
+  const CHAT_BUBBLE_SIZE = 52;
+  const CHAT_BUBBLE_MARGIN = 12;
+
   const { userPosition, taxiPos, setTaxiPos } = useTravel();
   const [estado, setEstado] = useState<PositionState>(POSITION_STATES.ACTIVO);
   const [viajeSolicitado, setViajeSolicitado] = useState<Payload | null>(null);
   const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(null);
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
   const [chatAbierto, setChatAbierto] = useState(false);
+  const [chatBubbleX, setChatBubbleX] = useState<number | null>(null);
+  const [isDraggingChatBubble, setIsDraggingChatBubble] = useState(false);
 
   // 🚩 ESTADO PARA EL RASTRO DEL VIAJE
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
@@ -84,6 +89,11 @@ const TaxistaView: React.FC = () => {
 const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const chatDragRef = useRef({
+    startPointerX: 0,
+    startBubbleX: 0,
+    moved: false,
+  });
   const estadoRef = useRef(estado);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [vistaActual, setVistaActual] = useState('mapa'); // 'mapa' o 'historial'
@@ -702,7 +712,82 @@ const finalizarViaje = () => {
     window.location.href = "/login";
   };
 
-  const isCompactEnCamino = estado === "encamino";
+  const isCompactTripPanel = ["encamino", "encurso"].includes(estado);
+
+  const clampBubbleX = useCallback((x: number) => {
+    if (typeof window === "undefined") return x;
+    const maxX = window.innerWidth - CHAT_BUBBLE_SIZE - CHAT_BUBBLE_MARGIN;
+    return Math.min(Math.max(x, CHAT_BUBBLE_MARGIN), maxX);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (chatBubbleX !== null) return;
+    const initialX = window.innerWidth - CHAT_BUBBLE_SIZE - CHAT_BUBBLE_MARGIN;
+    setChatBubbleX(initialX);
+  }, [chatBubbleX]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (chatBubbleX === null) return;
+      setChatBubbleX((current) => (current === null ? current : clampBubbleX(current)));
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [chatBubbleX, clampBubbleX]);
+
+  const handleChatBubblePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+
+    const baseX = chatBubbleX ?? CHAT_BUBBLE_MARGIN;
+    chatDragRef.current = {
+      startPointerX: event.clientX,
+      startBubbleX: baseX,
+      moved: false,
+    };
+
+    setIsDraggingChatBubble(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleChatBubblePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!isDraggingChatBubble) return;
+
+    const deltaX = event.clientX - chatDragRef.current.startPointerX;
+    if (Math.abs(deltaX) > 3) {
+      chatDragRef.current.moved = true;
+    }
+
+    const nextX = clampBubbleX(chatDragRef.current.startBubbleX + deltaX);
+    setChatBubbleX(nextX);
+  };
+
+  const finishChatBubbleDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!isDraggingChatBubble) return;
+
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    setIsDraggingChatBubble(false);
+
+    if (typeof window === "undefined") return;
+
+    const currentX = chatBubbleX ?? CHAT_BUBBLE_MARGIN;
+    const snapLeft = CHAT_BUBBLE_MARGIN;
+    const snapRight = window.innerWidth - CHAT_BUBBLE_SIZE - CHAT_BUBBLE_MARGIN;
+    const middle = window.innerWidth / 2;
+    const nextSnap = currentX + CHAT_BUBBLE_SIZE / 2 < middle ? snapLeft : snapRight;
+
+    setChatBubbleX(nextSnap);
+
+    if (!chatDragRef.current.moved) {
+      setChatAbierto(true);
+    }
+  };
+
+  const chatPanelOnLeft =
+    typeof window !== "undefined" && chatBubbleX !== null
+      ? chatBubbleX + CHAT_BUBBLE_SIZE / 2 < window.innerWidth / 2
+      : false;
 
 return (
   <div className="h-dvh bg-[#0f172a] flex flex-col overflow-hidden font-sans relative text-slate-100">
@@ -893,15 +978,24 @@ return (
       {vistaActual === 'mapa' && estado === "encamino" && pasajeroAsignado && (
         <>
           {chatAbierto && (
-            <div className="absolute z-[2000] right-3 left-3 bottom-24 sm:left-auto sm:w-[340px] bg-[#0f172a]/95 border border-white/10 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md">
+            <div className={`absolute z-[2000] bottom-24 ${chatPanelOnLeft ? "left-3 sm:left-4" : "right-3 sm:right-4"} left-3 sm:left-auto sm:w-[340px] bg-[#0f172a]/95 border border-white/10 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md`}>
               <div className="h-11 px-4 flex items-center justify-between bg-white/5 border-b border-white/10">
                 <span className="text-[10px] font-black text-white uppercase tracking-widest">Chat con Pasajero</span>
-                <button
-                  onClick={() => setChatAbierto(false)}
-                  className="text-slate-300 hover:text-white text-xs font-black uppercase tracking-widest"
-                >
-                  Cerrar
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setChatAbierto(false)}
+                    className="text-slate-300 hover:text-white text-xs font-black uppercase tracking-widest"
+                  >
+                    Minimizar
+                  </button>
+                  <button
+                    onClick={() => setChatAbierto(false)}
+                    className="text-slate-400 hover:text-white text-sm font-black"
+                    aria-label="Cerrar chat"
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
               <div className="h-[260px]">
                 <ChatBox toEmail={pasajeroAsignado.email} userName={`Taxi Valles`} />
@@ -911,10 +1005,17 @@ return (
 
           {!chatAbierto && (
             <button
-              onClick={() => setChatAbierto(true)}
-              className="absolute z-[2000] right-4 bottom-24 h-12 px-4 bg-[#22c55e] text-[#0f172a] rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-xs uppercase tracking-widest active:translate-y-1"
+              onPointerDown={handleChatBubblePointerDown}
+              onPointerMove={handleChatBubblePointerMove}
+              onPointerUp={finishChatBubbleDrag}
+              onPointerCancel={finishChatBubbleDrag}
+              style={{ left: `${chatBubbleX ?? CHAT_BUBBLE_MARGIN}px` }}
+              className="absolute z-[2000] bottom-24 h-[52px] w-[52px] bg-[#22c55e] text-[#0f172a] rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-lg flex items-center justify-center active:translate-y-1 select-none"
+              title="Chat con pasajero"
+              aria-label="Abrir chat con pasajero"
+              data-dragging={isDraggingChatBubble ? "true" : "false"}
             >
-              Chat Pasajero
+              💬
             </button>
           )}
         </>
@@ -927,25 +1028,25 @@ return (
 
       {pasajeroAsignado && estado !== "asignado" ? (
         <div className="flex flex-col">
-          <div className={isCompactEnCamino ? "px-4 pt-4 pb-1" : "px-6 pt-6 pb-2"}>
-            <div className={isCompactEnCamino ? "p-3 rounded-[1.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-2" : "p-5 rounded-[2.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-3"}>
-              <div className={isCompactEnCamino ? "flex items-center gap-3" : "flex items-center gap-4"}>
-                <div className={isCompactEnCamino ? "w-9 h-9 rounded-xl bg-white flex items-center justify-center text-lg shadow-lg" : "w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shadow-lg"}>👤</div>
+          <div className={isCompactTripPanel ? "px-4 pt-4 pb-1" : "px-6 pt-6 pb-2"}>
+            <div className={isCompactTripPanel ? "p-3 rounded-[1.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-2" : "p-5 rounded-[2.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-3"}>
+              <div className={isCompactTripPanel ? "flex items-center gap-3" : "flex items-center gap-4"}>
+                <div className={isCompactTripPanel ? "w-9 h-9 rounded-xl bg-white flex items-center justify-center text-lg shadow-lg" : "w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shadow-lg"}>👤</div>
                 <div className="flex-1">
-                  <p className={isCompactEnCamino ? "text-[7px] font-black uppercase tracking-[0.18em] text-slate-500" : "text-[8px] font-black uppercase tracking-[0.2em] text-slate-500"}>
+                  <p className={isCompactTripPanel ? "text-[7px] font-black uppercase tracking-[0.18em] text-slate-500" : "text-[8px] font-black uppercase tracking-[0.2em] text-slate-500"}>
                     {estado === "encurso" ? "Viaje Activo" : "Trayecto de Recogida"}
                   </p>
-                  <h3 className={isCompactEnCamino ? "text-sm font-black leading-tight text-white" : "text-lg font-black leading-tight text-white"}>{pasajeroAsignado.name}</h3>
+                  <h3 className={isCompactTripPanel ? "text-sm font-black leading-tight text-white" : "text-lg font-black leading-tight text-white"}>{pasajeroAsignado.name}</h3>
                 </div>
               </div>
 
-              <div className={isCompactEnCamino ? "p-2 rounded-xl flex items-start gap-2 bg-white/5" : "p-3 rounded-2xl flex items-start gap-3 bg-white/5"}>
-                <span className={isCompactEnCamino ? "text-base" : "text-xl"}>{estado === "encurso" ? "🚖" : "📍"}</span>
+              <div className={isCompactTripPanel ? "p-2 rounded-xl flex items-start gap-2 bg-white/5" : "p-3 rounded-2xl flex items-start gap-3 bg-white/5"}>
+                <span className={isCompactTripPanel ? "text-base" : "text-xl"}>{estado === "encurso" ? "🚖" : "📍"}</span>
                 <div className="flex flex-col">
-                  <span className={isCompactEnCamino ? "text-[8px] font-black uppercase tracking-widest text-slate-400" : "text-[9px] font-black uppercase tracking-widest text-slate-400"}>
+                  <span className={isCompactTripPanel ? "text-[8px] font-black uppercase tracking-widest text-slate-400" : "text-[9px] font-black uppercase tracking-widest text-slate-400"}>
                     {estado === "encurso" ? "Destino:" : "Punto de recogida:"}
                   </span>
-                  <p className={isCompactEnCamino ? "text-xs font-bold text-white leading-tight truncate max-w-[240px]" : "text-sm font-bold text-white leading-tight"}>
+                  <p className={isCompactTripPanel ? "text-xs font-bold text-white leading-tight truncate max-w-[240px]" : "text-sm font-bold text-white leading-tight"}>
                     {estado === "encurso" 
                       ? (pasajeroAsignado.destinationAddress || "Rumbo al destino...") 
                       : (pasajeroAsignado.pickupAddress || "Calculando ubicación...")
@@ -957,15 +1058,15 @@ return (
           </div>
 
           {/* BOTONES OPERATIVOS EN RUTA */}
-          <div className={isCompactEnCamino ? "p-4 pb-6" : "p-6 pb-10"}>
+          <div className={isCompactTripPanel ? "p-4 pb-6" : "p-6 pb-10"}>
             {estado === "encamino" && (
-              <button onClick={confirmarAbordo} className={isCompactEnCamino ? "w-full py-3 bg-white text-[#0f172a] rounded-xl font-black text-base flex items-center justify-center gap-2 border-b-4 border-slate-300 active:translate-y-1 transition-all shadow-lg" : "w-full py-4 bg-white text-[#0f172a] rounded-2xl font-black text-lg flex items-center justify-center gap-3 border-b-4 border-slate-300 active:translate-y-1 transition-all shadow-lg"}>
+              <button onClick={confirmarAbordo} className={isCompactTripPanel ? "w-full py-3 bg-white text-[#0f172a] rounded-xl font-black text-base flex items-center justify-center gap-2 border-b-4 border-slate-300 active:translate-y-1 transition-all shadow-lg" : "w-full py-4 bg-white text-[#0f172a] rounded-2xl font-black text-lg flex items-center justify-center gap-3 border-b-4 border-slate-300 active:translate-y-1 transition-all shadow-lg"}>
                 📍 CONFIRMAR ABORDO
               </button>
             )}
 
             {estado === "encurso" && (
-              <button onClick={finalizarViaje} className="w-full py-4 bg-red-600 text-white rounded-2xl font-black text-lg border-b-4 border-red-900 shadow-xl active:translate-y-1 transition-all">
+              <button onClick={finalizarViaje} className={isCompactTripPanel ? "w-full py-3 bg-red-600 text-white rounded-xl font-black text-base border-b-4 border-red-900 shadow-xl active:translate-y-1 transition-all" : "w-full py-4 bg-red-600 text-white rounded-2xl font-black text-lg border-b-4 border-red-900 shadow-xl active:translate-y-1 transition-all"}>
                 🏁 FINALIZAR SERVICIO
               </button>
             )}

@@ -21,10 +21,15 @@ const RoutingMachine = lazy(() =>
 );
 
 const PasajeroView: React.FC = () => {
+  const CHAT_BUBBLE_SIZE = 52;
+  const CHAT_BUBBLE_MARGIN = 12;
+
   const { userPosition, setUserPosition, taxiPos, setTaxiPos } = useTravel();
   const [estado, setEstado] = useState<ViajeEstado>(TRIP_STATES.PENDIENTE);
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
   const [chatAbierto, setChatAbierto] = useState(false);
+  const [chatBubbleX, setChatBubbleX] = useState<number | null>(null);
+  const [isDraggingChatBubble, setIsDraggingChatBubble] = useState(false);
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
   const [geometriaRuta, setGeometriaRuta] = useState<L.LatLngExpression[]>([]);
 
@@ -33,6 +38,11 @@ const PasajeroView: React.FC = () => {
   const estadoRef = useRef<ViajeEstado>(TRIP_STATES.PENDIENTE);
   const taxiPosRef = useRef<any>(null);
   const userPositionRef = useRef<any>(null);
+  const chatDragRef = useRef({
+    startPointerX: 0,
+    startBubbleX: 0,
+    moved: false,
+  });
 
   // Sincronización de refs (un solo efecto para todas)
   useEffect(() => { taxistaAsignadoRef.current = taxistaAsignado; }, [taxistaAsignado]);
@@ -62,6 +72,81 @@ const PasajeroView: React.FC = () => {
   }, [setUserPosition]);
 
   useGeolocation(geoConfig, handlePositionUpdate);
+
+  const clampBubbleX = useCallback((x: number) => {
+    if (typeof window === "undefined") return x;
+    const maxX = window.innerWidth - CHAT_BUBBLE_SIZE - CHAT_BUBBLE_MARGIN;
+    return Math.min(Math.max(x, CHAT_BUBBLE_MARGIN), maxX);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (chatBubbleX !== null) return;
+    const initialX = window.innerWidth - CHAT_BUBBLE_SIZE - CHAT_BUBBLE_MARGIN;
+    setChatBubbleX(initialX);
+  }, [chatBubbleX]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (chatBubbleX === null) return;
+      setChatBubbleX((current) => (current === null ? current : clampBubbleX(current)));
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [chatBubbleX, clampBubbleX]);
+
+  const handleChatBubblePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+
+    const baseX = chatBubbleX ?? CHAT_BUBBLE_MARGIN;
+    chatDragRef.current = {
+      startPointerX: event.clientX,
+      startBubbleX: baseX,
+      moved: false,
+    };
+
+    setIsDraggingChatBubble(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleChatBubblePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!isDraggingChatBubble) return;
+
+    const deltaX = event.clientX - chatDragRef.current.startPointerX;
+    if (Math.abs(deltaX) > 3) {
+      chatDragRef.current.moved = true;
+    }
+
+    const nextX = clampBubbleX(chatDragRef.current.startBubbleX + deltaX);
+    setChatBubbleX(nextX);
+  };
+
+  const finishChatBubbleDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!isDraggingChatBubble) return;
+
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    setIsDraggingChatBubble(false);
+
+    if (typeof window === "undefined") return;
+
+    const currentX = chatBubbleX ?? CHAT_BUBBLE_MARGIN;
+    const snapLeft = CHAT_BUBBLE_MARGIN;
+    const snapRight = window.innerWidth - CHAT_BUBBLE_SIZE - CHAT_BUBBLE_MARGIN;
+    const middle = window.innerWidth / 2;
+    const nextSnap = currentX + CHAT_BUBBLE_SIZE / 2 < middle ? snapLeft : snapRight;
+
+    setChatBubbleX(nextSnap);
+
+    if (!chatDragRef.current.moved) {
+      setChatAbierto(true);
+    }
+  };
+
+  const chatPanelOnLeft =
+    typeof window !== "undefined" && chatBubbleX !== null
+      ? chatBubbleX + CHAT_BUBBLE_SIZE / 2 < window.innerWidth / 2
+      : false;
 
   // ============================================================
   // 🎯 LISTENERS DE SOCKET - SIN DEPENDENCIAS VOLÁTILES
@@ -547,7 +632,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       {taxistaAsignado?.email && ["asignado", "encamino"].includes(estado) && (
         <>
           {chatAbierto && (
-            <div className="fixed z-[2000] right-3 left-3 bottom-24 sm:left-auto sm:w-[340px] bg-white border border-slate-100 rounded-2xl shadow-2xl overflow-hidden">
+            <div className={`fixed z-[2000] bottom-24 ${chatPanelOnLeft ? "left-3 sm:left-4" : "right-3 sm:right-4"} left-3 sm:left-auto sm:w-[340px] bg-white border border-slate-100 rounded-2xl shadow-2xl overflow-hidden`}>
               <div className="h-11 px-4 flex items-center justify-between bg-white border-b border-slate-100">
                 <div className="flex items-center gap-2">
                   <span className="relative flex h-2 w-2">
@@ -556,12 +641,21 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                   </span>
                   <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Chat con Unidad</span>
                 </div>
-                <button
-                  onClick={() => setChatAbierto(false)}
-                  className="text-slate-500 hover:text-slate-800 text-xs font-black uppercase tracking-widest"
-                >
-                  Cerrar
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setChatAbierto(false)}
+                    className="text-slate-500 hover:text-slate-800 text-xs font-black uppercase tracking-widest"
+                  >
+                    Minimizar
+                  </button>
+                  <button
+                    onClick={() => setChatAbierto(false)}
+                    className="text-slate-500 hover:text-slate-800 text-sm font-black"
+                    aria-label="Cerrar chat"
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
               <div className="h-[280px] bg-white">
                 <ChatBox
@@ -574,10 +668,17 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
           {!chatAbierto && (
             <button
-              onClick={() => setChatAbierto(true)}
-              className="fixed z-[2000] right-4 bottom-24 h-12 px-4 bg-[#22c55e] text-white rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-xs uppercase tracking-widest active:translate-y-1"
+              onPointerDown={handleChatBubblePointerDown}
+              onPointerMove={handleChatBubblePointerMove}
+              onPointerUp={finishChatBubbleDrag}
+              onPointerCancel={finishChatBubbleDrag}
+              style={{ left: `${chatBubbleX ?? CHAT_BUBBLE_MARGIN}px` }}
+              className="fixed z-[2000] bottom-24 h-[52px] w-[52px] bg-[#22c55e] text-white rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-lg flex items-center justify-center active:translate-y-1 select-none"
+              title="Chat con unidad"
+              aria-label="Abrir chat con unidad"
+              data-dragging={isDraggingChatBubble ? "true" : "false"}
             >
-              Chat Unidad
+              💬
             </button>
           )}
         </>
