@@ -12,13 +12,17 @@ interface PrivateRouteProps {
 export const PrivateRoute: React.FC<PrivateRouteProps> = ({ children, role }) => {
   const { userPosition } = useTravel();
 
-  if (!userPosition) {
+  const storedToken = localStorage.getItem("token");
+  const storedRole = localStorage.getItem("role") as "pasajero" | "taxista" | "admin" | null;
+  const resolvedRole = userPosition?.role || storedRole;
+
+  if (!userPosition && !storedToken) {
     return <Navigate to="/login" replace />; // 👈 replace es clave aquí
   }
 
-  if (role && userPosition.role !== role) {
+  if (role && resolvedRole !== role) {
     // Si es taxista y quiere entrar a admin, mejor mándalo a su vista de /taxista
-    const defaultRoute = userPosition.role === "taxista" ? "/taxista" : "/pasajero";
+    const defaultRoute = resolvedRole === "taxista" ? "/taxista" : "/pasajero";
     return <Navigate to={defaultRoute} replace />;
   }
 

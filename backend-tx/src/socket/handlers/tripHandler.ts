@@ -367,6 +367,14 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         const pEmail = pasajeroEmail.toLowerCase().trim();
         const tEmail = taxistaEmail.toLowerCase().trim();
 
+        if (pEmail === tEmail) {
+            logMotor("passenger_on_board",
+                `⚠️ Evento inválido: pasajeroEmail y taxistaEmail son iguales (${pEmail})`,
+                "WARN"
+            );
+            return;
+        }
+
         // 🛡️ VALIDACIÓN: El socket debe ser del taxista
         if (email !== tEmail) {
             logMotor("passenger_on_board",
@@ -377,6 +385,19 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         }
 
         try {
+            const [pActual, tActual] = await Promise.all([
+                Position.findOne({ email: pEmail }).lean(),
+                Position.findOne({ email: tEmail }).lean()
+            ]);
+
+            if (!pActual || !tActual || pActual.taxistaAsignado !== tEmail || tActual.pasajeroAsignado !== pEmail) {
+                logMotor("passenger_on_board",
+                    `⚠️ Relación inválida para subir pasajero. P=${pEmail} T=${tEmail}`,
+                    "WARN"
+                );
+                return;
+            }
+
             logMotor("passenger_on_board",
                 `Pasajero=${pEmail} Taxista=${tEmail} -> Estado=EN_CURSO`,
                 "INFO"
@@ -605,6 +626,14 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
         if (!pEmail || !tEmail) return;
 
+        if (pEmail === tEmail) {
+            logMotor("end_trip",
+                `⚠️ Evento inválido: pasajeroEmail y taxistaEmail son iguales (${pEmail})`,
+                "WARN"
+            );
+            return;
+        }
+
         // 🛡️ VALIDACIÓN: El socket debe ser del taxista
         if (email !== tEmail) {
             logMotor("end_trip",
@@ -624,6 +653,14 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 logMotor("end_trip",
                     `Documentos no encontrados: Pasajero=${pEmail} Taxista=${tEmail}`,
                     "ERROR"
+                );
+                return;
+            }
+
+            if (pPos.taxistaAsignado !== tEmail || tPos.pasajeroAsignado !== pEmail) {
+                logMotor("end_trip",
+                    `Relación inconsistente al finalizar. P=${pEmail} T=${tEmail}`,
+                    "WARN"
                 );
                 return;
             }

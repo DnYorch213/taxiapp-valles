@@ -128,22 +128,32 @@ export const initSocketEngine = (io: Server) => {
             // 🎯 4. CALCULAR ESTADO INICIAL CORRECTO
             // ============================================================
 
-            // 🆕 Buscar viaje activo filtrando por rol correcto
-            const viajeActivo = await Position.findOne({
-                $or: [
-                    { email: email, role: role }, // Viaje propio
-                    { taxistaAsignado: email, role: "pasajero" } // Si es taxista, buscar pasajero asignado
-                ],
-                estado: {
-                    $in: [
-                        POSITION_STATES.ASIGNADO,
-                        POSITION_STATES.ENCURSO,
-                        POSITION_STATES.ENCAMINO,
-                        POSITION_STATES.PREASIGNADO,
-                        POSITION_STATES.BUSCANDO
-                    ]
-                }
-            }).lean();
+            // 🆕 Buscar viaje activo filtrando por rol y relación real
+            const activeStates = {
+                $in: [
+                    POSITION_STATES.ASIGNADO,
+                    POSITION_STATES.ENCURSO,
+                    POSITION_STATES.ENCAMINO,
+                    POSITION_STATES.PREASIGNADO,
+                    POSITION_STATES.BUSCANDO
+                ]
+            };
+
+            const miPosicion = await Position.findOne({ email, role }).lean();
+
+            // Para taxista, SIEMPRE rehidratar con el documento del pasajero asignado.
+            // Para pasajero, usar su propio documento.
+            const viajeActivo = role === "taxista"
+                ? await Position.findOne({
+                    role: "pasajero",
+                    taxistaAsignado: email,
+                    estado: activeStates
+                }).lean()
+                : await Position.findOne({
+                    email,
+                    role: "pasajero",
+                    estado: activeStates
+                }).lean();
 
             // 🆕 Estado por defecto CORRECTO
             let nuevoEstado: PositionState;
@@ -157,9 +167,13 @@ export const initSocketEngine = (io: Server) => {
                         : POSITION_STATES.PENDIENTE;
                     logMotor("socket_connect", `Pasajero ${email} recuperado en estado: ${nuevoEstado}`, "INFO");
                 } else if (role === "taxista") {
-                    nuevoEstado = [POSITION_STATES.ENCURSO, POSITION_STATES.ENCAMINO].includes(viajeActivo.estado as any)
-                        ? viajeActivo.estado as PositionState
-                        : POSITION_STATES.ENCAMINO;
+                    const estadoBaseTaxista = miPosicion?.estado;
+                    const estadoTaxistaValido = [POSITION_STATES.ENCURSO, POSITION_STATES.ENCAMINO, POSITION_STATES.ASIGNADO].includes(estadoBaseTaxista as any);
+                    nuevoEstado = estadoTaxistaValido
+                        ? estadoBaseTaxista as PositionState
+                        : ([POSITION_STATES.ENCURSO, POSITION_STATES.ENCAMINO].includes(viajeActivo.estado as any)
+                            ? viajeActivo.estado as PositionState
+                            : POSITION_STATES.ENCAMINO);
                     logMotor("socket_connect", `Taxista ${email} recuperado en estado: ${nuevoEstado}`, "INFO");
                 } else {
                     nuevoEstado = POSITION_STATES.ACTIVO;
@@ -238,6 +252,9 @@ export const initSocketEngine = (io: Server) => {
 
                     socket.emit("pasajero_asignado", {
                         ...buildPayload(viajeActivo, viajeActivo, nuevoEstado),
+                        pasajeroEmail: viajeActivo.email,
+                        pasajeroLat: viajeActivo.lat,
+                        pasajeroLng: viajeActivo.lng,
                         isNewOffer: false,
                         rehydrated: true
                     });
