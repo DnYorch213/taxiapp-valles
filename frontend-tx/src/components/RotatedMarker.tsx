@@ -8,6 +8,10 @@ interface RotatedMarkerProps extends MarkerProps {
 
 const RotatedMarker = ({ rotationAngle = 0, ...props }: RotatedMarkerProps) => {
   const markerRef = useRef<L.Marker>(null);
+  const lastVisualAngleRef = useRef<number>(rotationAngle);
+
+  const normalize360 = (angle: number) => (angle + 360) % 360;
+  const shortestDelta = (from: number, to: number) => ((to - from + 540) % 360) - 180;
 
   // 🎯 EFECTO 1: Aplicar las propiedades base una sola vez cuando el elemento nace
   useEffect(() => {
@@ -16,7 +20,7 @@ const RotatedMarker = ({ rotationAngle = 0, ...props }: RotatedMarkerProps) => {
       const element = marker.getElement();
       if (element) {
         element.style.transformOrigin = "center";
-        element.style.transition = "transform 0.3s ease-out"; // Desplazamiento suave
+        element.style.transition = "transform 0.28s linear"; // Rotación más estable para trayecto continuo
       }
     }
   }, []); // Vacío para que solo se ejecute al montar el marcador
@@ -32,7 +36,14 @@ const RotatedMarker = ({ rotationAngle = 0, ...props }: RotatedMarkerProps) => {
         const updateRotation = () => {
           const currentTransform = element.style.transform || "";
           const baseTransform = currentTransform.replace(/rotate\([^)]*\)/, "").trim();
-          element.style.transform = `${baseTransform} rotate(${rotationAngle}deg)`;
+
+          const target = normalize360(rotationAngle);
+          const previous = lastVisualAngleRef.current;
+          const delta = shortestDelta(previous, target);
+          const visualAngle = previous + delta;
+
+          lastVisualAngleRef.current = visualAngle;
+          element.style.transform = `${baseTransform} rotate(${visualAngle}deg)`;
         };
 
         // Ejecutamos de inmediato

@@ -312,7 +312,9 @@ export const dispatchWithRetry = async (
         // Nota: io.sockets.sockets se indexa por socketId, no por email.
         const taxiSockets = await io.in(tEmail).fetchSockets();
 
-        if (taxiSockets.length > 0) {
+        const shouldSendPush = taxiSockets.length === 0;
+
+        if (!shouldSendPush) {
             io.to(tEmail).emit("pasajero_asignado", fullPayload);
             logMotor("dispatch_retry", `Emitido pasajero_asignado a ${tEmail} (${taxiSockets.length} socket/s en sala)`, "INFO");
         } else {
@@ -324,7 +326,7 @@ export const dispatchWithRetry = async (
         }
 
         // 🆕 Enviar notificación push con manejo de errores
-        if (elMasCercano.pushSubscription) {
+        if (shouldSendPush && elMasCercano.pushSubscription) {
             try {
                 await enviarNotificacionPush(elMasCercano.pushSubscription, fullPayload, tEmail);
             } catch (pushError) {

@@ -233,7 +233,8 @@ useGeolocation(
         prev ? { lat: prev.lat, lng: prev.lng } : null,
         { lat: Number(pos.lat), lng: Number(pos.lng) }, 
         pasajeroAsignado ? { lat: Number(pasajeroAsignado.lat), lng: Number(pasajeroAsignado.lng) } : null,
-        estadoActual // 🎯 CORRECCIÓN CRÍTICA: Cambiado 'estado' por 'estadoActual' (evita el closure)
+        estadoActual, // 🎯 CORRECCIÓN CRÍTICA: Cambiado 'estado' por 'estadoActual' (evita el closure)
+        prev?.heading || 0
       );
       
       return {
@@ -701,6 +702,8 @@ const finalizarViaje = () => {
     window.location.href = "/login";
   };
 
+  const isCompactEnCamino = estado === "encamino";
+
 return (
   <div className="h-dvh bg-[#0f172a] flex flex-col overflow-hidden font-sans relative text-slate-100">
     <ToastContainer theme="dark" />
@@ -885,6 +888,37 @@ return (
           <span className="text-[11px] font-black text-white uppercase tracking-widest">{estado}</span>
         </div>
       )}
+
+      {/* CHAT FLOTANTE (ENCAMINO) */}
+      {vistaActual === 'mapa' && estado === "encamino" && pasajeroAsignado && (
+        <>
+          {chatAbierto && (
+            <div className="absolute z-[2000] right-3 left-3 bottom-24 sm:left-auto sm:w-[340px] bg-[#0f172a]/95 border border-white/10 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md">
+              <div className="h-11 px-4 flex items-center justify-between bg-white/5 border-b border-white/10">
+                <span className="text-[10px] font-black text-white uppercase tracking-widest">Chat con Pasajero</span>
+                <button
+                  onClick={() => setChatAbierto(false)}
+                  className="text-slate-300 hover:text-white text-xs font-black uppercase tracking-widest"
+                >
+                  Cerrar
+                </button>
+              </div>
+              <div className="h-[260px]">
+                <ChatBox toEmail={pasajeroAsignado.email} userName={`Taxi Valles`} />
+              </div>
+            </div>
+          )}
+
+          {!chatAbierto && (
+            <button
+              onClick={() => setChatAbierto(true)}
+              className="absolute z-[2000] right-4 bottom-24 h-12 px-4 bg-[#22c55e] text-[#0f172a] rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-xs uppercase tracking-widest active:translate-y-1"
+            >
+              Chat Pasajero
+            </button>
+          )}
+        </>
+      )}
     </main>
   
     {/* PANEL DE ACCIONES INFERIOR (Solo para EnCamino, EnCurso o Buscando) */}
@@ -893,25 +927,25 @@ return (
 
       {pasajeroAsignado && estado !== "asignado" ? (
         <div className="flex flex-col">
-          <div className="px-6 pt-6 pb-2">
-            <div className="p-5 rounded-[2.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-3">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shadow-lg">👤</div>
+          <div className={isCompactEnCamino ? "px-4 pt-4 pb-1" : "px-6 pt-6 pb-2"}>
+            <div className={isCompactEnCamino ? "p-3 rounded-[1.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-2" : "p-5 rounded-[2.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-3"}>
+              <div className={isCompactEnCamino ? "flex items-center gap-3" : "flex items-center gap-4"}>
+                <div className={isCompactEnCamino ? "w-9 h-9 rounded-xl bg-white flex items-center justify-center text-lg shadow-lg" : "w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shadow-lg"}>👤</div>
                 <div className="flex-1">
-                  <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-500">
+                  <p className={isCompactEnCamino ? "text-[7px] font-black uppercase tracking-[0.18em] text-slate-500" : "text-[8px] font-black uppercase tracking-[0.2em] text-slate-500"}>
                     {estado === "encurso" ? "Viaje Activo" : "Trayecto de Recogida"}
                   </p>
-                  <h3 className="text-lg font-black leading-tight text-white">{pasajeroAsignado.name}</h3>
+                  <h3 className={isCompactEnCamino ? "text-sm font-black leading-tight text-white" : "text-lg font-black leading-tight text-white"}>{pasajeroAsignado.name}</h3>
                 </div>
               </div>
 
-              <div className="p-3 rounded-2xl flex items-start gap-3 bg-white/5">
-                <span className="text-xl">{estado === "encurso" ? "🚖" : "📍"}</span>
+              <div className={isCompactEnCamino ? "p-2 rounded-xl flex items-start gap-2 bg-white/5" : "p-3 rounded-2xl flex items-start gap-3 bg-white/5"}>
+                <span className={isCompactEnCamino ? "text-base" : "text-xl"}>{estado === "encurso" ? "🚖" : "📍"}</span>
                 <div className="flex flex-col">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                  <span className={isCompactEnCamino ? "text-[8px] font-black uppercase tracking-widest text-slate-400" : "text-[9px] font-black uppercase tracking-widest text-slate-400"}>
                     {estado === "encurso" ? "Destino:" : "Punto de recogida:"}
                   </span>
-                  <p className="text-sm font-bold text-white leading-tight">
+                  <p className={isCompactEnCamino ? "text-xs font-bold text-white leading-tight truncate max-w-[240px]" : "text-sm font-bold text-white leading-tight"}>
                     {estado === "encurso" 
                       ? (pasajeroAsignado.destinationAddress || "Rumbo al destino...") 
                       : (pasajeroAsignado.pickupAddress || "Calculando ubicación...")
@@ -922,31 +956,10 @@ return (
             </div>
           </div>
 
-          {/* CHAT INTEGRADO EN RUTA */}
-          {estado === "encamino" && (
-            <div className="border-y border-white/5 bg-[#0f172a]/30">
-              <div 
-                onClick={() => setChatAbierto(!chatAbierto)}
-                className="h-[55px] flex items-center justify-between px-8 cursor-pointer"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="h-2 w-2 rounded-full bg-[#22c55e] animate-pulse"></div>
-                  <span className="text-[10px] font-black text-white uppercase tracking-widest">Chat con Pasajero</span>
-                </div>
-                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
-                  {chatAbierto ? 'Cerrar' : 'Escribir'}
-                </span>
-              </div>
-              <div className={`transition-all duration-500 overflow-hidden ${chatAbierto ? "h-[300px]" : "h-0"}`}>
-                <ChatBox toEmail={pasajeroAsignado.email} userName={`Taxi Valles`} />
-              </div>
-            </div>
-          )}
-
           {/* BOTONES OPERATIVOS EN RUTA */}
-          <div className="p-6 pb-10">
+          <div className={isCompactEnCamino ? "p-4 pb-6" : "p-6 pb-10"}>
             {estado === "encamino" && (
-              <button onClick={confirmarAbordo} className="w-full py-4 bg-white text-[#0f172a] rounded-2xl font-black text-lg flex items-center justify-center gap-3 border-b-4 border-slate-300 active:translate-y-1 transition-all shadow-lg">
+              <button onClick={confirmarAbordo} className={isCompactEnCamino ? "w-full py-3 bg-white text-[#0f172a] rounded-xl font-black text-base flex items-center justify-center gap-2 border-b-4 border-slate-300 active:translate-y-1 transition-all shadow-lg" : "w-full py-4 bg-white text-[#0f172a] rounded-2xl font-black text-lg flex items-center justify-center gap-3 border-b-4 border-slate-300 active:translate-y-1 transition-all shadow-lg"}>
                 📍 CONFIRMAR ABORDO
               </button>
             )}

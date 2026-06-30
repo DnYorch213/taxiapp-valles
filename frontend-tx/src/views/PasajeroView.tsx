@@ -118,7 +118,8 @@ const PasajeroView: React.FC = () => {
           posAnterior ? { lat: posAnterior.lat, lng: posAnterior.lng } : null,
           { lat: latNum, lng: lngNum },
           pasajeroPos ? { lat: Number(pasajeroPos.lat), lng: Number(pasajeroPos.lng) } : null,
-          estadoRef.current
+          estadoRef.current,
+          posAnterior?.heading || 0
         );
 
         setTaxiPos({ lat: latNum, lng: lngNum, heading: nuevoHeading || 0 });
@@ -150,7 +151,8 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     posAnterior ? { lat: posAnterior.lat, lng: posAnterior.lng } : null,
     { lat: latNum, lng: lngNum },
     taxistaPos ? { lat: Number(taxistaPos.lat), lng: Number(taxistaPos.lng) } : null,
-    estadoRef.current
+    estadoRef.current,
+    posAnterior?.heading || 0
   );
 
   setTaxiPos({ lat: latNum, lng: lngNum, heading: nuevoHeading || 0 });
@@ -541,53 +543,44 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         </div>
       </main>
 
-      {/* CHAT */}
+      {/* CHAT FLOTANTE */}
       {taxistaAsignado?.email && ["asignado", "encamino"].includes(estado) && (
-        <div
-          className={`fixed left-0 w-full z-[2000] transition-all duration-500 flex justify-center ${
-            chatAbierto ? "bottom-0" : "bottom-[90px]"
-          }`}
-        >
-          <div className="w-[92%] max-w-md bg-white rounded-t-[2rem] rounded-b-[2rem] shadow-[0_-10px_40px_rgba(0,0,0,0.15)] border border-slate-100 overflow-hidden">
-            <div
-              onClick={() => setChatAbierto(!chatAbierto)}
-              className="h-[55px] flex items-center justify-between px-8 cursor-pointer bg-white"
-            >
-              <div className="flex items-center gap-2">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                </span>
-                <span className="text-[9px] font-black text-slate-800 uppercase tracking-widest">
-                  Chat con Unidad
-                </span>
+        <>
+          {chatAbierto && (
+            <div className="fixed z-[2000] right-3 left-3 bottom-24 sm:left-auto sm:w-[340px] bg-white border border-slate-100 rounded-2xl shadow-2xl overflow-hidden">
+              <div className="h-11 px-4 flex items-center justify-between bg-white border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                  </span>
+                  <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Chat con Unidad</span>
+                </div>
+                <button
+                  onClick={() => setChatAbierto(false)}
+                  className="text-slate-500 hover:text-slate-800 text-xs font-black uppercase tracking-widest"
+                >
+                  Cerrar
+                </button>
               </div>
-              <svg
-                className={`transform transition-transform duration-500 ${
-                  chatAbierto ? "rotate-180" : "rotate-0"
-                }`}
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#22c55e"
-                strokeWidth="3"
-              >
-                <polyline points="18 15 12 9 6 15"></polyline>
-              </svg>
+              <div className="h-[280px] bg-white">
+                <ChatBox
+                  toEmail={taxistaAsignado.email || (taxistaAsignado as any).taxistaEmail || ""}
+                  userName={userPosition?.name || "Pasajero"}
+                />
+              </div>
             </div>
-            <div
-              className={`${
-                chatAbierto ? "h-[350px]" : "h-0"
-              } transition-all duration-500 bg-white`}
+          )}
+
+          {!chatAbierto && (
+            <button
+              onClick={() => setChatAbierto(true)}
+              className="fixed z-[2000] right-4 bottom-24 h-12 px-4 bg-[#22c55e] text-white rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-xs uppercase tracking-widest active:translate-y-1"
             >
-              <ChatBox
-                toEmail={taxistaAsignado.email || (taxistaAsignado as any).taxistaEmail || ""}
-                userName={userPosition?.name || "Pasajero"}
-              />
-            </div>
-          </div>
-        </div>
+              Chat Unidad
+            </button>
+          )}
+        </>
       )}
 
       {/* PANTALLA DE FINALIZACIÓN */}
