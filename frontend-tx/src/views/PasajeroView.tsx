@@ -454,23 +454,22 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       <ToastContainer theme="light" />
       <div className="absolute top-0 left-0 w-full h-1 bg-[#22c55e] z-[2001]"></div>
 
-      {/* HEADER */}
-      <header className="w-full max-w-md flex justify-between items-center py-3 px-6 shrink-0 bg-slate-50">
-        <h1 className="text-lg font-black text-slate-800 tracking-tighter uppercase italic">
-          VALLES<span className="text-[#22c55e]">VIAJE</span>
-        </h1>
-        <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-slate-200 shadow-sm">
-          <div
-            className={`h-1.5 w-1.5 rounded-full ${
-              userPosition?.lat ? "bg-[#22c55e]" : "bg-red-500 animate-pulse"
-            }`}
-          ></div>
-          <span className="text-[8px] font-black text-slate-400 uppercase">GPS</span>
-        </div>
-      </header>
-
       {/* MAIN */}
       <main className="w-full max-w-md bg-white rounded-t-[2.5rem] shadow-2xl overflow-hidden border border-slate-100 relative flex flex-col flex-1 min-h-0">
+        <div className="absolute top-4 left-4 right-4 z-[1002] flex items-center justify-between pointer-events-none">
+          <h1 className="text-sm font-black text-white tracking-tighter uppercase italic drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
+            VALLES<span className="text-[#22c55e]">VIAJE</span>
+          </h1>
+          <div className="flex items-center gap-2 bg-white/95 px-3 py-1 rounded-full border border-slate-200 shadow-sm backdrop-blur-sm">
+            <div
+              className={`h-1.5 w-1.5 rounded-full ${
+                userPosition?.lat ? "bg-[#22c55e]" : "bg-red-500 animate-pulse"
+              }`}
+            ></div>
+            <span className="text-[8px] font-black text-slate-500 uppercase">GPS</span>
+          </div>
+        </div>
+
         {/* MAPA */}
         <div className="flex-1 min-h-[200px] w-full relative bg-slate-100">
           {userPosition?.lat && userPosition?.lng ? (

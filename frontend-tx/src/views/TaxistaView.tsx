@@ -740,6 +740,8 @@ const finalizarViaje = () => {
   const handleChatBubblePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
 
+    event.preventDefault();
+
     const baseX = chatBubbleX ?? CHAT_BUBBLE_MARGIN;
     chatDragRef.current = {
       startPointerX: event.clientX,
@@ -753,6 +755,8 @@ const finalizarViaje = () => {
 
   const handleChatBubblePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (!isDraggingChatBubble) return;
+
+    event.preventDefault();
 
     const deltaX = event.clientX - chatDragRef.current.startPointerX;
     if (Math.abs(deltaX) > 3) {
@@ -837,27 +841,26 @@ return (
       </nav>
     </div>
 
-    {/* HEADER COMPACTO CON BOTÓN INTEGRADO */}
-    <header className="w-full max-w-md mx-auto flex justify-between items-center py-1 px-3 shrink-0 bg-[#0f172a] z-[1002]">
-      <button 
-        onClick={() => setIsMenuOpen(true)}
-        className="bg-[#1e293b] p-2.5 rounded-full shadow-lg border border-white/10 active:scale-90 transition-transform"
-      >
-        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-        </svg>
-      </button>
-
-      <div className="flex items-center gap-2 bg-[#1e293b] px-3 py-1 rounded-full border border-white/5">
-        <div className={`h-1.5 w-1.5 rounded-full ${taxiPos?.lat && taxiPos?.lng ? 'bg-[#22c55e]' : 'bg-red-500 animate-ping'}`}></div>
-        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
-          ECO-{user.taxiNumber}
-        </span>
-      </div>
-    </header>
-
     {/* CONTENIDO DINÁMICO (Mapa o Historial) */}
     <main className="flex-1 w-full relative bg-[#1e293b] overflow-hidden">
+      <div className="absolute top-3 left-3 right-3 z-[1200] flex items-center justify-between pointer-events-none">
+        <button
+          onClick={() => setIsMenuOpen(true)}
+          className="pointer-events-auto bg-[#1e293b]/95 p-2.5 rounded-full shadow-lg border border-white/10 active:scale-90 transition-transform"
+        >
+          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+
+        <div className="flex items-center gap-2 bg-[#1e293b]/95 px-3 py-1 rounded-full border border-white/10 backdrop-blur-sm">
+          <div className={`h-1.5 w-1.5 rounded-full ${taxiPos?.lat && taxiPos?.lng ? 'bg-[#22c55e]' : 'bg-red-500 animate-ping'}`}></div>
+          <span className="text-[8px] font-black text-slate-300 uppercase tracking-widest">
+            ECO-{user.taxiNumber}
+          </span>
+        </div>
+      </div>
+
       {vistaActual === 'mapa' ? (
         taxiPos?.lat ? (
           <div className="relative w-full h-full">
@@ -915,7 +918,7 @@ return (
             <MapContainer 
               center={[taxiPos.lat, taxiPos.lng]} 
               zoom={15} 
-              style={{ height: "100vh", width: "100%" }}
+              style={{ height: "100%", width: "100%" }}
               zoomControl={false}
             >
               <MapFixer />
@@ -978,7 +981,7 @@ return (
       {vistaActual === 'mapa' && estado === "encamino" && pasajeroAsignado && (
         <>
           {chatAbierto && (
-            <div className={`absolute z-[2000] bottom-24 ${chatPanelOnLeft ? "left-3 sm:left-4" : "right-3 sm:right-4"} left-3 sm:left-auto sm:w-[340px] bg-[#0f172a]/95 border border-white/10 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md`}>
+            <div className={`fixed z-[2000] bottom-24 ${chatPanelOnLeft ? "left-3 sm:left-4" : "right-3 sm:right-4"} left-3 sm:left-auto sm:w-[340px] bg-[#0f172a]/95 border border-white/10 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md`}>
               <div className="h-11 px-4 flex items-center justify-between bg-white/5 border-b border-white/10">
                 <span className="text-[10px] font-black text-white uppercase tracking-widest">Chat con Pasajero</span>
                 <div className="flex items-center gap-3">
@@ -1010,7 +1013,7 @@ return (
               onPointerUp={finishChatBubbleDrag}
               onPointerCancel={finishChatBubbleDrag}
               style={{ left: `${chatBubbleX ?? CHAT_BUBBLE_MARGIN}px` }}
-              className="absolute z-[2000] bottom-24 h-[52px] w-[52px] bg-[#22c55e] text-[#0f172a] rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-lg flex items-center justify-center active:translate-y-1 select-none"
+              className="fixed z-[2000] bottom-24 h-[52px] w-[52px] bg-[#22c55e] text-[#0f172a] rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-lg flex items-center justify-center active:translate-y-1 select-none touch-none"
               title="Chat con pasajero"
               aria-label="Abrir chat con pasajero"
               data-dragging={isDraggingChatBubble ? "true" : "false"}
