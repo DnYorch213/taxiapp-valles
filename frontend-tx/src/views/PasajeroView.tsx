@@ -3,6 +3,7 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { socket } from "../lib/socket";
 import { useTravel } from "../context/TravelContext";
+import { useNavigate } from "react-router-dom";
 import { useGeolocation } from "../hooks/useGeolocation";
 import { Payload, ViajeEstado } from "../types/Payload";
 import { ChatBox } from "../components/ChatBox";
@@ -24,7 +25,8 @@ const PasajeroView: React.FC = () => {
   const CHAT_BUBBLE_SIZE = 52;
   const CHAT_BUBBLE_MARGIN = 12;
 
-  const { userPosition, setUserPosition, taxiPos, setTaxiPos } = useTravel();
+  const { userPosition, setUserPosition, taxiPos, setTaxiPos, logout } = useTravel();
+  const navigate = useNavigate();
   const [estado, setEstado] = useState<ViajeEstado>(TRIP_STATES.PENDIENTE);
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
   const [chatAbierto, setChatAbierto] = useState(false);
@@ -449,6 +451,12 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     return estado ? estado.toUpperCase() : "";
   };
 
+  const handleLogout = () => {
+    logout();
+    socket.disconnect();
+    navigate("/login");
+  };
+
   return (
     <div className="h-dvh bg-slate-50 flex flex-col items-center font-sans relative overflow-hidden">
       <ToastContainer theme="light" />
@@ -468,6 +476,15 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
             ></div>
             <span className="text-[8px] font-black text-slate-500 uppercase">GPS</span>
           </div>
+        </div>
+
+        <div className="absolute top-14 left-4 z-[1002]">
+          <button
+            onClick={handleLogout}
+            className="bg-red-600 text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-lg active:scale-95"
+          >
+            Salir
+          </button>
         </div>
 
         {/* MAPA */}

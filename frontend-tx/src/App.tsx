@@ -1,5 +1,5 @@
 import React, { Suspense, lazy } from "react";
-import { BrowserRouter as Router, Routes, Route, Link, useNavigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Link, useNavigate, useLocation } from "react-router-dom";
 import { PrivateRoute } from "./components/PrivateRoute";
 import { TravelProvider, useTravel } from "./context/TravelContext";
 import { socket } from "./lib/socket";
@@ -68,27 +68,39 @@ const Navbar: React.FC = () => {
   );
 };
 
+const AppLayout: React.FC = () => {
+  const location = useLocation();
+  const hideNavbarRoutes = ["/pasajero", "/taxista"];
+  const shouldShowNavbar = !hideNavbarRoutes.includes(location.pathname);
+
+  return (
+    <>
+      {shouldShowNavbar && <Navbar />}
+      <Suspense fallback={<div className="p-8 text-center font-bold">Cargando...</div>}>
+        <Routes>
+          <Route path="/" element={<div className="p-8 text-center font-bold">Bienvenido a Valles Viaje 🚕</div>} />
+          <Route path="/login" element={<LoginView />} />
+          <Route path="/register" element={<RegisterView />} />
+
+          {/* Rutas protegidas */}
+          <Route path="/pasajero" element={<PrivateRoute role="pasajero"><PasajeroView /></PrivateRoute>} />
+          <Route path="/taxista" element={<PrivateRoute role="taxista"><TaxistaView /></PrivateRoute>} />
+          <Route path="/panel" element={<PrivateRoute role="admin"><PanelCentral /></PrivateRoute>} />
+
+          {/* ✅ Esta es la ruta principal de administración ahora */}
+          <Route path="/verificar-taxistas" element={<PrivateRoute role="admin"><AdminVerificacion /></PrivateRoute>} />
+          <Route path="/historial-viajes" element={<PrivateRoute role="admin"><AdminHistoryPage /></PrivateRoute>} />
+        </Routes>
+      </Suspense>
+    </>
+  );
+};
+
 const App: React.FC = () => {
   return (
     <TravelProvider>
       <Router>
-        <Navbar />
-        <Suspense fallback={<div className="p-8 text-center font-bold">Cargando...</div>}>
-          <Routes>
-            <Route path="/" element={<div className="p-8 text-center font-bold">Bienvenido a Valles Viaje 🚕</div>} />
-            <Route path="/login" element={<LoginView />} />
-            <Route path="/register" element={<RegisterView />} />
-
-            {/* Rutas protegidas */}
-            <Route path="/pasajero" element={<PrivateRoute role="pasajero"><PasajeroView /></PrivateRoute>} />
-            <Route path="/taxista" element={<PrivateRoute role="taxista"><TaxistaView /></PrivateRoute>} />
-            <Route path="/panel" element={<PrivateRoute role="admin"><PanelCentral /></PrivateRoute>} />
-            
-            {/* ✅ Esta es la ruta principal de administración ahora */}
-            <Route path="/verificar-taxistas" element={<PrivateRoute role="admin"><AdminVerificacion /></PrivateRoute>} />
-            <Route path="/historial-viajes" element={<PrivateRoute role="admin"><AdminHistoryPage /></PrivateRoute>} />
-          </Routes>
-        </Suspense>
+        <AppLayout />
       </Router>
     </TravelProvider>
   );
