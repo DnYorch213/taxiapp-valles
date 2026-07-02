@@ -11,6 +11,7 @@ interface LoginResponse {
   name: string;
   taxiNumber?: string;
   email: string;
+  phone?: string;
   lastCoords?: { lat: number; lng: number } | null;
   adminApproval?: "pendiente" | "aprobado" | "rechazado";
 }
@@ -26,7 +27,7 @@ const LoginView: React.FC = () => {
   };
 
  const establishSession = (data: LoginResponse) => {
-    const { token, role, name, taxiNumber, email, lastCoords } = data;
+   const { token, role, name, taxiNumber, email, phone, lastCoords } = data;
     const cleanEmail = email.toLowerCase().trim();
 
     // 1. Almacenamiento local
@@ -34,6 +35,7 @@ const LoginView: React.FC = () => {
     localStorage.setItem("email", cleanEmail);
     localStorage.setItem("role", role);
     localStorage.setItem("userName", name);
+    if (phone) localStorage.setItem("phone", phone);
     if (taxiNumber) localStorage.setItem("taxiNumber", taxiNumber);
 
     // 2. Sincronización de Socket (Usando tu nueva función)
@@ -45,6 +47,7 @@ const LoginView: React.FC = () => {
       email: cleanEmail,
       id: cleanEmail,
       name,
+      phone,
       lat: lastCoords?.lat || 21.9850,
       lng: lastCoords?.lng || -99.0150,
       role,

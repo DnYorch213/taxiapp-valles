@@ -7,6 +7,7 @@ interface Taxista {
   _id: string;
   name: string;
   email: string;
+  phone?: string;
   taxiNumber: string;
   adminApproval: string;
 }
@@ -154,6 +155,9 @@ const AdminVerificacion: React.FC = () => {
                 <div className="flex-1">
                   <h3 className="font-black text-xl leading-tight text-white">{taxista.name}</h3>
                   <p className="text-slate-400 text-xs font-medium truncate w-40">{taxista.email}</p>
+                  {taxista.phone && (
+                    <p className="text-slate-500 text-[10px] font-bold mt-1">Cel: {taxista.phone}</p>
+                  )}
                 </div>
                 <div className="bg-[#22c55e]/10 px-3 py-1 rounded-full border border-[#22c55e]/20">
                   <span className="text-[10px] font-black text-[#22c55e]">ECO-{taxista.taxiNumber}</span>
@@ -205,6 +209,7 @@ const AdminVerificacion: React.FC = () => {
                 <div>
                   <h3 className="font-bold text-sm text-white">{taxista.name}</h3>
                   <p className="text-[#22c55e] text-[9px] uppercase font-black">ECO-{taxista.taxiNumber}</p>
+                  {taxista.phone && <p className="text-slate-500 text-[10px] font-bold">Cel: {taxista.phone}</p>}
                 </div>
               </div>
               <div className="flex flex-col items-end">

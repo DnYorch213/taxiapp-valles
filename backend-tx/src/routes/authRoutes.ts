@@ -11,8 +11,19 @@ const router = Router();
 // --- RUTA: REGISTRO ---
 router.post("/register", async (req: Request, res: Response) => {
     try {
-        const { name, email, password, role, taxiNumber } = req.body;
+        const { name, email, phone, password, role, taxiNumber } = req.body;
         const normalizedEmail = email?.toLowerCase().trim();
+        const digitsOnlyPhone = String(phone ?? "").replace(/\D/g, "");
+        const normalizedPhone =
+            digitsOnlyPhone.length === 12 && digitsOnlyPhone.startsWith("52")
+                ? digitsOnlyPhone.slice(2)
+                : digitsOnlyPhone;
+
+        if (normalizedPhone.length !== 10) {
+            return res.status(400).json({
+                message: "El celular debe tener 10 dígitos (puedes incluir +52).",
+            });
+        }
 
         // Aquí pegas todas tus validaciones (role === "admin", emailRegex, etc.)
         // ... (Tu lógica de validación de Valles)
@@ -24,6 +35,7 @@ router.post("/register", async (req: Request, res: Response) => {
         const user = new User({
             name: name.trim(),
             email: normalizedEmail,
+            phone: normalizedPhone,
             password: hashed,
             role,
             taxiNumber: role === "taxista" ? taxiNumber.trim() : undefined,
@@ -49,7 +61,7 @@ router.post("/login", async (req: Request, res: Response) => {
 
         const lastPos = await Position.findOne({ email: user.email });
         const token = jwt.sign(
-            { email: user.email, name: user.name, role: user.role, taxiNumber: user.taxiNumber },
+            { email: user.email, name: user.name, phone: user.phone, role: user.role, taxiNumber: user.taxiNumber },
             process.env.JWT_SECRET as string,
             { expiresIn: '30d' }
         );
@@ -58,6 +70,7 @@ router.post("/login", async (req: Request, res: Response) => {
             token,
             role: user.role,
             name: user.name,
+            phone: user.phone,
             taxiNumber: user.taxiNumber,
             email: user.email,
             adminApproval: user.adminApproval,

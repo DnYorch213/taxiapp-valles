@@ -789,7 +789,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         </div>
 
         {/* Badge de estado */}
-        <div className="absolute top-4 right-4 z-[1000]">
+        <div className="absolute top-8 right-4 z-[1000]">
           <div
             className={`px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all duration-500 ${
               estado === "encurso"
@@ -807,7 +807,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         {taxistaAsignado && (
           <div className="mx-6 mt-3 relative z-[1001] p-3 bg-white border border-slate-100 rounded-[1.5rem] flex items-center gap-4 shadow-xl">
             <div className="h-10 w-10 bg-green-50 rounded-xl flex items-center justify-center text-lg">
-              ­ƒÜû
+              🚖
             </div>
             <div className="flex-1 flex items-baseline gap-2">
               <p className="text-[14px] font-black text-slate-800 leading-tight">
@@ -859,40 +859,42 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       {/* CHAT FLOTANTE */}
       {taxistaAsignado?.email && ["asignado", "encamino"].includes(estado) && (
         <>
-          {chatAbierto && (
-            <div className={`fixed z-[2000] bottom-24 ${chatPanelOnLeft ? "left-3 sm:left-4" : "right-3 sm:right-4"} left-3 sm:left-auto sm:w-[340px] bg-white border border-slate-100 rounded-2xl shadow-2xl overflow-hidden`}>
-              <div className="h-11 px-4 flex items-center justify-between bg-white border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                  </span>
-                  <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Chat con Unidad</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setChatAbierto(false)}
-                    className="text-slate-500 hover:text-slate-800 text-xs font-black uppercase tracking-widest"
-                  >
-                    Minimizar
-                  </button>
-                  <button
-                    onClick={() => setChatAbierto(false)}
-                    className="text-slate-500 hover:text-slate-800 text-sm font-black"
-                    aria-label="Cerrar chat"
-                  >
-                    ├ù
-                  </button>
-                </div>
+          <div
+            className={`fixed z-[2000] bottom-24 ${chatPanelOnLeft ? "left-3 sm:left-4" : "right-3 sm:right-4"} left-3 sm:left-auto sm:w-[340px] bg-white border border-slate-100 rounded-2xl shadow-2xl overflow-hidden transition-opacity duration-150 ${
+              chatAbierto ? "opacity-100 visible" : "opacity-0 invisible pointer-events-none"
+            }`}
+          >
+            <div className="h-11 px-4 flex items-center justify-between bg-white border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                </span>
+                <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Chat con Unidad</span>
               </div>
-              <div className="h-[280px] bg-white">
-                <ChatBox
-                  toEmail={taxistaAsignado.email || (taxistaAsignado as any).taxistaEmail || ""}
-                  userName={userPosition?.name || "Pasajero"}
-                />
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setChatAbierto(false)}
+                  className="text-slate-500 hover:text-slate-800 text-xs font-black uppercase tracking-widest"
+                >
+                  Minimizar
+                </button>
+                <button
+                  onClick={() => setChatAbierto(false)}
+                  className="text-slate-500 hover:text-slate-800 text-sm font-black"
+                  aria-label="Cerrar chat"
+                >
+                  x
+                </button>
               </div>
             </div>
-          )}
+            <div className="h-[280px] bg-white">
+              <ChatBox
+                toEmail={taxistaAsignado.email || (taxistaAsignado as any).taxistaEmail || ""}
+                userName={userPosition?.name || "Pasajero"}
+              />
+            </div>
+          </div>
 
           {!chatAbierto && (
             <button
@@ -906,21 +908,21 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               aria-label="Abrir chat con unidad"
               data-dragging={isDraggingChatBubble ? "true" : "false"}
             >
-              ­ƒÆ¼
+              💬
             </button>
           )}
         </>
       )}
 
-      {/* PANTALLA DE FINALIZACI├ôN */}
+      {/* PANTALLA DE FINALIZACIÓN */}
       {estado === "finalizado" && (
         <div className="fixed inset-0 z-[3000] bg-[#22c55e] flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in">
           <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center text-center max-w-xs w-full">
             <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center text-3xl mb-4">
-              ­ƒÜò
+              ✓
             </div>
             <div className="text-2xl font-black text-slate-800 tracking-tighter mb-4 uppercase leading-tight">
-              ┬íGracias por viajar con nosotros!
+              ¡Gracias por viajar con nosotros!
             </div>
             <button
               onClick={resetearApp}

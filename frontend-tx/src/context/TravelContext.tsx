@@ -23,6 +23,7 @@ interface DecodedToken extends JwtPayload {
   email: string;
   role: Rol;
   name?: string;
+  phone?: string;
   taxiNumber?: string;
 }
 
@@ -48,6 +49,7 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return {
           email: decoded.email,
           name: decoded.name || "Usuario",
+          phone: decoded.phone,
           lat: null,
           lng: null,
           role: decoded.role,

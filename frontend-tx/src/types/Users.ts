@@ -5,6 +5,7 @@ export interface Users {
   id?: string;         // opcional, útil en frontend
   name: string;
   email: string;
+  phone?: string;
   password?: string | null;  // opcional en payloads, nunca se expone completo
   role: Rol;
   taxiNumber?: string;       // solo para taxistas, opcional

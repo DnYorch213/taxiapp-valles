@@ -10,6 +10,7 @@ const RegisterView: React.FC = () => {
   const [form, setForm] = useState({ 
     name: "", 
     email: "", 
+    phone: "",
     password: "", 
     role: "pasajero", 
     taxiNumber: "" 
@@ -31,6 +32,17 @@ const RegisterView: React.FC = () => {
  const handleSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
 
+  const digitsOnlyPhone = form.phone.replace(/\D/g, "");
+  const normalizedPhone =
+    digitsOnlyPhone.length === 12 && digitsOnlyPhone.startsWith("52")
+      ? digitsOnlyPhone.slice(2)
+      : digitsOnlyPhone;
+
+  if (normalizedPhone.length !== 10) {
+    alert("⚠️ El celular debe tener 10 dígitos (puedes incluir +52)");
+    return;
+  }
+
   // 🛡️ Validación extra antes de disparar la red
   if (form.role === "taxista") {
     const num = parseInt(form.taxiNumber);
@@ -41,7 +53,8 @@ const RegisterView: React.FC = () => {
   }
 
   try {
-    const res = await axiosInstance.post<RegisterResponse>(`/api/auth/register`, form);
+    const payload = { ...form, phone: normalizedPhone };
+    const res = await axiosInstance.post<RegisterResponse>(`/api/auth/register`, payload);
     alert("✅ " + res.data.message);
     navigate("/login");
   } catch (error: any) {
@@ -88,6 +101,22 @@ const RegisterView: React.FC = () => {
             type="email" name="email" value={form.email} onChange={handleChange} required
             className="w-full p-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-[#22c55e] transition-all outline-none font-medium text-slate-700 placeholder:text-slate-300"
             placeholder="correo@ejemplo.com"
+          />
+        </div>
+
+        {/* CELULAR */}
+        <div>
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4 mb-1 block">Celular</label>
+          <input
+            type="tel"
+            name="phone"
+            value={form.phone}
+            onChange={handleChange}
+            required
+            inputMode="numeric"
+            autoComplete="tel-national"
+            className="w-full p-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-[#22c55e] transition-all outline-none font-medium text-slate-700 placeholder:text-slate-300"
+            placeholder="Ej. 4811234567"
           />
         </div>
 

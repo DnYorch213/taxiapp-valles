@@ -18,6 +18,7 @@ export interface Position {
   id?: string;
   lat: number | null;
   lng: number | null;
+  phone?: string;
   destinationLat?: number | null;
   destinationLng?: number | null;
   heading?: number | null;
