@@ -47,7 +47,7 @@ const PasajeroView: React.FC = () => {
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
   const [geometriaRuta, setGeometriaRuta] = useState<L.LatLngExpression[]>([]);
 
-  // ­ƒÄ» REFS CENTRALIZADAS - Evitan closures obsoletos en listeners
+  // REFS CENTRALIZADAS - Evitan closures obsoletos en listeners
   const taxistaAsignadoRef = useRef<Payload | null>(null);
   const estadoRef = useRef<ViajeEstado>(TRIP_STATES.PENDIENTE);
   const taxiPosRef = useRef<any>(null);
@@ -58,7 +58,7 @@ const PasajeroView: React.FC = () => {
     moved: false,
   });
 
-  // Sincronizaci├│n de refs (un solo efecto para todas)
+  // Sincronización de refs (un solo efecto para todas)
   useEffect(() => { taxistaAsignadoRef.current = taxistaAsignado; }, [taxistaAsignado]);
   useEffect(() => { estadoRef.current = estado; }, [estado]);
   useEffect(() => { taxiPosRef.current = taxiPos; }, [taxiPos]);
@@ -103,14 +103,14 @@ const PasajeroView: React.FC = () => {
     localStorage.removeItem("taxi_destination_lng");
   }, [destinationLat, destinationLng]);
 
-  // ­ƒÄ» GEOCONFIG ESTABLE - Solo cambia cuando el email cambia realmente
+  // GEOCONFIG ESTABLE - Solo cambia cuando el email cambia realmente
   const geoConfig = useMemo(() => ({
     email: userPosition?.email || "",
     name: userPosition?.name || "Pasajero",
     role: "pasajero" as const,
   }), [userPosition?.email, userPosition?.name]);
 
-  // ­ƒÄ» GPS con callback estable usando refs
+  // GPS con callback estable usando refs
   const handlePositionUpdate = useCallback((pos: any) => {
     if (pos.lat && pos.lng) {
       const current = userPositionRef.current;
@@ -296,14 +296,14 @@ const PasajeroView: React.FC = () => {
       : false;
 
   // ============================================================
-  // ­ƒÄ» LISTENERS DE SOCKET - SIN DEPENDENCIAS VOL├üTILES
+  // ­ LISTENERS DE SOCKET - SIN DEPENDENCIAS VOLÁTILES
   // ============================================================
   useEffect(() => {
     if (!socket) return;
 
-    // Ô£à ACEPTACI├ôN DEL TAXI (sin setTimeout innecesario)
+    // ACEPTACIÓN DEL TAXI (sin setTimeout innecesario)
     socket.on("response_from_taxi", (data) => {
-      console.log("­ƒÜò Respuesta del taxi recibida:", data);
+      console.log("­Respuesta del taxi recibida:", data);
 
       if (data.accepted) {
         const cleanEmail = data.tEmail?.toLowerCase().trim();
@@ -328,14 +328,14 @@ const PasajeroView: React.FC = () => {
         }
         setHistorialRuta([]);
 
-        toast.success(`┬íLa Unidad ${data.taxiNumber} (${data.name}) va en camino!`, {
+        toast.success(`¡La Unidad ${data.taxiNumber} (${data.name}) va en camino!`, {
           position: "top-center",
           autoClose: 5000,
         });
       }
     });
 
-    // Ô£à TAXI MOVIDO (con orientaci├│n geogr├ífica)
+    // TAXI MOVIDO (con orientación geográfica)
     socket.on("taxi_moved", (data: any) => {
       const emailAsignado = taxistaAsignadoRef.current?.email?.toLowerCase().trim();
       const emailEntrante = (data.tEmail || data.email || data.taxistaEmail)?.toLowerCase().trim();
@@ -365,12 +365,12 @@ const PasajeroView: React.FC = () => {
       }
     });
 
-    // Ô£à ACTUALIZACI├ôN DE RUTA EN CURSO
+    // ACTUALIZACIÓN DE RUTA EN CURSO
 socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   const latNum = Number(data.lat);
   const lngNum = Number(data.lng);
 
-  // ­ƒÄ» CORRECCI├ôN: Usar L.latLng() para garantizar el tipo correcto
+  // CORRECCIÓN: Usar L.latLng() para garantizar el tipo correcto
   setHistorialRuta((prev) => {
     const newHistory = [...prev, L.latLng(latNum, lngNum)];
     return newHistory.length > 500 ? newHistory.slice(-500) : newHistory;
@@ -394,7 +394,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }
 });
 
-    // Ô£à ACTUALIZACI├ôN DE ESTADO DEL VIAJE
+    // ACTUALIZACIÓN DE ESTADO DEL VIAJE
     socket.on("trip_status_update", (data: { estado: string; pasajeroEmail?: string }) => {
       const miEmail = userPositionRef.current?.email?.toLowerCase().trim();
       const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
@@ -408,7 +408,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
           setHistorialRuta([[Number(taxiActual.lat), Number(taxiActual.lng)]]);
           setGeometriaRuta([L.latLng(Number(taxiActual.lat), Number(taxiActual.lng))]);
         }
-        toast.success("┬íViaje iniciado! Que tengas un buen trayecto.");
+        toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
       }
 
       // Escudo contra saltos accidentales
@@ -416,7 +416,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         ["encurso", "finalizado", "pendiente"].includes(estadoRef.current) &&
         data.estado === "buscando"
       ) {
-        console.warn("­ƒøí´©Å Ignorado salto a 'buscando' porque el viaje ya est├í cerrado o en curso.");
+        console.warn("Ignorado salto a 'buscando' porque el viaje ya está cerrado o en curso.");
         return;
       }
 
@@ -427,11 +427,11 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         setTaxiPos(null);
         setChatAbierto(false);
         setGeometriaRuta([]);
-        toast.success("┬íViaje finalizado!");
+        toast.success("¡Viaje finalizado!");
       }
     });
 
-    // Ô£à VIAJE TERMINADO
+    // VIAJE TERMINADO
     socket.on("trip_finished", (data: { pasajeroEmail: string }) => {
       const miEmail = userPositionRef.current?.email?.toLowerCase().trim();
       const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
@@ -443,14 +443,14 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         setHistorialRuta([]);
         setGeometriaRuta([]);
         setChatAbierto(false);
-        toast.success("┬íViaje finalizado! Gracias por viajar con nosotros.", {
+        toast.success("¡Viaje finalizado! Gracias por viajar con nosotros.", {
           position: "top-center",
           autoClose: 4000,
         });
       }
     });
 
-    // Ô£à TAXI RECHAZ├ô LA SOLICITUD
+    // TAXI RECHAZÓ LA SOLICITUD
     socket.on("taxi_rejected_request", () => {
       setTaxistaAsignado(null);
       setTaxiPos(null);
@@ -466,21 +466,21 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       socket.off("trip_finished");
       socket.off("taxi_rejected_request");
     };
-  }, [socket]); // ­ƒÄ» SOLO depende de socket - nunca se re-registra por cambios de posici├│n
+  }, [socket]); //  SOLO depende de socket - nunca se re-registra por cambios de posición
 
   // ============================================================
-  // ­ƒÄ» HEARTBEAT OPTIMIZADO - No se re-crea en cada cambio de posici├│n
+  //  HEARTBEAT OPTIMIZADO - No se re-crea en cada cambio de posición
   // ============================================================
   useEffect(() => {
     if (!userPosition?.email || !userPosition?.lat) return;
 
     const interval = setInterval(() => {
-      // Candado: no enviar si est├í inactivo
+      // Candado: no enviar si está inactivo
       if (estadoRef.current === "pendiente" || estadoRef.current === "finalizado") return;
       
-      // ­ƒøí´©Å Verificar que el socket est├® conectado antes de emitir
+      // Verificar que el socket esté conectado antes de emitir
       if (!socket?.connected) {
-        console.warn("ÔÜá´©Å Socket desconectado, omitiendo heartbeat");
+        console.warn("Socket desconectado, omitiendo heartbeat");
         return;
       }
 
@@ -495,31 +495,31 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     }, 12000);
 
     return () => clearInterval(interval);
-  }, [userPosition?.email, userPosition?.lat]); // ­ƒÄ» Solo depende del email y si hay lat
+  }, [userPosition?.email, userPosition?.lat]); // Solo depende del email y si hay lat
 
   // ============================================================
-  // ­ƒÄ» SOLICITAR TAXI - CON FEEDBACK INMEDIATO
+  // SOLICITAR TAXI - CON FEEDBACK INMEDIATO
   // ============================================================
   const solicitarTaxi = useCallback(() => {
     // Escudo anti-disparos
     if (["asignado", "encamino", "encurso", "buscando"].includes(estado)) {
-      console.warn("­ƒøí´©Å Intento de solicitarTaxi bloqueado: viaje ya activo.");
+      console.warn("Intento de solicitarTaxi bloqueado: viaje ya activo.");
       return;
     }
 
     if (!userPosition?.lat || !userPosition?.lng) {
-      toast.error("­ƒôì Esperando se├▒al GPS...");
+      toast.error("Esperando señal GPS...");
       return;
     }
 
-    // ­ƒøí´©Å Verificar conexi├│n del socket
+    // Verificar conexión del socket
     if (!socket?.connected) {
-      toast.error("­ƒôí Sin conexi├│n al servidor. Reintentando...");
+      toast.error("Sin conexión al servidor. Reintentando...");
       socket?.connect?.();
       return;
     }
 
-    // Ô£à FEEDBACK INMEDIATO: Cambiar estado ANTES de emitir
+    // FEEDBACK INMEDIATO: Cambiar estado ANTES de emitir
     setEstado(TRIP_STATES.BUSCANDO || ("buscando" as ViajeEstado));
 
     socket.emit("request_taxi", {
@@ -535,7 +535,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       timestamp: new Date().toISOString(),
     });
 
-    toast.info("­ƒÜò Buscando taxi disponible...", { autoClose: 3000 });
+    toast.info("Buscando taxi disponible...", { autoClose: 3000 });
   }, [userPosition, estado, destinationLat, destinationLng, destinationAddress, destinationQuery]);
 
   const cancelarSolicitud = useCallback(() => {
@@ -566,7 +566,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }, [limpiarDestino]);
 
   // ============================================================
-  // ­ƒÄ» RECORTE DE RUTA DIN├üMICA (optimizado)
+  // RECORTE DE RUTA DINÁMICA (optimizado)
   // ============================================================
   useEffect(() => {
     if (!taxiPos?.lat || !taxiPos?.lng || geometriaRuta.length === 0) return;
@@ -588,10 +588,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     if (distanciaMinima < 45 && indiceMasCercano > 0) {
       setGeometriaRuta((prev) => prev.slice(indiceMasCercano));
     } else if (distanciaMinima >= 45) {
-      console.log("­ƒöä Taxista tom├│ otra calle. Recalculando polil├¡nea...");
+      console.log("El taxista tomó otra calle. Recalculando polilínea...");
       setGeometriaRuta([]);
     }
-  }, [taxiPos, estado, geometriaRuta.length]); // ­ƒÄ» Solo reaccionar al length, no al array completo
+  }, [taxiPos, estado, geometriaRuta.length]); //  Solo reaccionar al length, no al array completo
 
   const obtenerTextoEstado = () => {
     if (estado === "pendiente") return "ACTIVO";
@@ -627,7 +627,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
           </div>
         </div>
 
-        <div className="absolute top-14 left-4 z-[1002]">
+        <div className="absolute top-10 left-4 z-[1002]">
           <button
             onClick={handleLogout}
             className="bg-red-600 text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-lg active:scale-95"
@@ -691,7 +691,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 </RotatedMarker>
               )}
 
-              {/* L├ìNEA 1: Ruta de aproximaci├│n */}
+              {/* LÍNEA 1: Ruta de aproximación */}
               {["asignado", "encamino"].includes(estado) && geometriaRuta.length > 0 && (
                 <Polyline
                   positions={geometriaRuta}
@@ -725,7 +725,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                   </Suspense>
                 )}
 
-              {/* L├ìNEA 2: Rastro del viaje */}
+              {/* LÍNEA 2: Rastro del viaje */}
               {estado === "encurso" && historialRuta.length > 0 && (
                 <Polyline
                   positions={historialRuta}
@@ -733,7 +733,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 />
               )}
 
-              {/* L├ìNEA 3: Rumbo al destino */}
+              {/* LÍNEA 3: Rumbo al destino */}
               {estado === "encurso" && geometriaRuta.length > 0 && (
                 <Polyline
                   positions={geometriaRuta}
@@ -783,7 +783,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
             </>
           ) : (
             <div className="flex items-center justify-center h-full text-slate-400 font-black text-[10px] uppercase tracking-widest animate-pulse">
-              Buscando tu ubicaci├│n...
+              Buscando tu ubicación...
             </div>
           )}
         </div>
@@ -805,7 +805,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
         {/* CARD DEL TAXISTA */}
         {taxistaAsignado && (
-          <div className="mx-6 -mt-8 relative z-[1001] p-3 bg-white border border-slate-100 rounded-[1.5rem] flex items-center gap-4 shadow-xl">
+          <div className="mx-6 mt-3 relative z-[1001] p-3 bg-white border border-slate-100 rounded-[1.5rem] flex items-center gap-4 shadow-xl">
             <div className="h-10 w-10 bg-green-50 rounded-xl flex items-center justify-center text-lg">
               ­ƒÜû
             </div>
@@ -835,21 +835,14 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
           </div>
 
           <div className="space-y-3 pt-2">
-            <button
-              onClick={solicitarTaxi}
-              disabled={estado !== "pendiente"}
-              className={`w-full py-5 rounded-[1.2rem] font-black transition-all transform active:scale-95 shadow-xl tracking-widest text-xs ${
-                estado === "pendiente"
-                  ? "bg-[#22c55e] text-white shadow-green-900/20 hover:bg-[#16a34a]"
-                  : "bg-slate-800 text-slate-500 cursor-not-allowed opacity-50"
-              }`}
-            >
-              {estado === "pendiente"
-                ? "SOLICITAR TRANSPORTE"
-                : estado === "buscando"
-                ? "BUSCANDO..."
-                : "VIAJE ACTIVO"}
-            </button>
+            {estado === "pendiente" && (
+              <button
+                onClick={solicitarTaxi}
+                className="w-full py-5 rounded-[1.2rem] font-black transition-all transform active:scale-95 shadow-xl tracking-widest text-xs bg-[#22c55e] text-white shadow-green-900/20 hover:bg-[#16a34a]"
+              >
+                SOLICITAR TRANSPORTE
+              </button>
+            )}
 
             {["buscando", "preasignado", "asignado", "encamino"].includes(estado) && (
               <button
