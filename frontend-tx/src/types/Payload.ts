@@ -23,6 +23,9 @@ export interface Payload {
     lat: number | null;
     lng: number | null;
 
+    destinationLat?: number | null;
+    destinationLng?: number | null;
+
     pickupAddress?: string;
     destinationAddress?: string;
 

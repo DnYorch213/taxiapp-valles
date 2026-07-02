@@ -8,12 +8,15 @@ export interface IPosition extends Document {
     role: string;
     lat?: number;
     lng?: number;
+    destinationLat?: number;
+    destinationLng?: number;
     estado: string;
     socketId?: string; // 🆕 AGREGAR ESTA LÍNEA
     taxiNumber?: string;
     taxistaAsignado?: string;
     pasajeroAsignado?: string;
     pickupAddress?: string;
+    destinationAddress?: string;
     requestId?: string;
     pushSubscription?: any;
     updatedAt?: Date;
@@ -27,12 +30,15 @@ const positionSchema = new Schema(
         role: { type: String, required: true, enum: ["pasajero", "taxista", "admin"] },
         lat: { type: Number },
         lng: { type: Number },
+        destinationLat: { type: Number },
+        destinationLng: { type: Number },
         estado: { type: String, default: "pendiente" },
         socketId: { type: String }, // 🆕 AGREGAR ESTA LÍNEA
         taxiNumber: { type: String },
         taxistaAsignado: { type: String, lowercase: true, trim: true },
         pasajeroAsignado: { type: String, lowercase: true, trim: true },
         pickupAddress: { type: String },
+        destinationAddress: { type: String },
         requestId: { type: String },
         pushSubscription: { type: Schema.Types.Mixed },
         updatedAt: { type: Date, default: Date.now },

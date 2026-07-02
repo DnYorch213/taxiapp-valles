@@ -89,11 +89,14 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                             estado: POSITION_STATES.BUSCANDO,
                             lat: data.lat,
                             lng: data.lng,
+                            destinationLat: data.destinationLat ?? null,
+                            destinationLng: data.destinationLng ?? null,
                             name: data.name || "Pasajero",
                             role: "pasajero",
                             taxistaAsignado: null,
                             pasajeroAsignado: currentRequestId,
                             requestId: currentRequestId,
+                            destinationAddress: data.destinationAddress || null,
                             updatedAt: new Date()
                         }
                     },
@@ -146,6 +149,9 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                     lat: data.lat,
                     lng: data.lng,
                     pickupAddress: data.pickupAddress || "Calculando ubicación...",
+                    destinationLat: data.destinationLat ?? null,
+                    destinationLng: data.destinationLng ?? null,
+                    destinationAddress: data.destinationAddress || "Destino no especificado",
                     requestId: currentRequestId
                 };
 

@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useState, useEffect, useMemo, useRef, useCallback } from "react";
+﻿import React, { Suspense, lazy, useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { socket } from "../lib/socket";
@@ -21,6 +21,13 @@ const RoutingMachine = lazy(() =>
   }))
 );
 
+const destinationMarkerIcon = L.divIcon({
+  className: "",
+  html: '<div class="h-9 w-9 rounded-full bg-[#22c55e] text-[#0f172a] shadow-xl border-2 border-white flex items-center justify-center text-xl">📍</div>',
+  iconSize: [36, 36],
+  iconAnchor: [18, 36],
+});
+
 const PasajeroView: React.FC = () => {
   const CHAT_BUBBLE_SIZE = 52;
   const CHAT_BUBBLE_MARGIN = 12;
@@ -32,10 +39,15 @@ const PasajeroView: React.FC = () => {
   const [chatAbierto, setChatAbierto] = useState(false);
   const [chatBubbleX, setChatBubbleX] = useState<number | null>(null);
   const [isDraggingChatBubble, setIsDraggingChatBubble] = useState(false);
+  const [destinationQuery, setDestinationQuery] = useState("");
+  const [destinationAddress, setDestinationAddress] = useState("");
+  const [destinationLat, setDestinationLat] = useState<number | null>(null);
+  const [destinationLng, setDestinationLng] = useState<number | null>(null);
+  const [isSearchingDestination, setIsSearchingDestination] = useState(false);
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
   const [geometriaRuta, setGeometriaRuta] = useState<L.LatLngExpression[]>([]);
 
-  // 🎯 REFS CENTRALIZADAS - Evitan closures obsoletos en listeners
+  // ­ƒÄ» REFS CENTRALIZADAS - Evitan closures obsoletos en listeners
   const taxistaAsignadoRef = useRef<Payload | null>(null);
   const estadoRef = useRef<ViajeEstado>(TRIP_STATES.PENDIENTE);
   const taxiPosRef = useRef<any>(null);
@@ -46,20 +58,59 @@ const PasajeroView: React.FC = () => {
     moved: false,
   });
 
-  // Sincronización de refs (un solo efecto para todas)
+  // Sincronizaci├│n de refs (un solo efecto para todas)
   useEffect(() => { taxistaAsignadoRef.current = taxistaAsignado; }, [taxistaAsignado]);
   useEffect(() => { estadoRef.current = estado; }, [estado]);
   useEffect(() => { taxiPosRef.current = taxiPos; }, [taxiPos]);
   useEffect(() => { userPositionRef.current = userPosition; }, [userPosition]);
 
-  // 🎯 GEOCONFIG ESTABLE - Solo cambia cuando el email cambia realmente
+  useEffect(() => {
+    const savedQuery = localStorage.getItem("taxi_destination_query") || "";
+    const savedAddress = localStorage.getItem("taxi_destination_address") || "";
+    const savedLat = localStorage.getItem("taxi_destination_lat");
+    const savedLng = localStorage.getItem("taxi_destination_lng");
+
+    if (savedQuery) setDestinationQuery(savedQuery);
+    if (savedAddress) setDestinationAddress(savedAddress);
+    if (savedLat && savedLng) {
+      const latNum = Number(savedLat);
+      const lngNum = Number(savedLng);
+      if (!Number.isNaN(latNum) && !Number.isNaN(lngNum)) {
+        setDestinationLat(latNum);
+        setDestinationLng(lngNum);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (destinationQuery) localStorage.setItem("taxi_destination_query", destinationQuery);
+    else localStorage.removeItem("taxi_destination_query");
+  }, [destinationQuery]);
+
+  useEffect(() => {
+    if (destinationAddress) localStorage.setItem("taxi_destination_address", destinationAddress);
+    else localStorage.removeItem("taxi_destination_address");
+  }, [destinationAddress]);
+
+  useEffect(() => {
+    if (destinationLat !== null && destinationLng !== null) {
+      localStorage.setItem("taxi_destination_lat", String(destinationLat));
+      localStorage.setItem("taxi_destination_lng", String(destinationLng));
+      return;
+    }
+
+    localStorage.removeItem("taxi_destination_lat");
+    localStorage.removeItem("taxi_destination_lng");
+  }, [destinationLat, destinationLng]);
+
+  // ­ƒÄ» GEOCONFIG ESTABLE - Solo cambia cuando el email cambia realmente
   const geoConfig = useMemo(() => ({
     email: userPosition?.email || "",
     name: userPosition?.name || "Pasajero",
     role: "pasajero" as const,
   }), [userPosition?.email, userPosition?.name]);
 
-  // 🎯 GPS con callback estable usando refs
+  // ­ƒÄ» GPS con callback estable usando refs
   const handlePositionUpdate = useCallback((pos: any) => {
     if (pos.lat && pos.lng) {
       const current = userPositionRef.current;
@@ -74,6 +125,92 @@ const PasajeroView: React.FC = () => {
   }, [setUserPosition]);
 
   useGeolocation(geoConfig, handlePositionUpdate);
+
+  const destinationPosition = useMemo<[number, number] | null>(() => {
+    if (destinationLat === null || destinationLng === null) return null;
+    return [destinationLat, destinationLng];
+  }, [destinationLat, destinationLng]);
+
+  const limpiarDestino = useCallback(() => {
+    setDestinationQuery("");
+    setDestinationAddress("");
+    setDestinationLat(null);
+    setDestinationLng(null);
+  }, []);
+
+  const geocodificarDestino = useCallback(async (query: string) => {
+    const cleanQuery = query.trim();
+    if (!cleanQuery) {
+      toast.error("Escribe un destino primero.");
+      return;
+    }
+
+    setIsSearchingDestination(true);
+    try {
+      const url = new URL("https://nominatim.openstreetmap.org/search");
+      url.searchParams.set("format", "jsonv2");
+      url.searchParams.set("q", cleanQuery);
+      url.searchParams.set("limit", "1");
+      url.searchParams.set("addressdetails", "1");
+      url.searchParams.set("countrycodes", "mx");
+
+      const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error("No se pudo buscar la dirección");
+
+      const results = await response.json();
+      if (!Array.isArray(results) || results.length === 0) {
+        toast.error("No encontré esa ubicación. Prueba con otra dirección.");
+        return;
+      }
+
+      const match = results[0];
+      const latNum = Number(match.lat);
+      const lngNum = Number(match.lon);
+
+      if (Number.isNaN(latNum) || Number.isNaN(lngNum)) {
+        toast.error("La ubicación encontrada no es válida.");
+        return;
+      }
+
+      setDestinationLat(latNum);
+      setDestinationLng(lngNum);
+      setDestinationAddress(match.display_name || cleanQuery);
+      setDestinationQuery(match.display_name || cleanQuery);
+      toast.success("Destino ubicado en el mapa.");
+    } catch (error) {
+      console.warn("Error buscando destino:", error);
+      toast.error("No pude buscar el destino en este momento.");
+    } finally {
+      setIsSearchingDestination(false);
+    }
+  }, []);
+
+  const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number) => {
+    setDestinationLat(lat);
+    setDestinationLng(lng);
+
+    try {
+      const url = new URL("https://nominatim.openstreetmap.org/reverse");
+      url.searchParams.set("format", "jsonv2");
+      url.searchParams.set("lat", String(lat));
+      url.searchParams.set("lon", String(lng));
+      url.searchParams.set("zoom", "18");
+      url.searchParams.set("addressdetails", "1");
+
+      const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error("No se pudo resolver la dirección");
+
+      const data = await response.json();
+      const label = data.display_name || `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      setDestinationAddress(label);
+      setDestinationQuery(label);
+    } catch (error) {
+      console.warn("Error resolviendo destino:", error);
+      const label = `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      setDestinationAddress(label);
+      setDestinationQuery(label);
+    }
+  }, []);
 
   const clampBubbleX = useCallback((x: number) => {
     if (typeof window === "undefined") return x;
@@ -151,14 +288,14 @@ const PasajeroView: React.FC = () => {
       : false;
 
   // ============================================================
-  // 🎯 LISTENERS DE SOCKET - SIN DEPENDENCIAS VOLÁTILES
+  // ­ƒÄ» LISTENERS DE SOCKET - SIN DEPENDENCIAS VOL├üTILES
   // ============================================================
   useEffect(() => {
     if (!socket) return;
 
-    // ✅ ACEPTACIÓN DEL TAXI (sin setTimeout innecesario)
+    // Ô£à ACEPTACI├ôN DEL TAXI (sin setTimeout innecesario)
     socket.on("response_from_taxi", (data) => {
-      console.log("🚕 Respuesta del taxi recibida:", data);
+      console.log("­ƒÜò Respuesta del taxi recibida:", data);
 
       if (data.accepted) {
         const cleanEmail = data.tEmail?.toLowerCase().trim();
@@ -183,14 +320,14 @@ const PasajeroView: React.FC = () => {
         }
         setHistorialRuta([]);
 
-        toast.success(`¡La Unidad ${data.taxiNumber} (${data.name}) va en camino!`, {
+        toast.success(`┬íLa Unidad ${data.taxiNumber} (${data.name}) va en camino!`, {
           position: "top-center",
           autoClose: 5000,
         });
       }
     });
 
-    // ✅ TAXI MOVIDO (con orientación geográfica)
+    // Ô£à TAXI MOVIDO (con orientaci├│n geogr├ífica)
     socket.on("taxi_moved", (data: any) => {
       const emailAsignado = taxistaAsignadoRef.current?.email?.toLowerCase().trim();
       const emailEntrante = (data.tEmail || data.email || data.taxistaEmail)?.toLowerCase().trim();
@@ -220,12 +357,12 @@ const PasajeroView: React.FC = () => {
       }
     });
 
-    // ✅ ACTUALIZACIÓN DE RUTA EN CURSO
+    // Ô£à ACTUALIZACI├ôN DE RUTA EN CURSO
 socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   const latNum = Number(data.lat);
   const lngNum = Number(data.lng);
 
-  // 🎯 CORRECCIÓN: Usar L.latLng() para garantizar el tipo correcto
+  // ­ƒÄ» CORRECCI├ôN: Usar L.latLng() para garantizar el tipo correcto
   setHistorialRuta((prev) => {
     const newHistory = [...prev, L.latLng(latNum, lngNum)];
     return newHistory.length > 500 ? newHistory.slice(-500) : newHistory;
@@ -249,7 +386,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }
 });
 
-    // ✅ ACTUALIZACIÓN DE ESTADO DEL VIAJE
+    // Ô£à ACTUALIZACI├ôN DE ESTADO DEL VIAJE
     socket.on("trip_status_update", (data: { estado: string; pasajeroEmail?: string }) => {
       const miEmail = userPositionRef.current?.email?.toLowerCase().trim();
       const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
@@ -263,7 +400,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
           setHistorialRuta([[Number(taxiActual.lat), Number(taxiActual.lng)]]);
           setGeometriaRuta([L.latLng(Number(taxiActual.lat), Number(taxiActual.lng))]);
         }
-        toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
+        toast.success("┬íViaje iniciado! Que tengas un buen trayecto.");
       }
 
       // Escudo contra saltos accidentales
@@ -271,7 +408,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         ["encurso", "finalizado", "pendiente"].includes(estadoRef.current) &&
         data.estado === "buscando"
       ) {
-        console.warn("🛡️ Ignorado salto a 'buscando' porque el viaje ya está cerrado o en curso.");
+        console.warn("­ƒøí´©Å Ignorado salto a 'buscando' porque el viaje ya est├í cerrado o en curso.");
         return;
       }
 
@@ -282,11 +419,11 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         setTaxiPos(null);
         setChatAbierto(false);
         setGeometriaRuta([]);
-        toast.success("¡Viaje finalizado!");
+        toast.success("┬íViaje finalizado!");
       }
     });
 
-    // ✅ VIAJE TERMINADO
+    // Ô£à VIAJE TERMINADO
     socket.on("trip_finished", (data: { pasajeroEmail: string }) => {
       const miEmail = userPositionRef.current?.email?.toLowerCase().trim();
       const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
@@ -298,14 +435,14 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         setHistorialRuta([]);
         setGeometriaRuta([]);
         setChatAbierto(false);
-        toast.success("¡Viaje finalizado! Gracias por viajar con nosotros.", {
+        toast.success("┬íViaje finalizado! Gracias por viajar con nosotros.", {
           position: "top-center",
           autoClose: 4000,
         });
       }
     });
 
-    // ✅ TAXI RECHAZÓ LA SOLICITUD
+    // Ô£à TAXI RECHAZ├ô LA SOLICITUD
     socket.on("taxi_rejected_request", () => {
       setTaxistaAsignado(null);
       setTaxiPos(null);
@@ -321,21 +458,21 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       socket.off("trip_finished");
       socket.off("taxi_rejected_request");
     };
-  }, [socket]); // 🎯 SOLO depende de socket - nunca se re-registra por cambios de posición
+  }, [socket]); // ­ƒÄ» SOLO depende de socket - nunca se re-registra por cambios de posici├│n
 
   // ============================================================
-  // 🎯 HEARTBEAT OPTIMIZADO - No se re-crea en cada cambio de posición
+  // ­ƒÄ» HEARTBEAT OPTIMIZADO - No se re-crea en cada cambio de posici├│n
   // ============================================================
   useEffect(() => {
     if (!userPosition?.email || !userPosition?.lat) return;
 
     const interval = setInterval(() => {
-      // Candado: no enviar si está inactivo
+      // Candado: no enviar si est├í inactivo
       if (estadoRef.current === "pendiente" || estadoRef.current === "finalizado") return;
       
-      // 🛡️ Verificar que el socket esté conectado antes de emitir
+      // ­ƒøí´©Å Verificar que el socket est├® conectado antes de emitir
       if (!socket?.connected) {
-        console.warn("⚠️ Socket desconectado, omitiendo heartbeat");
+        console.warn("ÔÜá´©Å Socket desconectado, omitiendo heartbeat");
         return;
       }
 
@@ -350,31 +487,36 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     }, 12000);
 
     return () => clearInterval(interval);
-  }, [userPosition?.email, userPosition?.lat]); // 🎯 Solo depende del email y si hay lat
+  }, [userPosition?.email, userPosition?.lat]); // ­ƒÄ» Solo depende del email y si hay lat
 
   // ============================================================
-  // 🎯 SOLICITAR TAXI - CON FEEDBACK INMEDIATO
+  // ­ƒÄ» SOLICITAR TAXI - CON FEEDBACK INMEDIATO
   // ============================================================
   const solicitarTaxi = useCallback(() => {
     // Escudo anti-disparos
     if (["asignado", "encamino", "encurso", "buscando"].includes(estado)) {
-      console.warn("🛡️ Intento de solicitarTaxi bloqueado: viaje ya activo.");
+      console.warn("­ƒøí´©Å Intento de solicitarTaxi bloqueado: viaje ya activo.");
       return;
     }
 
     if (!userPosition?.lat || !userPosition?.lng) {
-      toast.error("📍 Esperando señal GPS...");
+      toast.error("­ƒôì Esperando se├▒al GPS...");
       return;
     }
 
-    // 🛡️ Verificar conexión del socket
+    if (destinationLat === null || destinationLng === null) {
+      toast.error("📍 Elige tu destino antes de solicitar el taxi.");
+      return;
+    }
+
+    // ­ƒøí´©Å Verificar conexi├│n del socket
     if (!socket?.connected) {
-      toast.error("📡 Sin conexión al servidor. Reintentando...");
+      toast.error("­ƒôí Sin conexi├│n al servidor. Reintentando...");
       socket?.connect?.();
       return;
     }
 
-    // ✅ FEEDBACK INMEDIATO: Cambiar estado ANTES de emitir
+    // Ô£à FEEDBACK INMEDIATO: Cambiar estado ANTES de emitir
     setEstado(TRIP_STATES.BUSCANDO || ("buscando" as ViajeEstado));
 
     socket.emit("request_taxi", {
@@ -382,13 +524,16 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       name: userPosition.name,
       lat: userPosition.lat,
       lng: userPosition.lng,
+      destinationLat,
+      destinationLng,
+      destinationAddress: destinationAddress || destinationQuery,
       role: "pasajero",
       estado: "buscando",
       timestamp: new Date().toISOString(),
     });
 
-    toast.info("🚕 Buscando taxi disponible...", { autoClose: 3000 });
-  }, [userPosition, estado]);
+    toast.info("­ƒÜò Buscando taxi disponible...", { autoClose: 3000 });
+  }, [userPosition, estado, destinationLat, destinationLng, destinationAddress, destinationQuery]);
 
   const cancelarSolicitud = useCallback(() => {
     setEstado(TRIP_STATES.PENDIENTE);
@@ -414,10 +559,11 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     setHistorialRuta([]);
     setGeometriaRuta([]);
     setChatAbierto(false);
-  }, []);
+    limpiarDestino();
+  }, [limpiarDestino]);
 
   // ============================================================
-  // 🎯 RECORTE DE RUTA DINÁMICA (optimizado)
+  // ­ƒÄ» RECORTE DE RUTA DIN├üMICA (optimizado)
   // ============================================================
   useEffect(() => {
     if (!taxiPos?.lat || !taxiPos?.lng || geometriaRuta.length === 0) return;
@@ -439,10 +585,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     if (distanciaMinima < 45 && indiceMasCercano > 0) {
       setGeometriaRuta((prev) => prev.slice(indiceMasCercano));
     } else if (distanciaMinima >= 45) {
-      console.log("🔄 Taxista tomó otra calle. Recalculando polilínea...");
+      console.log("­ƒöä Taxista tom├│ otra calle. Recalculando polil├¡nea...");
       setGeometriaRuta([]);
     }
-  }, [taxiPos, estado, geometriaRuta.length]); // 🎯 Solo reaccionar al length, no al array completo
+  }, [taxiPos, estado, geometriaRuta.length]); // ­ƒÄ» Solo reaccionar al length, no al array completo
 
   const obtenerTextoEstado = () => {
     if (estado === "pendiente") return "ACTIVO";
@@ -490,6 +636,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         {/* MAPA */}
         <div className="flex-1 min-h-[200px] w-full relative bg-slate-100">
           {userPosition?.lat && userPosition?.lng ? (
+            <>
             <MapContainer
               center={[userPosition.lat, userPosition.lng]}
               zoom={15}
@@ -502,6 +649,35 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 <Marker position={[userPosition.lat, userPosition.lng]} icon={pasajeroIcon} />
               )}
 
+              {destinationPosition && estado !== "encurso" && (
+                <Marker
+                  position={destinationPosition}
+                  icon={destinationMarkerIcon}
+                  draggable={true}
+                  eventHandlers={{
+                    dragend: (event) => {
+                      const marker = event.target as L.Marker;
+                      const next = marker.getLatLng();
+                      void actualizarDestinoDesdeMarker(next.lat, next.lng);
+                    },
+                  }}
+                >
+                  <Popup>Destino</Popup>
+                </Marker>
+              )}
+
+              {destinationPosition && estado !== "encurso" && (
+                <Polyline
+                  positions={[[userPosition.lat, userPosition.lng], destinationPosition]}
+                  pathOptions={{
+                    color: "#22c55e",
+                    weight: 3,
+                    opacity: 0.75,
+                    dashArray: "6 8",
+                  }}
+                />
+              )}
+
               {taxiPos && ["asignado", "encamino", "encurso"].includes(estado) && (
                 <RotatedMarker
                   position={[taxiPos.lat, taxiPos.lng]}
@@ -512,7 +688,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 </RotatedMarker>
               )}
 
-              {/* LÍNEA 1: Ruta de aproximación */}
+              {/* L├ìNEA 1: Ruta de aproximaci├│n */}
               {["asignado", "encamino"].includes(estado) && geometriaRuta.length > 0 && (
                 <Polyline
                   positions={geometriaRuta}
@@ -539,14 +715,14 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                         L.latLng(Number(userPosition.lat), Number(userPosition.lng)),
                       ]}
                       onRouteFound={(coords: L.LatLng[]) => {
-                        console.log("🗺️ Nueva trayectoria trazada. Puntos:", coords.length);
+                        console.log("­ƒù║´©Å Nueva trayectoria trazada. Puntos:", coords.length);
                         setGeometriaRuta(coords);
                       }}
                     />
                   </Suspense>
                 )}
 
-              {/* LÍNEA 2: Rastro del viaje */}
+              {/* L├ìNEA 2: Rastro del viaje */}
               {estado === "encurso" && historialRuta.length > 0 && (
                 <Polyline
                   positions={historialRuta}
@@ -554,7 +730,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 />
               )}
 
-              {/* LÍNEA 3: Rumbo al destino */}
+              {/* L├ìNEA 3: Rumbo al destino */}
               {estado === "encurso" && geometriaRuta.length > 0 && (
                 <Polyline
                   positions={geometriaRuta}
@@ -562,9 +738,49 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 />
               )}
             </MapContainer>
+
+            <div className="absolute left-3 right-3 bottom-3 z-[1100] bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400">Destino</p>
+                  <p className="text-[10px] font-bold text-slate-700 truncate max-w-[220px]">
+                    {destinationAddress || "Elige una dirección o mueve el pin"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={limpiarDestino}
+                  className="text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700"
+                >
+                  Limpiar
+                </button>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  value={destinationQuery}
+                  onChange={(e) => setDestinationQuery(e.target.value)}
+                  placeholder="Escribe tu destino"
+                  className="flex-1 min-w-0 bg-slate-100 border border-slate-200 rounded-xl px-3 py-3 text-sm font-medium text-slate-800 outline-none focus:ring-2 focus:ring-[#22c55e]/30 disabled:opacity-60"
+                />
+                <button
+                  type="button"
+                  onClick={() => void geocodificarDestino(destinationQuery)}
+                  disabled={isSearchingDestination || !destinationQuery.trim()}
+                  className="px-4 rounded-xl bg-[#22c55e] text-[#0f172a] font-black text-[9px] uppercase tracking-widest disabled:opacity-60 active:scale-95"
+                >
+                  {isSearchingDestination ? "..." : "Buscar"}
+                </button>
+              </div>
+
+              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-[0.18em]">
+                Arrastra el pin verde para ajustar la ubicación exacta.
+              </p>
+            </div>
+            </>
           ) : (
             <div className="flex items-center justify-center h-full text-slate-400 font-black text-[10px] uppercase tracking-widest animate-pulse">
-              Buscando tu ubicación...
+              Buscando tu ubicaci├│n...
             </div>
           )}
         </div>
@@ -588,7 +804,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         {taxistaAsignado && (
           <div className="mx-6 -mt-8 relative z-[1001] p-3 bg-white border border-slate-100 rounded-[1.5rem] flex items-center gap-4 shadow-xl">
             <div className="h-10 w-10 bg-green-50 rounded-xl flex items-center justify-center text-lg">
-              🚖
+              ­ƒÜû
             </div>
             <div className="flex-1 flex items-baseline gap-2">
               <p className="text-[14px] font-black text-slate-800 leading-tight">
@@ -608,10 +824,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               Servicio Valles
             </p>
             <h2 className="text-lg font-black text-slate-900 tracking-tighter leading-tight">
-              {estado === "pendiente" && "¿A dónde vamos hoy?"}
+              {estado === "pendiente" && "┬┐A d├│nde vamos hoy?"}
               {estado === "buscando" && "Buscando unidad..."}
               {["asignado", "encamino"].includes(estado) && "Tu taxi viene en camino"}
-              {estado === "encurso" && "¡Buen viaje por Valles!"}
+              {estado === "encurso" && "┬íBuen viaje por Valles!"}
             </h2>
           </div>
 
@@ -669,7 +885,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                     className="text-slate-500 hover:text-slate-800 text-sm font-black"
                     aria-label="Cerrar chat"
                   >
-                    ×
+                    ├ù
                   </button>
                 </div>
               </div>
@@ -694,21 +910,21 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               aria-label="Abrir chat con unidad"
               data-dragging={isDraggingChatBubble ? "true" : "false"}
             >
-              💬
+              ­ƒÆ¼
             </button>
           )}
         </>
       )}
 
-      {/* PANTALLA DE FINALIZACIÓN */}
+      {/* PANTALLA DE FINALIZACI├ôN */}
       {estado === "finalizado" && (
         <div className="fixed inset-0 z-[3000] bg-[#22c55e] flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in">
           <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center text-center max-w-xs w-full">
             <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center text-3xl mb-4">
-              🚕
+              ­ƒÜò
             </div>
             <div className="text-2xl font-black text-slate-800 tracking-tighter mb-4 uppercase leading-tight">
-              ¡Gracias por viajar con nosotros!
+              ┬íGracias por viajar con nosotros!
             </div>
             <button
               onClick={resetearApp}

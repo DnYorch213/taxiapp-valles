@@ -73,6 +73,7 @@ const MapFixer = () => {
 const TaxistaView: React.FC = () => {
   const CHAT_BUBBLE_SIZE = 52;
   const CHAT_BUBBLE_MARGIN = 12;
+  const CHAT_PANEL_HEIGHT = 260;
 
   const { userPosition, taxiPos, setTaxiPos } = useTravel();
   const [estado, setEstado] = useState<PositionState>(POSITION_STATES.ACTIVO);
@@ -81,6 +82,7 @@ const TaxistaView: React.FC = () => {
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
   const [chatAbierto, setChatAbierto] = useState(false);
   const [chatBubbleX, setChatBubbleX] = useState<number | null>(null);
+  const [chatBubbleY, setChatBubbleY] = useState<number | null>(null);
   const [isDraggingChatBubble, setIsDraggingChatBubble] = useState(false);
 
   // 🚩 ESTADO PARA EL RASTRO DEL VIAJE
@@ -91,7 +93,9 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const chatDragRef = useRef({
     startPointerX: 0,
+    startPointerY: 0,
     startBubbleX: 0,
+    startBubbleY: 0,
     moved: false,
   });
   const estadoRef = useRef(estado);
@@ -720,6 +724,12 @@ const finalizarViaje = () => {
     return Math.min(Math.max(x, CHAT_BUBBLE_MARGIN), maxX);
   }, []);
 
+  const clampBubbleY = useCallback((y: number) => {
+    if (typeof window === "undefined") return y;
+    const maxY = window.innerHeight - CHAT_BUBBLE_SIZE - CHAT_BUBBLE_MARGIN;
+    return Math.min(Math.max(y, CHAT_BUBBLE_MARGIN), maxY);
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (chatBubbleX !== null) return;
@@ -728,14 +738,22 @@ const finalizarViaje = () => {
   }, [chatBubbleX]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (chatBubbleY !== null) return;
+    const initialY = window.innerHeight - CHAT_BUBBLE_SIZE - 96;
+    setChatBubbleY(clampBubbleY(initialY));
+  }, [chatBubbleY, clampBubbleY]);
+
+  useEffect(() => {
     const handleResize = () => {
       if (chatBubbleX === null) return;
       setChatBubbleX((current) => (current === null ? current : clampBubbleX(current)));
+      setChatBubbleY((current) => (current === null ? current : clampBubbleY(current)));
     };
 
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [chatBubbleX, clampBubbleX]);
+  }, [chatBubbleX, chatBubbleY, clampBubbleX, clampBubbleY]);
 
   const handleChatBubblePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
@@ -743,9 +761,12 @@ const finalizarViaje = () => {
     event.preventDefault();
 
     const baseX = chatBubbleX ?? CHAT_BUBBLE_MARGIN;
+    const baseY = chatBubbleY ?? CHAT_BUBBLE_MARGIN;
     chatDragRef.current = {
       startPointerX: event.clientX,
+      startPointerY: event.clientY,
       startBubbleX: baseX,
+      startBubbleY: baseY,
       moved: false,
     };
 
@@ -759,12 +780,15 @@ const finalizarViaje = () => {
     event.preventDefault();
 
     const deltaX = event.clientX - chatDragRef.current.startPointerX;
-    if (Math.abs(deltaX) > 3) {
+    const deltaY = event.clientY - chatDragRef.current.startPointerY;
+    if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
       chatDragRef.current.moved = true;
     }
 
     const nextX = clampBubbleX(chatDragRef.current.startBubbleX + deltaX);
+    const nextY = clampBubbleY(chatDragRef.current.startBubbleY + deltaY);
     setChatBubbleX(nextX);
+    setChatBubbleY(nextY);
   };
 
   const finishChatBubbleDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -776,12 +800,14 @@ const finalizarViaje = () => {
     if (typeof window === "undefined") return;
 
     const currentX = chatBubbleX ?? CHAT_BUBBLE_MARGIN;
+    const currentY = chatBubbleY ?? CHAT_BUBBLE_MARGIN;
     const snapLeft = CHAT_BUBBLE_MARGIN;
     const snapRight = window.innerWidth - CHAT_BUBBLE_SIZE - CHAT_BUBBLE_MARGIN;
     const middle = window.innerWidth / 2;
     const nextSnap = currentX + CHAT_BUBBLE_SIZE / 2 < middle ? snapLeft : snapRight;
 
     setChatBubbleX(nextSnap);
+    setChatBubbleY(clampBubbleY(currentY));
 
     if (!chatDragRef.current.moved) {
       setChatAbierto(true);
@@ -792,6 +818,14 @@ const finalizarViaje = () => {
     typeof window !== "undefined" && chatBubbleX !== null
       ? chatBubbleX + CHAT_BUBBLE_SIZE / 2 < window.innerWidth / 2
       : false;
+
+  const chatPanelTop =
+    typeof window !== "undefined" && chatBubbleY !== null
+      ? Math.min(
+          Math.max(chatBubbleY - CHAT_PANEL_HEIGHT + CHAT_BUBBLE_SIZE, CHAT_BUBBLE_MARGIN),
+          window.innerHeight - CHAT_PANEL_HEIGHT - CHAT_BUBBLE_MARGIN
+        )
+      : CHAT_BUBBLE_MARGIN;
 
 return (
   <div className="h-dvh bg-[#0f172a] flex flex-col overflow-hidden font-sans relative text-slate-100">
@@ -971,56 +1005,62 @@ return (
 
       {/* Badge de estado flotante */}
       {vistaActual === 'mapa' && (
-        <div className="absolute top-4 right-4 z-[1000] bg-[#1e293b]/90 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 flex items-center gap-3">
-          <div className={`h-2.5 w-2.5 rounded-full ${estado === "activo" ? "bg-[#22c55e]" : "bg-orange-500 animate-ping"}`}></div>
-          <span className="text-[11px] font-black text-white uppercase tracking-widest">{estado}</span>
+        <div className="absolute top-20 sm:top-16 right-3 sm:right-4 z-[1000] bg-[#1e293b]/90 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-white/10 flex items-center gap-2">
+          <div className={`h-2 w-2 rounded-full ${estado === "activo" ? "bg-[#22c55e]" : "bg-orange-500 animate-ping"}`}></div>
+          <span className="text-[8px] sm:text-[11px] font-black text-white uppercase tracking-widest">{estado}</span>
         </div>
       )}
 
       {/* CHAT FLOTANTE (ENCAMINO) */}
       {vistaActual === 'mapa' && estado === "encamino" && pasajeroAsignado && (
         <>
-          {chatAbierto && (
-            <div className={`fixed z-[2000] bottom-24 ${chatPanelOnLeft ? "left-3 sm:left-4" : "right-3 sm:right-4"} left-3 sm:left-auto sm:w-[340px] bg-[#0f172a]/95 border border-white/10 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md`}>
-              <div className="h-11 px-4 flex items-center justify-between bg-white/5 border-b border-white/10">
-                <span className="text-[10px] font-black text-white uppercase tracking-widest">Chat con Pasajero</span>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setChatAbierto(false)}
-                    className="text-slate-300 hover:text-white text-xs font-black uppercase tracking-widest"
-                  >
-                    Minimizar
-                  </button>
-                  <button
-                    onClick={() => setChatAbierto(false)}
-                    className="text-slate-400 hover:text-white text-sm font-black"
-                    aria-label="Cerrar chat"
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-              <div className="h-[260px]">
-                <ChatBox toEmail={pasajeroAsignado.email} userName={`Taxi Valles`} />
+          <div
+            className={`fixed z-[2000] sm:w-[340px] bg-[#0f172a]/95 border border-white/10 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md transition-all duration-200 ${chatAbierto ? "opacity-100 scale-100 pointer-events-auto" : "opacity-0 scale-95 pointer-events-none"}`}
+            style={{
+              left: chatPanelOnLeft ? "12px" : "auto",
+              right: chatPanelOnLeft ? "auto" : "12px",
+              top: `${chatPanelTop}px`,
+            }}
+          >
+            <div className="h-11 px-4 flex items-center justify-between bg-white/5 border-b border-white/10">
+              <span className="text-[10px] font-black text-white uppercase tracking-widest">Chat con Pasajero</span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setChatAbierto(false)}
+                  className="text-slate-300 hover:text-white text-xs font-black uppercase tracking-widest"
+                >
+                  Minimizar
+                </button>
+                <button
+                  onClick={() => setChatAbierto(false)}
+                  className="text-slate-400 hover:text-white text-sm font-black"
+                  aria-label="Cerrar chat"
+                >
+                  ×
+                </button>
               </div>
             </div>
-          )}
+            <div className="h-[260px]">
+              <ChatBox toEmail={pasajeroAsignado.email} userName={`Taxi Valles`} />
+            </div>
+          </div>
 
-          {!chatAbierto && (
-            <button
-              onPointerDown={handleChatBubblePointerDown}
-              onPointerMove={handleChatBubblePointerMove}
-              onPointerUp={finishChatBubbleDrag}
-              onPointerCancel={finishChatBubbleDrag}
-              style={{ left: `${chatBubbleX ?? CHAT_BUBBLE_MARGIN}px` }}
-              className="fixed z-[2000] bottom-24 h-[52px] w-[52px] bg-[#22c55e] text-[#0f172a] rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-lg flex items-center justify-center active:translate-y-1 select-none touch-none"
-              title="Chat con pasajero"
-              aria-label="Abrir chat con pasajero"
-              data-dragging={isDraggingChatBubble ? "true" : "false"}
-            >
-              💬
-            </button>
-          )}
+          <button
+            onPointerDown={handleChatBubblePointerDown}
+            onPointerMove={handleChatBubblePointerMove}
+            onPointerUp={finishChatBubbleDrag}
+            onPointerCancel={finishChatBubbleDrag}
+            style={{
+              left: `${chatBubbleX ?? CHAT_BUBBLE_MARGIN}px`,
+              top: `${chatBubbleY ?? CHAT_BUBBLE_MARGIN}px`,
+            }}
+            className={`fixed z-[2000] h-[52px] w-[52px] bg-[#22c55e] text-[#0f172a] rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-lg flex items-center justify-center active:translate-y-1 select-none touch-none transition-opacity duration-150 ${chatAbierto ? "opacity-0 pointer-events-none" : "opacity-100"}`}
+            title="Chat con pasajero"
+            aria-label="Abrir chat con pasajero"
+            data-dragging={isDraggingChatBubble ? "true" : "false"}
+          >
+            💬
+          </button>
         </>
       )}
     </main>

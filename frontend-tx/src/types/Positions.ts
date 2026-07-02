@@ -18,11 +18,14 @@ export interface Position {
   id?: string;
   lat: number | null;
   lng: number | null;
+  destinationLat?: number | null;
+  destinationLng?: number | null;
   heading?: number | null;
   name?: string;
   role: Rol;
   taxiNumber?: string;
   pickupAddress?: string;
+  destinationAddress?: string;
   estado?: EstadoUsuario; // 👈 Ahora usa el tipo extendido
 }
 
@@ -30,4 +33,5 @@ export interface Destination {
   lat: number | null;
   lng: number | null;
   direccion?: string;
+  address?: string;
 }
