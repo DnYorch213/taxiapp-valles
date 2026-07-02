@@ -131,12 +131,20 @@ const PasajeroView: React.FC = () => {
     return [destinationLat, destinationLng];
   }, [destinationLat, destinationLng]);
 
+  useEffect(() => {
+    if (destinationLat !== null && destinationLng !== null) return;
+    if (!userPosition?.lat || !userPosition?.lng) return;
+
+    setDestinationLat(userPosition.lat);
+    setDestinationLng(userPosition.lng);
+  }, [userPosition?.lat, userPosition?.lng, destinationLat, destinationLng]);
+
   const limpiarDestino = useCallback(() => {
     setDestinationQuery("");
     setDestinationAddress("");
-    setDestinationLat(null);
-    setDestinationLng(null);
-  }, []);
+    setDestinationLat(userPosition?.lat ?? null);
+    setDestinationLng(userPosition?.lng ?? null);
+  }, [userPosition?.lat, userPosition?.lng]);
 
   const geocodificarDestino = useCallback(async (query: string) => {
     const cleanQuery = query.trim();
@@ -504,11 +512,6 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       return;
     }
 
-    if (destinationLat === null || destinationLng === null) {
-      toast.error("📍 Elige tu destino antes de solicitar el taxi.");
-      return;
-    }
-
     // ­ƒøí´©Å Verificar conexi├│n del socket
     if (!socket?.connected) {
       toast.error("­ƒôí Sin conexi├│n al servidor. Reintentando...");
@@ -526,7 +529,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       lng: userPosition.lng,
       destinationLat,
       destinationLng,
-      destinationAddress: destinationAddress || destinationQuery,
+      destinationAddress: destinationAddress || destinationQuery || undefined,
       role: "pasajero",
       estado: "buscando",
       timestamp: new Date().toISOString(),
@@ -649,9 +652,9 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 <Marker position={[userPosition.lat, userPosition.lng]} icon={pasajeroIcon} />
               )}
 
-              {destinationPosition && estado !== "encurso" && (
+              {estado !== "encurso" && (
                 <Marker
-                  position={destinationPosition}
+                  position={destinationPosition || [userPosition.lat, userPosition.lng]}
                   icon={destinationMarkerIcon}
                   draggable={true}
                   eventHandlers={{
@@ -662,7 +665,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                     },
                   }}
                 >
-                  <Popup>Destino</Popup>
+                  <Popup>Destino (arrastra el pin)</Popup>
                 </Marker>
               )}
 
@@ -739,7 +742,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               )}
             </MapContainer>
 
-            <div className="absolute left-3 right-3 bottom-3 z-[1100] bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl p-3 space-y-2">
+            <div className="absolute left-3 right-3 bottom-1 z-[1100] bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400">Destino</p>
@@ -818,20 +821,20 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         )}
 
         {/* BOTONES */}
-        <div className="px-6 pt-5 pb-18 flex flex-col shrink-0 bg-white">
+        <div className="px-6 pt-7 pb-18 flex flex-col shrink-0 bg-white">
           <div className="mb-3">
             <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
               Servicio Valles
             </p>
             <h2 className="text-lg font-black text-slate-900 tracking-tighter leading-tight">
-              {estado === "pendiente" && "┬┐A d├│nde vamos hoy?"}
+              {estado === "pendiente" && "A donde vamos hoy?"}
               {estado === "buscando" && "Buscando unidad..."}
               {["asignado", "encamino"].includes(estado) && "Tu taxi viene en camino"}
-              {estado === "encurso" && "┬íBuen viaje por Valles!"}
+              {estado === "encurso" && "Buen viaje por Valles!"}
             </h2>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-3 pt-2">
             <button
               onClick={solicitarTaxi}
               disabled={estado !== "pendiente"}
