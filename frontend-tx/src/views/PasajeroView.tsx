@@ -36,6 +36,7 @@ const PasajeroView: React.FC = () => {
   const navigate = useNavigate();
   const [estado, setEstado] = useState<ViajeEstado>(TRIP_STATES.PENDIENTE);
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
+  const [searchFlowActivo, setSearchFlowActivo] = useState(false);
   const [chatAbierto, setChatAbierto] = useState(false);
   const [chatBubbleX, setChatBubbleX] = useState<number | null>(null);
   const [isDraggingChatBubble, setIsDraggingChatBubble] = useState(false);
@@ -306,6 +307,7 @@ const PasajeroView: React.FC = () => {
       console.log("­Respuesta del taxi recibida:", data);
 
       if (data.accepted) {
+        setSearchFlowActivo(false);
         const cleanEmail = data.tEmail?.toLowerCase().trim();
         const infoTaxista: Payload = {
           email: cleanEmail,
@@ -401,6 +403,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       const nextEstado = String(data.estado || "").toLowerCase().trim();
 
       if (data.estado === "encurso" && (!emailRecibido || emailRecibido === miEmail)) {
+        setSearchFlowActivo(false);
         setEstado(TRIP_STATES.ENCURSO);
         setChatAbierto(false);
 
@@ -419,6 +422,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       }
 
       if (nextEstado === "buscando") {
+        setSearchFlowActivo(true);
         setTaxistaAsignado(null);
         setTaxiPos(null);
         setEstado(TRIP_STATES.BUSCANDO);
@@ -429,6 +433,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
           return;
         }
+        setSearchFlowActivo(false);
         setEstado(TRIP_STATES.PENDIENTE);
         setHistorialRuta([]);
         setTaxistaAsignado(null);
@@ -449,6 +454,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       }
 
       if (emailRecibido === miEmail || !data.pasajeroEmail) {
+        setSearchFlowActivo(false);
         setEstado(TRIP_STATES.PENDIENTE);
         setTaxistaAsignado(null);
         setTaxiPos(null);
@@ -464,6 +470,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
     // TAXI RECHAZÓ LA SOLICITUD
     socket.on("taxi_rejected_request", () => {
+      setSearchFlowActivo(true);
       setTaxistaAsignado(null);
       setTaxiPos(null);
       setEstado(TRIP_STATES.BUSCANDO);
@@ -471,6 +478,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     });
 
     socket.on("no_taxis_available", (payload?: { message?: string }) => {
+      setSearchFlowActivo(true);
       setTaxistaAsignado(null);
       setTaxiPos(null);
       setEstado(TRIP_STATES.BUSCANDO);
@@ -480,6 +488,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     });
 
     socket.on("dispatch_error", (payload?: { message?: string }) => {
+      setSearchFlowActivo(true);
       setEstado(TRIP_STATES.BUSCANDO);
       if (payload?.message) {
         toast.warn(payload.message, { autoClose: 2500 });
@@ -550,6 +559,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     }
 
     // FEEDBACK INMEDIATO: Cambiar estado ANTES de emitir
+    setSearchFlowActivo(true);
     setEstado(TRIP_STATES.BUSCANDO || ("buscando" as ViajeEstado));
 
     socket.emit("request_taxi", {
@@ -569,6 +579,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }, [userPosition, estado, destinationLat, destinationLng, destinationAddress, destinationQuery]);
 
   const cancelarSolicitud = useCallback(() => {
+    setSearchFlowActivo(false);
     setEstado(TRIP_STATES.PENDIENTE);
 
     if (socket?.connected) {
@@ -586,6 +597,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }, [userPosition?.email, taxistaAsignado?.email]);
 
   const resetearApp = useCallback(() => {
+    setSearchFlowActivo(false);
     setEstado(TRIP_STATES.PENDIENTE);
     setTaxistaAsignado(null);
     setTaxiPos(null);
@@ -865,7 +877,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
           </div>
 
           <div className="space-y-3 pt-2">
-            {estado === "pendiente" && (
+            {estado === "pendiente" && !searchFlowActivo && (
               <button
                 onClick={solicitarTaxi}
                 className="w-full py-5 rounded-[1.2rem] font-black transition-all transform active:scale-95 shadow-xl tracking-widest text-xs bg-[#22c55e] text-white shadow-green-900/20 hover:bg-[#16a34a]"
@@ -874,13 +886,19 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               </button>
             )}
 
-            {["buscando", "preasignado", "asignado", "encamino"].includes(estado) && (
+            {(searchFlowActivo || ["buscando", "preasignado", "asignado", "encamino"].includes(estado)) && (
               <button
                 onClick={cancelarSolicitud}
                 className="w-full py-3 bg-red-50 text-red-500 rounded-[1.2rem] font-bold text-[8px] uppercase border border-red-100 active:bg-red-100"
               >
                 Cancelar Solicitud
               </button>
+            )}
+
+            {(searchFlowActivo || estado === "buscando" || estado === "preasignado") && (
+              <p className="text-center text-[10px] font-black uppercase tracking-[0.16em] text-amber-500 animate-pulse">
+                Buscando otra unidad...
+              </p>
             )}
           </div>
         </div>
