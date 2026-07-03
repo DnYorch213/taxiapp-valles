@@ -398,6 +398,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     socket.on("trip_status_update", (data: { estado: string; pasajeroEmail?: string }) => {
       const miEmail = userPositionRef.current?.email?.toLowerCase().trim();
       const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
+      const nextEstado = String(data.estado || "").toLowerCase().trim();
 
       if (data.estado === "encurso" && (!emailRecibido || emailRecibido === miEmail)) {
         setEstado(TRIP_STATES.ENCURSO);
@@ -412,15 +413,22 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       }
 
       // Escudo contra saltos accidentales
-      if (
-        ["encurso", "finalizado", "pendiente"].includes(estadoRef.current) &&
-        data.estado === "buscando"
-      ) {
+      if (["encurso", "finalizado"].includes(estadoRef.current) && nextEstado === "buscando") {
         console.warn("Ignorado salto a 'buscando' porque el viaje ya está cerrado o en curso.");
         return;
       }
 
-      if (data.estado === "finalizado") {
+      if (nextEstado === "buscando") {
+        setTaxistaAsignado(null);
+        setTaxiPos(null);
+        setEstado(TRIP_STATES.BUSCANDO);
+        return;
+      }
+
+      if (nextEstado === "finalizado") {
+        if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
+          return;
+        }
         setEstado(TRIP_STATES.PENDIENTE);
         setHistorialRuta([]);
         setTaxistaAsignado(null);
@@ -435,6 +443,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     socket.on("trip_finished", (data: { pasajeroEmail: string }) => {
       const miEmail = userPositionRef.current?.email?.toLowerCase().trim();
       const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
+
+      if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
+        return;
+      }
 
       if (emailRecibido === miEmail || !data.pasajeroEmail) {
         setEstado(TRIP_STATES.PENDIENTE);
@@ -458,6 +470,22 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       toast.info("Buscando otra unidad cercana...");
     });
 
+    socket.on("no_taxis_available", (payload?: { message?: string }) => {
+      setTaxistaAsignado(null);
+      setTaxiPos(null);
+      setEstado(TRIP_STATES.BUSCANDO);
+      if (payload?.message) {
+        toast.info(payload.message, { autoClose: 2500 });
+      }
+    });
+
+    socket.on("dispatch_error", (payload?: { message?: string }) => {
+      setEstado(TRIP_STATES.BUSCANDO);
+      if (payload?.message) {
+        toast.warn(payload.message, { autoClose: 2500 });
+      }
+    });
+
     return () => {
       socket.off("taxi_moved");
       socket.off("update_trip_path");
@@ -465,6 +493,8 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       socket.off("trip_status_update");
       socket.off("trip_finished");
       socket.off("taxi_rejected_request");
+      socket.off("no_taxis_available");
+      socket.off("dispatch_error");
     };
   }, [socket]); //  SOLO depende de socket - nunca se re-registra por cambios de posición
 
