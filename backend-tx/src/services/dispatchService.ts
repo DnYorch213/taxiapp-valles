@@ -152,7 +152,7 @@ export const dispatchWithRetry = async (
         if (taxistasCandidatos.length === 0) {
             logMotor(
                 "dispatch_retry",
-                `Pasajero=${pEmail} Intento=${attempt} -> No hay taxistas activos disponibles`,
+                `Pasajero=${pEmail} Intento=${attempt} -> No hay taxistas activos disponibles (excluidos=${currentExcluidos.join(",") || "ninguno"})`,
                 "WARN"
             );
             io.to(pEmail).emit("no_taxis_available", {
@@ -175,7 +175,7 @@ export const dispatchWithRetry = async (
         if (taxistasConDistancia.length === 0) {
             logMotor(
                 "dispatch_retry",
-                `Pasajero=${pEmail} Intento=${attempt} -> No hay taxistas dentro de ${MAX_DISPATCH_DISTANCE_KM}km`,
+                `Pasajero=${pEmail} Intento=${attempt} -> No hay taxistas dentro de ${MAX_DISPATCH_DISTANCE_KM}km (excluidos=${currentExcluidos.join(",") || "ninguno"})`,
                 "WARN"
             );
             io.to(pEmail).emit("no_taxis_available", {
@@ -364,8 +364,16 @@ export const dispatchWithRetry = async (
                 const tCheck = await Position.findOne({ email: tEmail }).lean();
                 const pRefresh = await Position.findOne({ email: pEmail }).lean();
 
-                // 🛡️ Candado: Si el pasajero ya está en viaje activo, ignorar timeout
-                if (pRefresh && STATE_GROUPS.ACTIVE_TRIP.includes(pRefresh.estado as any)) {
+                // 🛡️ Candado: Ignorar timeout solo si el viaje ya avanzó realmente.
+                // PREASIGNADO debe seguir permitiendo fallback a otra unidad.
+                if (
+                    pRefresh &&
+                    [
+                        POSITION_STATES.ASIGNADO,
+                        POSITION_STATES.ENCAMINO,
+                        POSITION_STATES.ENCURSO,
+                    ].includes(pRefresh.estado as any)
+                ) {
                     logMotor(
                         "dispatch_timeout",
                         `Pasajero=${pEmail} Estado=${pRefresh.estado} -> Timeout ignorado, viaje activo`,
@@ -424,6 +432,12 @@ export const dispatchWithRetry = async (
 
                 // Limpiar timeout antes de reintentar
                 clearPendingTimeout(pEmail, "relanzando cascada");
+
+                logMotor(
+                    "dispatch_timeout",
+                    `Fallback activado -> Pasajero=${pEmail} excluyendo=${tEmail} próximoIntento=${attempt + 1}`,
+                    "INFO"
+                );
 
                 // Reintentar con el siguiente taxista
                 dispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt + 1);
