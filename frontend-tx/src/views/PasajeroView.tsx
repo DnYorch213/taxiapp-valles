@@ -454,7 +454,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     socket.on("taxi_rejected_request", () => {
       setTaxistaAsignado(null);
       setTaxiPos(null);
-      setEstado(TRIP_STATES.PENDIENTE);
+      setEstado(TRIP_STATES.BUSCANDO);
       toast.info("Buscando otra unidad cercana...");
     });
 
@@ -627,7 +627,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
           </div>
         </div>
 
-        <div className="absolute top-10 left-4 z-[1002]">
+        <div className="absolute top-8 left-4 z-[1002]">
           <button
             onClick={handleLogout}
             className="bg-red-600 text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-lg active:scale-95"
@@ -789,7 +789,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         </div>
 
         {/* Badge de estado */}
-        <div className="absolute top-8 right-4 z-[1000]">
+        <div className="absolute top-12 right-4 z-[1000]">
           <div
             className={`px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all duration-500 ${
               estado === "encurso"
@@ -805,7 +805,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
         {/* CARD DEL TAXISTA */}
         {taxistaAsignado && (
-          <div className="mx-6 mt-3 relative z-[1001] p-3 bg-white border border-slate-100 rounded-[1.5rem] flex items-center gap-4 shadow-xl">
+          <div className="mx-6 mt-6 relative z-[1001] p-3 bg-white border border-slate-100 rounded-[1.5rem] flex items-center gap-4 shadow-xl">
             <div className="h-10 w-10 bg-green-50 rounded-xl flex items-center justify-center text-lg">
               🚖
             </div>

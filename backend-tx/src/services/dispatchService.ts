@@ -82,9 +82,10 @@ export const dispatchWithRetry = async (
             return;
         }
 
-        // 🛡️ Candado: Si el viaje ya está activo, finalizar o cancelado, abortar
+        // 🛡️ Candado: Si el viaje ya avanzó más allá de búsqueda, abortar
+        // Nota: PREASIGNADO debe permitir reintento cuando un taxista ignora/timeout.
         if (
-            STATE_GROUPS.ACTIVE_TRIP.includes(pStatusCheck.estado as any) ||
+            [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(pStatusCheck.estado as any) ||
             pStatusCheck.estado === POSITION_STATES.FINALIZADO ||
             pStatusCheck.estado === POSITION_STATES.CANCELADO
         ) {
@@ -325,8 +326,8 @@ export const dispatchWithRetry = async (
             );
         }
 
-        // 🆕 Enviar notificación push con manejo de errores
-        if (shouldSendPush && elMasCercano.pushSubscription) {
+        // Enviar push también con app abierta para reforzar entrega en segundo plano.
+        if (elMasCercano.pushSubscription) {
             try {
                 await enviarNotificacionPush(elMasCercano.pushSubscription, fullPayload, tEmail);
             } catch (pushError) {

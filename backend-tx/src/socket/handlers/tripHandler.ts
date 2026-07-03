@@ -206,7 +206,21 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         if (!accepted) {
             await Position.updateOne(
                 { email: tEmail },
-                { $set: { estado: POSITION_STATES.ACTIVO } }
+                { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null } }
+            );
+
+            await Position.updateOne(
+                {
+                    email: pEmail,
+                    estado: { $in: [POSITION_STATES.BUSCANDO, POSITION_STATES.PREASIGNADO, POSITION_STATES.ASIGNADO] }
+                },
+                {
+                    $set: {
+                        estado: POSITION_STATES.BUSCANDO,
+                        taxistaAsignado: null,
+                        updatedAt: new Date()
+                    }
+                }
             );
 
             const tPos = await Position.findOne({ email: tEmail });

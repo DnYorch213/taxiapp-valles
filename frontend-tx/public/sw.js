@@ -61,10 +61,18 @@ self.addEventListener("notificationclick", (event) => {
 
   // --- CASO 1: EL TAXISTA RECHAZA EL VIAJE ---
   if (action === "rechazar") {
-    console.log(
-      `ℹ️ Viaje ignorado por el taxista: ${notificationData.emailTaxista}`,
-    );
-    // No abrimos la app, simplemente cerramos (ya se hizo arriba) y terminamos
+    const apiPromise = fetch(`${API_BASE_URL}/api/reject-trip-push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        taxistaEmail: notificationData.emailTaxista,
+        pasajeroEmail: notificationData.emailPasajero,
+      }),
+    }).catch((err) => {
+      console.error("❌ Error al ignorar viaje vía Push:", err);
+    });
+
+    event.waitUntil(apiPromise);
     return;
   }
 

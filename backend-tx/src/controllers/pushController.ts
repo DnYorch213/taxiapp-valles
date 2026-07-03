@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import { Position } from "../models/Position";
 import { User } from "../models/User";
 import { buildPayload } from "../utils/payloadBuilder";
+import { dispatchWithRetry } from "../services/dispatchService";
 import { pendingTimeouts } from "../services/dispatchService";
 import { POSITION_STATES, STATE_GROUPS } from "../constants/states";
 
@@ -90,5 +91,55 @@ export const handleSaveSubscription = async (req: Request, res: Response) => {
     } catch (err) {
         console.error("❌ Error en handleSaveSubscription:", err);
         return res.status(500).json({ message: "Error interno del servidor al guardar token" });
+    }
+};
+
+// 🚖 3. CONTROLADOR PARA IGNORAR VIAJE VIA PUSH
+export const handleRejectTripPush = (io: Server) => async (req: Request, res: Response) => {
+    const { taxistaEmail, pasajeroEmail } = req.body;
+
+    if (!taxistaEmail || !pasajeroEmail) {
+        return res.status(400).json({ error: "Faltan taxistaEmail o pasajeroEmail" });
+    }
+
+    try {
+        const tEmail = String(taxistaEmail).toLowerCase().trim();
+        const pEmail = String(pasajeroEmail).toLowerCase().trim();
+
+        if (pendingTimeouts.has(pEmail)) {
+            clearTimeout(pendingTimeouts.get(pEmail)!);
+            pendingTimeouts.delete(pEmail);
+        }
+
+        await Position.updateOne(
+            { email: tEmail },
+            { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } }
+        );
+
+        await Position.updateOne(
+            {
+                email: pEmail,
+                estado: { $in: [POSITION_STATES.BUSCANDO, POSITION_STATES.PREASIGNADO, POSITION_STATES.ASIGNADO] }
+            },
+            {
+                $set: {
+                    estado: POSITION_STATES.BUSCANDO,
+                    taxistaAsignado: null,
+                    updatedAt: new Date()
+                }
+            }
+        );
+
+        io.to(pEmail).emit("taxi_rejected_request");
+
+        const pData = await Position.findOne({ email: pEmail }).lean();
+        if (pData && [POSITION_STATES.BUSCANDO, POSITION_STATES.PREASIGNADO].includes(pData.estado as any)) {
+            dispatchWithRetry(io, pData, [tEmail], 1);
+        }
+
+        return res.status(200).json({ success: true });
+    } catch (error) {
+        console.error("❌ Error en handleRejectTripPush:", error);
+        return res.status(500).json({ error: "Error interno del servidor." });
     }
 };

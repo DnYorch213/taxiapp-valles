@@ -937,7 +937,7 @@ return (
                         : "bg-[#22c55e] border-[#16a34a] text-[#0f172a] active:bg-[#16a34a]"
                     }`}
                   >
-                    {isAccepting ? "⏳ ESPERA..." : "👍 ACEPTAR"}
+                    {isAccepting ? "⏳ ESPERA..." : "ACEPTAR"}
                   </button>
                   <button 
                     onClick={rechazarViaje} 
@@ -1005,7 +1005,7 @@ return (
 
       {/* Badge de estado flotante */}
       {vistaActual === 'mapa' && (
-        <div className="absolute top-20 sm:top-16 right-3 sm:right-4 z-[1000] bg-[#1e293b]/90 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-white/10 flex items-center gap-2">
+        <div className="absolute top-14 sm:top-16 right-3 sm:right-4 z-[1000] bg-[#1e293b]/90 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-white/10 flex items-center gap-2">
           <div className={`h-2 w-2 rounded-full ${estado === "activo" ? "bg-[#22c55e]" : "bg-orange-500 animate-ping"}`}></div>
           <span className="text-[8px] sm:text-[11px] font-black text-white uppercase tracking-widest">{estado}</span>
         </div>
