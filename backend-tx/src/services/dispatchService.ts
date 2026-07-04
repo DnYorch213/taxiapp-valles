@@ -7,8 +7,12 @@ import { enviarNotificacionPush } from "./pushService";
 import { logMotor } from "../utils/logger";
 import { POSITION_STATES, STATE_GROUPS } from "../constants/states";
 
-// 🎯 Mapa de timeouts pendientes (clave: email del pasajero)
-export const pendingTimeouts = new Map<string, Set<NodeJS.Timeout>>();
+// 🎯 Mapa de timeouts pendientes (clave: requestId)
+export const activeTimeouts = new Map<string, Set<NodeJS.Timeout>>();
+export const pendingTimeouts = activeTimeouts;
+
+// 🎯 Índice auxiliar para ubicar el requestId activo de cada pasajero
+const passengerActiveRequestIds = new Map<string, string>();
 
 // 🎯 Configuración configurable
 const MAX_RETRIES = 5;
@@ -40,33 +44,64 @@ const getCachedGeocoding = async (lat: number, lng: number): Promise<string> => 
     return address;
 };
 
-const getTimeoutBucket = (pEmail: string) => {
-    const key = pEmail.toLowerCase().trim();
-    let bucket = pendingTimeouts.get(key);
+const normalizeEmail = (email: string) => email.toLowerCase().trim();
+
+const getTimeoutBucket = (requestId: string) => {
+    let bucket = activeTimeouts.get(requestId);
     if (!bucket) {
         bucket = new Set<NodeJS.Timeout>();
-        pendingTimeouts.set(key, bucket);
+        activeTimeouts.set(requestId, bucket);
     }
     return bucket;
 };
 
-// 🆕 Función auxiliar para registrar timeouts por ciclo del pasajero
-export const registerPendingTimeout = (pEmail: string, timeout: NodeJS.Timeout) => {
-    const bucket = getTimeoutBucket(pEmail);
+export const bindPassengerRequestId = (pEmail: string, requestId: string) => {
+    passengerActiveRequestIds.set(normalizeEmail(pEmail), requestId);
+};
+
+export const getActiveRequestIdForPassenger = (pEmail: string) => {
+    return passengerActiveRequestIds.get(normalizeEmail(pEmail)) || null;
+};
+
+// 🆕 Función auxiliar para registrar timeouts por request
+export const registerPendingTimeout = (requestId: string, timeout: NodeJS.Timeout) => {
+    const bucket = getTimeoutBucket(requestId);
     bucket.add(timeout);
     return timeout;
 };
 
-// 🆕 Función auxiliar para limpiar todos los timeouts de un pasajero
+// 🆕 Función auxiliar para limpiar todos los timeouts del request activo de un pasajero
 export const clearPendingTimeouts = (pEmail: string, reason: string) => {
-    const key = pEmail.toLowerCase().trim();
-    const bucket = pendingTimeouts.get(key);
+    const key = normalizeEmail(pEmail);
+    const requestId = passengerActiveRequestIds.get(key);
+
+    if (!requestId) return;
+
+    const bucket = activeTimeouts.get(requestId);
 
     if (!bucket || bucket.size === 0) return;
 
     bucket.forEach((timeout) => clearTimeout(timeout));
-    pendingTimeouts.delete(key);
-    logMotor("dispatch_cleanup", `Pasajero=${key} -> ${bucket.size} timeout(s) limpiado(s): ${reason}`, "INFO");
+    activeTimeouts.delete(requestId);
+    passengerActiveRequestIds.delete(key);
+    logMotor("dispatch_cleanup", `Pasajero=${key} RequestId=${requestId} -> ${bucket.size} timeout(s) limpiado(s): ${reason}`, "INFO");
+};
+
+export const clearRequestTimeouts = (requestId: string, reason: string) => {
+    const bucket = activeTimeouts.get(requestId);
+
+    if (!bucket || bucket.size === 0) {
+        activeTimeouts.delete(requestId);
+        return;
+    }
+
+    bucket.forEach((timeout) => clearTimeout(timeout));
+    activeTimeouts.delete(requestId);
+    logMotor("dispatch_cleanup", `RequestId=${requestId} -> ${bucket.size} timeout(s) limpiado(s): ${reason}`, "INFO");
+};
+
+export const clearPassengerRequestBinding = (pEmail: string) => {
+    passengerActiveRequestIds.delete(normalizeEmail(pEmail));
 };
 
 // 🆕 Calcular timeout dinámico basado en distancia
@@ -499,7 +534,7 @@ export const dispatchWithRetry = async (
             }
         }, timeoutMs);
 
-        registerPendingTimeout(pEmail, timeout);
+        registerPendingTimeout(reqId, timeout);
 
         logMotor(
             "dispatch_retry",
@@ -523,7 +558,7 @@ export const dispatchWithRetry = async (
         const retryTimeout = setTimeout(() => {
             dispatchWithRetry(io, pasajeroData, currentExcluidos, attempt);
         }, 2000);
-        registerPendingTimeout(pEmail, retryTimeout);
+        registerPendingTimeout(reqId, retryTimeout);
     }
 };
 

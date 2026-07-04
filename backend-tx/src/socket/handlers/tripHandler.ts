@@ -4,7 +4,7 @@ import { Position } from "../../models/Position";
 import { Trip } from "../../models/Trip";
 import { buildPayload } from "../../utils/payloadBuilder";
 import { reverseGeocode } from "../../services/geocodingService";
-import { clearPendingTimeouts, dispatchWithRetry, pendingTimeouts } from "../../services/dispatchService";
+import { bindPassengerRequestId, clearPendingTimeouts, clearRequestTimeouts, dispatchWithRetry, getActiveRequestIdForPassenger } from "../../services/dispatchService";
 import { logMotor } from "../../utils/logger";
 import { calculateDistance } from "../../utils/distance";
 import { POSITION_STATES, TRIP_STATES } from "../../constants/states";
@@ -82,6 +82,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 clearPendingTimeouts(pEmail, "nuevo request_taxi");
 
                 const currentRequestId = new Date().getTime().toString();
+                bindPassengerRequestId(pEmail, currentRequestId);
 
                 // Actualizar posición a BUSCANDO
                 await Position.findOneAndUpdate(
@@ -199,7 +200,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         }
 
         // 🎯 LIMPIEZA PREVENTIVA: Cancelar timeout del pasajero
-        if (pendingTimeouts.has(pEmail)) {
+        if (getActiveRequestIdForPassenger(pEmail)) {
             clearPendingTimeouts(pEmail, "respuesta del taxi");
             logMotor("taxi_response", `Pasajero=${pEmail} -> Timeout cancelado`, "INFO");
         }
@@ -423,7 +424,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             );
 
             // 🎯 LIMPIEZA DE TIMEOUTS
-            if (pendingTimeouts.has(pEmail)) {
+            if (getActiveRequestIdForPassenger(pEmail)) {
                 clearPendingTimeouts(pEmail, "subida de pasajero");
                 logMotor("passenger_on_board",
                     `Pasajero=${pEmail} -> Timeout limpiado`,
@@ -530,7 +531,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
             // 🎯 LIMPIEZA EXHAUSTIVA DE TIMEOUTS
             // Limpiar timeout del pasajero
-            if (pendingTimeouts.has(pEmail)) {
+            if (getActiveRequestIdForPassenger(pEmail)) {
                 clearPendingTimeouts(pEmail, "cancelación pasajero");
                 logMotor("passenger_cancel",
                     `Pasajero=${pEmail} -> Timeout pasajero limpiado`,
@@ -539,8 +540,12 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             }
 
             // Limpiar timeout del taxista si existe
-            if (tEmail && pendingTimeouts.has(tEmail)) {
-                clearPendingTimeouts(tEmail, "cancelación pasajero");
+            if (estadoActualDoc.requestId) {
+                clearRequestTimeouts(estadoActualDoc.requestId, "cancelación pasajero");
+            }
+
+            if (tEmail && getActiveRequestIdForPassenger(pEmail)) {
+                clearPendingTimeouts(pEmail, "cancelación pasajero");
                 logMotor("passenger_cancel",
                     `Pasajero=${pEmail} Taxista=${tEmail} -> Timeout taxista limpiado`,
                     "INFO"
@@ -586,9 +591,8 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 await session.commitTransaction();
                 session.endSession();
 
-                clearPendingTimeouts(pEmail, "cancelación definitiva");
-                if (tEmail) {
-                    clearPendingTimeouts(tEmail, "cancelación definitiva");
+                if (estadoActualDoc.requestId) {
+                    clearRequestTimeouts(estadoActualDoc.requestId, "cancelación definitiva");
                 }
 
                 // Notificar al taxista
