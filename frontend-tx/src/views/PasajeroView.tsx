@@ -656,6 +656,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   };
 
   const enCaminoUI = ["asignado", "encamino"].includes(estado);
+  const compactoInferior = ["buscando", "preasignado", "asignado", "encamino", "encurso"].includes(estado);
 
   useEffect(() => {
     setDestinoColapsado(enCaminoUI);
@@ -873,15 +874,15 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
         {/* CARD DEL TAXISTA */}
         {taxistaAsignado && (
-          <div className={`mx-6 ${enCaminoUI ? "mt-10" : "mt-6"} relative z-[1001] p-3 bg-white border border-slate-100 rounded-[1.5rem] flex items-center gap-4 shadow-xl transition-all duration-300`}>
-            <div className="h-10 w-10 bg-green-50 rounded-xl flex items-center justify-center text-lg">
+          <div className={`mx-5 ${enCaminoUI ? "mt-8" : "mt-5"} relative z-[1001] ${compactoInferior ? "p-2.5" : "p-3"} bg-white border border-slate-100 rounded-[1.4rem] flex items-center ${compactoInferior ? "gap-3" : "gap-4"} shadow-xl transition-all duration-300`}>
+            <div className={`${compactoInferior ? "h-8 w-8 text-base" : "h-10 w-10 text-lg"} bg-green-50 rounded-xl flex items-center justify-center`}>
               🚖
             </div>
             <div className="flex-1 flex items-baseline gap-2">
-              <p className="text-[14px] font-black text-slate-800 leading-tight">
+              <p className={`${compactoInferior ? "text-[12px]" : "text-[14px]"} font-black text-slate-800 leading-tight`}>
                 {taxistaAsignado.name}
               </p>
-              <p className="text-[16px] font-black text-[#22c55e] whitespace-nowrap">
+              <p className={`${compactoInferior ? "text-[13px]" : "text-[16px]"} font-black text-[#22c55e] whitespace-nowrap`}>
                 Taxi {taxistaAsignado.taxiNumber || "ECO"}
               </p>
             </div>
@@ -889,13 +890,13 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         )}
 
         {/* BOTONES */}
-        <div className="px-6 pt-7 pb-18 flex flex-col shrink-0 bg-white">
+        <div className={`${compactoInferior ? "px-4 pt-4 pb-14" : "px-5 pt-5 pb-16"} flex flex-col shrink-0 bg-white transition-all duration-300`}>
           {enCaminoUI && destinoColapsado && (
-            <div className="mb-3 p-3 rounded-2xl border border-slate-200 bg-slate-50">
+            <div className={`${compactoInferior ? "mb-2 p-2.5" : "mb-3 p-3"} rounded-2xl border border-slate-200 bg-slate-50`}>
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1">Destino</p>
-                  <p className="text-[10px] font-bold text-slate-700 truncate">
+                  <p className={`${compactoInferior ? "text-[7px]" : "text-[8px]"} font-black uppercase tracking-[0.2em] text-slate-400 mb-1`}>Destino</p>
+                  <p className={`${compactoInferior ? "text-[9px]" : "text-[10px]"} font-bold text-slate-700 truncate`}>
                     {destinationAddress || "Sin destino especificado"}
                   </p>
                 </div>
@@ -910,11 +911,11 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
             </div>
           )}
 
-          <div className="mb-3">
-            <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
+          <div className={`${compactoInferior ? "mb-2" : "mb-3"}`}>
+            <p className={`${compactoInferior ? "text-[7px]" : "text-[8px]"} font-black text-slate-400 uppercase tracking-[0.2em] mb-1`}>
               Servicio Valles
             </p>
-            <h2 className="text-lg font-black text-slate-900 tracking-tighter leading-tight">
+            <h2 className={`${compactoInferior ? "text-base" : "text-lg"} font-black text-slate-900 tracking-tighter leading-tight`}>
               {estado === "pendiente" && "A donde vamos hoy?"}
               {estado === "buscando" && "Buscando unidad..."}
               {["asignado", "encamino"].includes(estado) && "Tu taxi viene en camino"}
@@ -922,11 +923,11 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
             </h2>
           </div>
 
-          <div className="space-y-3 pt-2">
+          <div className={`${compactoInferior ? "space-y-2 pt-1" : "space-y-3 pt-2"}`}>
             {estado === "pendiente" && !searchFlowActivo && (
               <button
                 onClick={solicitarTaxi}
-                className="w-full py-5 rounded-[1.2rem] font-black transition-all transform active:scale-95 shadow-xl tracking-widest text-xs bg-[#22c55e] text-white shadow-green-900/20 hover:bg-[#16a34a]"
+                className={`${compactoInferior ? "py-4 text-[11px]" : "py-5 text-xs"} w-full rounded-[1.2rem] font-black transition-all transform active:scale-95 shadow-xl tracking-widest bg-[#22c55e] text-white shadow-green-900/20 hover:bg-[#16a34a]`}
               >
                 SOLICITAR TRANSPORTE
               </button>
@@ -935,7 +936,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
             {(searchFlowActivo || ["buscando", "preasignado", "asignado", "encamino"].includes(estado)) && (
               <button
                 onClick={cancelarSolicitud}
-                className="w-full py-3 bg-red-50 text-red-500 rounded-[1.2rem] font-bold text-[8px] uppercase border border-red-100 active:bg-red-100"
+                className={`${compactoInferior ? "py-2.5 text-[9px]" : "py-3 text-[8px]"} w-full bg-red-50 text-red-500 rounded-[1.2rem] font-bold uppercase border border-red-100 active:bg-red-100`}
               >
                 Cancelar Solicitud
               </button>

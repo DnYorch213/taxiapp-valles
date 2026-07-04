@@ -132,10 +132,7 @@ useEffect(() => {
       setEstado(POSITION_STATES.ENCAMINO); // Lo movemos visualmente a ruta mientras responde el socket
     }
     
-    socket.emit("rehydrate_trip", { 
-      pasajero: pasajero.toLowerCase().trim(), 
-      taxista: taxista.toLowerCase().trim() 
-    });
+    socket.emit("request_rehydrate");
   }
 }, []);
 

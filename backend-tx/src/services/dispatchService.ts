@@ -412,8 +412,6 @@ export const dispatchWithRetry = async (
                     "INFO"
                 );
 
-                io.to(tEmail).emit("dispatch_timeout");
-
                 const taxistaLiberado = await Position.updateOne(
                     {
                         email: tEmail,
@@ -438,6 +436,9 @@ export const dispatchWithRetry = async (
                     clearPendingTimeout(pEmail, "race detectada: taxista ya no asignado");
                     return;
                 }
+
+                // Notificar timeout solo cuando se confirmó liberación real.
+                io.to(tEmail).emit("dispatch_timeout");
 
                 await Position.updateOne(
                     {
