@@ -99,6 +99,7 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
     moved: false,
   });
   const estadoRef = useRef(estado);
+  const pasajeroAsignadoRef = useRef<Payload | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [vistaActual, setVistaActual] = useState('mapa'); // 'mapa' o 'historial'
   const [isAccepting, setIsAccepting] = useState(false);
@@ -113,6 +114,10 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
 useEffect(() => {
   estadoRef.current = estado;
 }, [estado]);
+
+useEffect(() => {
+  pasajeroAsignadoRef.current = pasajeroAsignado;
+}, [pasajeroAsignado]);
 
 
 
@@ -337,13 +342,28 @@ const handleAsignacion = useCallback((data: any) => {
     return;
   }
 
-  // Limpieza de estado previa para asegurar un render limpio
-  setPasajeroAsignado(null);
+  const incomingEmail = String(rawData.email).toLowerCase().trim();
+  const estadoActual = estadoRef.current;
+  const actualAsignado = pasajeroAsignadoRef.current?.email?.toLowerCase().trim();
+
+  // Ignorar ofertas tardías cuando el viaje ya está confirmado o en curso.
+  if (["encamino", "encurso"].includes(estadoActual)) {
+    if (!actualAsignado || actualAsignado === incomingEmail) {
+      console.warn("🛡️ Oferta tardía ignorada: el viaje ya está en estado activo.");
+      return;
+    }
+  }
+
+  // Durante confirmación de aceptación por push, ignorar nuevas ofertas para evitar rebote a 'asignado'.
+  if (isAccepting && data.isNewOffer) {
+    console.warn("🛡️ Oferta ignorada durante confirmación push.");
+    return;
+  }
 
   setTimeout(() => {
     // 2. ACTUALIZACIÓN DE ESTADOS
     // Limpiamos el email por si trae la "k" extra o espacios
-    const pEmail = rawData.email.toLowerCase().trim();
+    const pEmail = incomingEmail;
 setPasajeroAsignado({ 
   ...rawData, 
   email: pEmail, 
@@ -389,7 +409,7 @@ else {
 }
 
   }, 10);
-}, [detenerSonido, reproducirAlerta]);
+}, [detenerSonido, reproducirAlerta, isAccepting]);
 
   useEffect(() => {
     if (!socket) return;
@@ -522,6 +542,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   });
 
     socket.on("dispatch_timeout", () => {
+      if (["encamino", "encurso"].includes(estadoRef.current)) {
+        console.warn("🛡️ dispatch_timeout tardío ignorado: viaje ya confirmado.");
+        return;
+      }
       detenerSonido();
       setPasajeroAsignado(null);
       setEstado(POSITION_STATES.ACTIVO);

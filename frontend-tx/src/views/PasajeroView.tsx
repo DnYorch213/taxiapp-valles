@@ -477,6 +477,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
     // TAXI RECHAZÓ LA SOLICITUD
     socket.on("taxi_rejected_request", () => {
+      if (["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
+        console.warn("🛡️ taxi_rejected_request tardío ignorado: viaje ya confirmado.");
+        return;
+      }
       setSearchFlowActivo(true);
       setTaxistaAsignado(null);
       setTaxiPos(null);
@@ -485,6 +489,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     });
 
     socket.on("no_taxis_available", (payload?: { message?: string }) => {
+      if (["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
+        console.warn("🛡️ no_taxis_available tardío ignorado: viaje ya confirmado.");
+        return;
+      }
       setSearchFlowActivo(true);
       setTaxistaAsignado(null);
       setTaxiPos(null);
@@ -495,6 +503,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     });
 
     socket.on("dispatch_error", (payload?: { message?: string }) => {
+      if (["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
+        console.warn("🛡️ dispatch_error tardío ignorado: viaje ya confirmado.");
+        return;
+      }
       setSearchFlowActivo(true);
       setEstado(TRIP_STATES.BUSCANDO);
       if (payload?.message) {
@@ -657,6 +669,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
   const enCaminoUI = ["asignado", "encamino"].includes(estado);
   const compactoInferior = ["buscando", "preasignado", "asignado", "encamino", "encurso"].includes(estado);
+  const mostrarTextoBuscando = !taxistaAsignado && ["buscando", "preasignado"].includes(estado);
 
   useEffect(() => {
     setDestinoColapsado(enCaminoUI);
@@ -942,7 +955,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               </button>
             )}
 
-            {(!taxistaAsignado && (searchFlowActivo || estado === "buscando" || estado === "preasignado")) && (
+            {mostrarTextoBuscando && (
               <p className="text-center text-[10px] font-black uppercase tracking-[0.16em] text-amber-500 animate-pulse">
                 Buscando otra unidad...
               </p>
