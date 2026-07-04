@@ -429,6 +429,12 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         return;
       }
 
+      if (["asignado", "encamino"].includes(nextEstado)) {
+        setSearchFlowActivo(false);
+        setEstado(nextEstado as ViajeEstado);
+        return;
+      }
+
       if (nextEstado === "finalizado") {
         if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
           return;
@@ -648,6 +654,8 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     navigate("/login");
   };
 
+  const enCaminoUI = ["asignado", "encamino"].includes(estado);
+
   return (
     <div className="h-dvh bg-slate-50 flex flex-col items-center font-sans relative overflow-hidden">
       <ToastContainer theme="light" />
@@ -784,7 +792,11 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               )}
             </MapContainer>
 
-            <div className="absolute left-3 right-3 bottom-1 z-[1100] bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl p-3 space-y-2">
+            <div
+              className={`absolute left-3 right-3 bottom-1 z-[1100] bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl p-3 transition-all duration-300 ${
+                enCaminoUI ? "space-y-1" : "space-y-2"
+              }`}
+            >
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400">Destino</p>
@@ -792,34 +804,40 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                     {destinationAddress || "Elige una dirección o mueve el pin"}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={limpiarDestino}
-                  className="text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700"
-                >
-                  Limpiar
-                </button>
+                {!enCaminoUI && (
+                  <button
+                    type="button"
+                    onClick={limpiarDestino}
+                    className="text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700"
+                  >
+                    Limpiar
+                  </button>
+                )}
               </div>
 
-              <div className="flex gap-2">
-                <input
-                  value={destinationQuery}
-                  onChange={(e) => setDestinationQuery(e.target.value)}
-                  placeholder="Escribe tu destino"
-                  className="flex-1 min-w-0 bg-slate-100 border border-slate-200 rounded-xl px-3 py-3 text-sm font-medium text-slate-800 outline-none focus:ring-2 focus:ring-[#22c55e]/30 disabled:opacity-60"
-                />
-                <button
-                  type="button"
-                  onClick={() => void geocodificarDestino(destinationQuery)}
-                  disabled={isSearchingDestination || !destinationQuery.trim()}
-                  className="px-4 rounded-xl bg-[#22c55e] text-[#0f172a] font-black text-[9px] uppercase tracking-widest disabled:opacity-60 active:scale-95"
-                >
-                  {isSearchingDestination ? "..." : "Buscar"}
-                </button>
-              </div>
+              {!enCaminoUI && (
+                <div className="flex gap-2">
+                  <input
+                    value={destinationQuery}
+                    onChange={(e) => setDestinationQuery(e.target.value)}
+                    placeholder="Escribe tu destino"
+                    className="flex-1 min-w-0 bg-slate-100 border border-slate-200 rounded-xl px-3 py-3 text-sm font-medium text-slate-800 outline-none focus:ring-2 focus:ring-[#22c55e]/30 disabled:opacity-60"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void geocodificarDestino(destinationQuery)}
+                    disabled={isSearchingDestination || !destinationQuery.trim()}
+                    className="px-4 rounded-xl bg-[#22c55e] text-[#0f172a] font-black text-[9px] uppercase tracking-widest disabled:opacity-60 active:scale-95"
+                  >
+                    {isSearchingDestination ? "..." : "Buscar"}
+                  </button>
+                </div>
+              )}
 
               <p className="text-[8px] font-bold text-slate-400 uppercase tracking-[0.18em]">
-                Arrastra el pin verde para ajustar la ubicación exacta.
+                {enCaminoUI
+                  ? "Destino bloqueado mientras la unidad va en camino."
+                  : "Arrastra el pin verde para ajustar la ubicación exacta."}
               </p>
             </div>
             </>
@@ -847,7 +865,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
         {/* CARD DEL TAXISTA */}
         {taxistaAsignado && (
-          <div className="mx-6 mt-6 relative z-[1001] p-3 bg-white border border-slate-100 rounded-[1.5rem] flex items-center gap-4 shadow-xl">
+          <div className={`mx-6 ${enCaminoUI ? "mt-10" : "mt-6"} relative z-[1001] p-3 bg-white border border-slate-100 rounded-[1.5rem] flex items-center gap-4 shadow-xl transition-all duration-300`}>
             <div className="h-10 w-10 bg-green-50 rounded-xl flex items-center justify-center text-lg">
               🚖
             </div>
@@ -895,9 +913,15 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               </button>
             )}
 
-            {(searchFlowActivo || estado === "buscando" || estado === "preasignado") && (
+            {(!taxistaAsignado && (searchFlowActivo || estado === "buscando" || estado === "preasignado")) && (
               <p className="text-center text-[10px] font-black uppercase tracking-[0.16em] text-amber-500 animate-pulse">
                 Buscando otra unidad...
+              </p>
+            )}
+
+            {(taxistaAsignado && ["asignado", "encamino"].includes(estado)) && (
+              <p className="text-center text-[10px] font-black uppercase tracking-[0.16em] text-[#22c55e]">
+                Unidad confirmada, en camino
               </p>
             )}
           </div>

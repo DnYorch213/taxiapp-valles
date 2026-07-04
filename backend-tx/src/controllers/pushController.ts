@@ -12,18 +12,29 @@ import { POSITION_STATES, STATE_GROUPS } from "../constants/states";
 export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Response) => {
     const { taxistaEmail, pasajeroEmail } = req.body;
 
+    if (!taxistaEmail || !pasajeroEmail) {
+        return res.status(400).json({ error: "Faltan taxistaEmail o pasajeroEmail" });
+    }
+
     try {
         const tEmail = taxistaEmail.toLowerCase().trim();
         const pEmail = pasajeroEmail.toLowerCase().trim();
 
-        if (pendingTimeouts.has(tEmail)) {
-            clearTimeout(pendingTimeouts.get(tEmail)!);
-            pendingTimeouts.delete(tEmail);
+        // El mapa de timeouts está indexado por pasajero, no por taxista.
+        if (pendingTimeouts.has(pEmail)) {
+            clearTimeout(pendingTimeouts.get(pEmail)!);
+            pendingTimeouts.delete(pEmail);
         }
 
         const pPosActualizado = await Position.findOneAndUpdate(
             { email: pEmail, estado: { $in: [POSITION_STATES.BUSCANDO, POSITION_STATES.PREASIGNADO, POSITION_STATES.ACTIVO] } },
-            { $set: { estado: POSITION_STATES.ENCAMINO, taxistaAsignado: tEmail } },
+            {
+                $set: {
+                    estado: POSITION_STATES.ENCAMINO,
+                    taxistaAsignado: tEmail,
+                    updatedAt: new Date()
+                }
+            },
             { returnDocument: "after" }
         );
 
@@ -32,7 +43,16 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
             return res.status(410).json({ error: "El viaje ya no está disponible." });
         }
 
-        await Position.updateOne({ email: tEmail }, { $set: { estado: POSITION_STATES.ENCAMINO, pasajeroAsignado: pEmail } });
+        await Position.updateOne(
+            { email: tEmail },
+            {
+                $set: {
+                    estado: POSITION_STATES.ENCAMINO,
+                    pasajeroAsignado: pEmail,
+                    updatedAt: new Date()
+                }
+            }
+        );
         const tPos = await Position.findOne({ email: tEmail });
 
         const pasajeroPayload = buildPayload(pPosActualizado, pPosActualizado, POSITION_STATES.ENCAMINO);
@@ -58,7 +78,10 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
             pasajeroAsignado: pasajeroPayload
         });
 
-        io.to(pEmail).emit("trip_status_update", { estado: POSITION_STATES.ENCAMINO });
+        io.to(pEmail).emit("trip_status_update", {
+            estado: POSITION_STATES.ENCAMINO,
+            pasajeroEmail: pEmail
+        });
 
         io.emit("panel_update", buildPayload(tPos, tPos, POSITION_STATES.ENCAMINO, { pasajeroAsignado: pEmail }));
         io.emit("panel_update", buildPayload(pPosActualizado, pPosActualizado, POSITION_STATES.ENCAMINO, { taxistaAsignado: tEmail }));
