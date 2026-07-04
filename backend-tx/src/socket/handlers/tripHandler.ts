@@ -424,13 +424,11 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             );
 
             // 🎯 LIMPIEZA DE TIMEOUTS
-            if (getActiveRequestIdForPassenger(pEmail)) {
-                clearPendingTimeouts(pEmail, "subida de pasajero");
-                logMotor("passenger_on_board",
-                    `Pasajero=${pEmail} -> Timeout limpiado`,
-                    "INFO"
-                );
-            }
+            clearPendingTimeouts(pEmail, "subida de pasajero");
+            logMotor("passenger_on_board",
+                `Pasajero=${pEmail} -> Timeout limpiado`,
+                "INFO"
+            );
 
             // 🎯 TRANSACCIÓN ATÓMICA
             const session = await Position.startSession();
@@ -530,27 +528,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             );
 
             // 🎯 LIMPIEZA EXHAUSTIVA DE TIMEOUTS
-            // Limpiar timeout del pasajero
-            if (getActiveRequestIdForPassenger(pEmail)) {
-                clearPendingTimeouts(pEmail, "cancelación pasajero");
-                logMotor("passenger_cancel",
-                    `Pasajero=${pEmail} -> Timeout pasajero limpiado`,
-                    "INFO"
-                );
-            }
-
-            // Limpiar timeout del taxista si existe
-            if (estadoActualDoc.requestId) {
-                clearRequestTimeouts(estadoActualDoc.requestId, "cancelación pasajero");
-            }
-
-            if (tEmail && getActiveRequestIdForPassenger(pEmail)) {
-                clearPendingTimeouts(pEmail, "cancelación pasajero");
-                logMotor("passenger_cancel",
-                    `Pasajero=${pEmail} Taxista=${tEmail} -> Timeout taxista limpiado`,
-                    "INFO"
-                );
-            }
+            clearPendingTimeouts(pEmail, "cancelación pasajero");
 
             // 🎯 TRANSACCIÓN ATÓMICA
             const session = await Position.startSession();
@@ -590,10 +568,6 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
                 await session.commitTransaction();
                 session.endSession();
-
-                if (estadoActualDoc.requestId) {
-                    clearRequestTimeouts(estadoActualDoc.requestId, "cancelación definitiva");
-                }
 
                 // Notificar al taxista
                 if (tEmail) {
@@ -851,11 +825,10 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                     message: "El taxista se ha desconectado. Buscando otra unidad..."
                 });
 
-                // Re-despachar al pasajero
-                const pasajeroData = await Position.findOne({ email: posDoc.pasajeroAsignado });
-                if (pasajeroData) {
-                    dispatchWithRetry(io, pasajeroData, [email], 1);
-                }
+                await clearPendingTimeouts(posDoc.pasajeroAsignado, "taxista desconectado");
+
+                // No relanzamos despacho aquí: el motor de microdrop conserva el estado
+                // y evita que un reconnect/notificación duplique la cascada.
             }
 
             // Si era pasajero en viaje, notificar al taxista

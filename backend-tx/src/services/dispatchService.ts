@@ -11,6 +11,9 @@ import { POSITION_STATES, STATE_GROUPS } from "../constants/states";
 export const activeTimeouts = new Map<string, Set<NodeJS.Timeout>>();
 export const pendingTimeouts = activeTimeouts;
 
+// 🎯 Candado por requestId para evitar cascadas concurrentes
+const activeDispatches = new Set<string>();
+
 // 🎯 Índice auxiliar para ubicar el requestId activo de cada pasajero
 const passengerActiveRequestIds = new Map<string, string>();
 
@@ -77,14 +80,8 @@ export const clearPendingTimeouts = (pEmail: string, reason: string) => {
 
     if (!requestId) return;
 
-    const bucket = activeTimeouts.get(requestId);
-
-    if (!bucket || bucket.size === 0) return;
-
-    bucket.forEach((timeout) => clearTimeout(timeout));
-    activeTimeouts.delete(requestId);
+    clearDispatchCycle(requestId, reason);
     passengerActiveRequestIds.delete(key);
-    logMotor("dispatch_cleanup", `Pasajero=${key} RequestId=${requestId} -> ${bucket.size} timeout(s) limpiado(s): ${reason}`, "INFO");
 };
 
 export const clearRequestTimeouts = (requestId: string, reason: string) => {
@@ -104,13 +101,28 @@ export const clearPassengerRequestBinding = (pEmail: string) => {
     passengerActiveRequestIds.delete(normalizeEmail(pEmail));
 };
 
+export const lockDispatchCycle = (requestId: string) => {
+    if (activeDispatches.has(requestId)) return false;
+    activeDispatches.add(requestId);
+    return true;
+};
+
+export const unlockDispatchCycle = (requestId: string) => {
+    activeDispatches.delete(requestId);
+};
+
+export const clearDispatchCycle = (requestId: string, reason: string) => {
+    clearRequestTimeouts(requestId, reason);
+    unlockDispatchCycle(requestId);
+};
+
 // 🆕 Calcular timeout dinámico basado en distancia
 const calculateDynamicTimeout = (distanciaKm: number): number => {
     const timeout = BASE_TIMEOUT_MS + (distanciaKm * TIMEOUT_PER_KM_MS);
     return Math.min(timeout, MAX_TIMEOUT_MS);
 };
 
-export const dispatchWithRetry = async (
+const runDispatchWithRetry = async (
     io: Server,
     pasajeroData: any,
     excludedEmails: string[] = [],
@@ -148,7 +160,7 @@ export const dispatchWithRetry = async (
                 `Pasajero=${pEmail} Estado=${pStatusCheck.estado} Intento=${attempt} -> Viaje ya en curso/finalizado`,
                 "WARN"
             );
-            clearPendingTimeouts(pEmail, "viaje ya activo/finalizado");
+            clearDispatchCycle(reqId, "viaje ya activo/finalizado");
             return;
         }
 
@@ -162,7 +174,7 @@ export const dispatchWithRetry = async (
                 `Pasajero=${pEmail} Intento=${attempt} -> RequestId obsoleto (Actual: ${pStatusCheck.requestId}, Esperado: ${reqId})`,
                 "WARN"
             );
-            clearPendingTimeouts(pEmail, "requestId obsoleto");
+            clearDispatchCycle(reqId, "requestId obsoleto");
             return;
         }
 
@@ -189,7 +201,7 @@ export const dispatchWithRetry = async (
                 message: "Sin unidades disponibles después de varios intentos."
             });
 
-            clearPendingTimeouts(pEmail, "límite de reintentos");
+            clearDispatchCycle(reqId, "límite de reintentos");
             return;
         }
 
@@ -211,6 +223,7 @@ export const dispatchWithRetry = async (
             io.to(pEmail).emit("no_taxis_available", {
                 message: "Buscando más conductores..."
             });
+            clearDispatchCycle(reqId, "sin taxistas activos disponibles");
             return;
         }
 
@@ -234,6 +247,7 @@ export const dispatchWithRetry = async (
             io.to(pEmail).emit("no_taxis_available", {
                 message: `No hay unidades disponibles en un radio de ${MAX_DISPATCH_DISTANCE_KM}km.`
             });
+            clearDispatchCycle(reqId, "sin taxistas dentro del radio permitido");
             return;
         }
 
@@ -253,7 +267,7 @@ export const dispatchWithRetry = async (
                 `Pasajero=${pEmail} Taxista=${tEmail} -> Coordenadas faltantes, reintentando`,
                 "WARN"
             );
-            dispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt);
+            await runDispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt);
             return;
         }
 
@@ -298,7 +312,7 @@ export const dispatchWithRetry = async (
                 );
 
                 // Reintentar con el siguiente taxista
-                dispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt);
+                await runDispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt);
                 return;
             }
 
@@ -432,7 +446,7 @@ export const dispatchWithRetry = async (
                         `Pasajero=${pEmail} Estado=${pRefresh.estado} -> Timeout ignorado, viaje activo`,
                         "INFO"
                     );
-                    clearPendingTimeouts(pEmail, "viaje activo");
+                    clearDispatchCycle(reqId, "viaje activo");
                     return;
                 }
 
@@ -443,7 +457,7 @@ export const dispatchWithRetry = async (
                         `Pasajero=${pEmail} RequestIdActual=${pRefresh.requestId} RequestIdEsperado=${reqId} -> Timeout obsoleto`,
                         "WARN"
                     );
-                    clearPendingTimeouts(pEmail, "requestId obsoleto");
+                    clearDispatchCycle(reqId, "requestId obsoleto");
                     return;
                 }
 
@@ -454,7 +468,7 @@ export const dispatchWithRetry = async (
                         `Taxista=${tEmail} Estado=${tCheck?.estado} -> Ya no está asignado`,
                         "INFO"
                     );
-                    clearPendingTimeouts(pEmail, "taxista ya no asignado");
+                    clearDispatchCycle(reqId, "taxista ya no asignado");
                     return;
                 }
 
@@ -486,7 +500,7 @@ export const dispatchWithRetry = async (
                         `Pasajero=${pEmail} Taxista=${tEmail} -> Fallback cancelado por carrera (ya no sigue asignado a este pasajero)`,
                         "INFO"
                     );
-                    clearPendingTimeouts(pEmail, "race detectada: taxista ya no asignado");
+                    clearDispatchCycle(reqId, "race detectada: taxista ya no asignado");
                     return;
                 }
 
@@ -514,7 +528,7 @@ export const dispatchWithRetry = async (
                 });
 
                 // Limpiar timeout antes de reintentar
-                clearPendingTimeouts(pEmail, "relanzando cascada");
+                clearRequestTimeouts(reqId, "relanzando cascada");
 
                 logMotor(
                     "dispatch_timeout",
@@ -523,7 +537,7 @@ export const dispatchWithRetry = async (
                 );
 
                 // Reintentar con el siguiente taxista
-                dispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt + 1);
+                await runDispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt + 1);
 
             } catch (timeoutError) {
                 logMotor(
@@ -556,10 +570,32 @@ export const dispatchWithRetry = async (
 
         // Reintentar después de 2 segundos
         const retryTimeout = setTimeout(() => {
-            dispatchWithRetry(io, pasajeroData, currentExcluidos, attempt);
+            unlockDispatchCycle(reqId);
+            runDispatchWithRetry(io, pasajeroData, currentExcluidos, attempt);
         }, 2000);
         registerPendingTimeout(reqId, retryTimeout);
     }
+};
+
+export const dispatchWithRetry = async (
+    io: Server,
+    pasajeroData: any,
+    excludedEmails: string[] = [],
+    attempt: number = 1
+) => {
+    const reqId = pasajeroData?.requestId;
+    if (!reqId) {
+        const pEmail = pasajeroData?.email?.toLowerCase?.().trim?.() || "desconocido";
+        logMotor("dispatch_retry", `Pasajero=${pEmail} -> requestId no proporcionado`, "ERROR");
+        return;
+    }
+
+    if (!lockDispatchCycle(reqId)) {
+        logMotor("dispatch_retry", `RequestId=${reqId} -> Cascada ya en curso, intento bloqueado`, "WARN");
+        return;
+    }
+
+    await runDispatchWithRetry(io, pasajeroData, excludedEmails, attempt);
 };
 
 // 🆕 Función para limpiar todos los timeouts (útil en shutdown)
