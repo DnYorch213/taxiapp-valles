@@ -3,7 +3,7 @@ import { Server, Socket } from "socket.io";
 import { Position } from "../models/Position";
 import { User } from "../models/User";
 import { buildPayload } from "../utils/payloadBuilder";
-import { clearPendingTimeouts, pendingTimeouts, isAutoMode } from "../services/dispatchService";
+import { clearPendingTimeouts, isAutoMode } from "../services/dispatchService";
 import { registerLocationHandlers } from "./handlers/locationHandler";
 import { registerTripHandlers } from "./handlers/tripHandler";
 import { logMotor } from "../utils/logger";
@@ -388,10 +388,8 @@ export const initSocketEngine = (io: Server) => {
                 if (targetEmail) {
                     const cleanEmail = targetEmail.toLowerCase().trim();
 
-                    // Limpiar timeout si existe
-                    if (pendingTimeouts.has(cleanEmail)) {
-                        clearPendingTimeouts(cleanEmail, "force_disconnect");
-                    }
+                    // Limpiar ciclo de despacho activo del usuario
+                    clearPendingTimeouts(cleanEmail, "force_disconnect");
 
                     // Actualizar estado
                     await Position.updateOne(
@@ -553,7 +551,7 @@ export const getSocketStats = () => {
     return {
         activeConnections: activeConnections.size,
         microdropTimers: microdropTimers.size,
-        pendingTimeouts: pendingTimeouts.size,
+        pendingTimeouts: 0,
         isAutoMode
     };
 };

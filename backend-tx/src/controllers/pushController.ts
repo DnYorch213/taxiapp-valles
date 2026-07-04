@@ -4,7 +4,7 @@ import { Server } from "socket.io";
 import { Position } from "../models/Position";
 import { User } from "../models/User";
 import { buildPayload } from "../utils/payloadBuilder";
-import { clearPendingTimeouts, dispatchWithRetry, pendingTimeouts } from "../services/dispatchService";
+import { clearPendingTimeouts, dispatchWithRetry } from "../services/dispatchService";
 import { POSITION_STATES, STATE_GROUPS } from "../constants/states";
 
 // 🚖 1. CONTROLADOR PARA ACEPTAR EL VIAJE VIA PUSH
@@ -19,10 +19,8 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
         const tEmail = taxistaEmail.toLowerCase().trim();
         const pEmail = pasajeroEmail.toLowerCase().trim();
 
-        // El mapa de timeouts está indexado por pasajero, no por taxista.
-        if (pendingTimeouts.has(pEmail)) {
-            clearPendingTimeouts(pEmail, "aceptación push");
-        }
+        // Limpieza por ciclo activo del pasajero (requestId), no por clave directa en mapa.
+        clearPendingTimeouts(pEmail, "aceptación push");
 
         const pPosActualizado = await Position.findOneAndUpdate(
             {
@@ -141,9 +139,7 @@ export const handleRejectTripPush = (io: Server) => async (req: Request, res: Re
         const tEmail = String(taxistaEmail).toLowerCase().trim();
         const pEmail = String(pasajeroEmail).toLowerCase().trim();
 
-        if (pendingTimeouts.has(pEmail)) {
-            clearPendingTimeouts(pEmail, "rechazo push");
-        }
+        clearPendingTimeouts(pEmail, "rechazo push");
 
         await Position.updateOne(
             { email: tEmail },
