@@ -8,7 +8,7 @@ import { logMotor } from "../utils/logger";
 import { POSITION_STATES, STATE_GROUPS } from "../constants/states";
 
 // 🎯 Mapa de timeouts pendientes (clave: email del pasajero)
-export const pendingTimeouts = new Map<string, NodeJS.Timeout>();
+export const pendingTimeouts = new Map<string, Set<NodeJS.Timeout>>();
 
 // 🎯 Configuración configurable
 const MAX_RETRIES = 5;
@@ -40,14 +40,33 @@ const getCachedGeocoding = async (lat: number, lng: number): Promise<string> => 
     return address;
 };
 
-// 🆕 Función auxiliar para limpiar timeout de forma segura
-const clearPendingTimeout = (pEmail: string, reason: string) => {
-    const oldTimeout = pendingTimeouts.get(pEmail);
-    if (oldTimeout) {
-        clearTimeout(oldTimeout);
-        pendingTimeouts.delete(pEmail);
-        logMotor("dispatch_cleanup", `Pasajero=${pEmail} -> Timeout limpiado: ${reason}`, "INFO");
+const getTimeoutBucket = (pEmail: string) => {
+    const key = pEmail.toLowerCase().trim();
+    let bucket = pendingTimeouts.get(key);
+    if (!bucket) {
+        bucket = new Set<NodeJS.Timeout>();
+        pendingTimeouts.set(key, bucket);
     }
+    return bucket;
+};
+
+// 🆕 Función auxiliar para registrar timeouts por ciclo del pasajero
+export const registerPendingTimeout = (pEmail: string, timeout: NodeJS.Timeout) => {
+    const bucket = getTimeoutBucket(pEmail);
+    bucket.add(timeout);
+    return timeout;
+};
+
+// 🆕 Función auxiliar para limpiar todos los timeouts de un pasajero
+export const clearPendingTimeouts = (pEmail: string, reason: string) => {
+    const key = pEmail.toLowerCase().trim();
+    const bucket = pendingTimeouts.get(key);
+
+    if (!bucket || bucket.size === 0) return;
+
+    bucket.forEach((timeout) => clearTimeout(timeout));
+    pendingTimeouts.delete(key);
+    logMotor("dispatch_cleanup", `Pasajero=${key} -> ${bucket.size} timeout(s) limpiado(s): ${reason}`, "INFO");
 };
 
 // 🆕 Calcular timeout dinámico basado en distancia
@@ -94,14 +113,13 @@ export const dispatchWithRetry = async (
                 `Pasajero=${pEmail} Estado=${pStatusCheck.estado} Intento=${attempt} -> Viaje ya en curso/finalizado`,
                 "WARN"
             );
-            clearPendingTimeout(pEmail, "viaje ya activo/finalizado");
+            clearPendingTimeouts(pEmail, "viaje ya activo/finalizado");
             return;
         }
 
         // 🛡️ Candado: Si el requestId cambió, este hilo es obsoleto
         if (
-            pStatusCheck.estado === POSITION_STATES.BUSCANDO &&
-            pStatusCheck.requestId &&
+            [POSITION_STATES.BUSCANDO, POSITION_STATES.PREASIGNADO].includes(pStatusCheck.estado as any) &&
             pStatusCheck.requestId !== reqId
         ) {
             logMotor(
@@ -109,7 +127,7 @@ export const dispatchWithRetry = async (
                 `Pasajero=${pEmail} Intento=${attempt} -> RequestId obsoleto (Actual: ${pStatusCheck.requestId}, Esperado: ${reqId})`,
                 "WARN"
             );
-            clearPendingTimeout(pEmail, "requestId obsoleto");
+            clearPendingTimeouts(pEmail, "requestId obsoleto");
             return;
         }
 
@@ -136,7 +154,7 @@ export const dispatchWithRetry = async (
                 message: "Sin unidades disponibles después de varios intentos."
             });
 
-            clearPendingTimeout(pEmail, "límite de reintentos");
+            clearPendingTimeouts(pEmail, "límite de reintentos");
             return;
         }
 
@@ -355,7 +373,7 @@ export const dispatchWithRetry = async (
 
         // 🎯 8. PROGRAMAR TIMEOUT DINÁMICO
         // 🆕 Limpiar timeout anterior si existe
-        clearPendingTimeout(pEmail, "nuevo intento de despacho");
+        clearPendingTimeouts(pEmail, "nuevo intento de despacho");
 
         const timeoutMs = calculateDynamicTimeout(distancia);
 
@@ -379,7 +397,7 @@ export const dispatchWithRetry = async (
                         `Pasajero=${pEmail} Estado=${pRefresh.estado} -> Timeout ignorado, viaje activo`,
                         "INFO"
                     );
-                    clearPendingTimeout(pEmail, "viaje activo");
+                    clearPendingTimeouts(pEmail, "viaje activo");
                     return;
                 }
 
@@ -390,7 +408,7 @@ export const dispatchWithRetry = async (
                         `Pasajero=${pEmail} RequestIdActual=${pRefresh.requestId} RequestIdEsperado=${reqId} -> Timeout obsoleto`,
                         "WARN"
                     );
-                    clearPendingTimeout(pEmail, "requestId obsoleto");
+                    clearPendingTimeouts(pEmail, "requestId obsoleto");
                     return;
                 }
 
@@ -401,7 +419,7 @@ export const dispatchWithRetry = async (
                         `Taxista=${tEmail} Estado=${tCheck?.estado} -> Ya no está asignado`,
                         "INFO"
                     );
-                    clearPendingTimeout(pEmail, "taxista ya no asignado");
+                    clearPendingTimeouts(pEmail, "taxista ya no asignado");
                     return;
                 }
 
@@ -433,7 +451,7 @@ export const dispatchWithRetry = async (
                         `Pasajero=${pEmail} Taxista=${tEmail} -> Fallback cancelado por carrera (ya no sigue asignado a este pasajero)`,
                         "INFO"
                     );
-                    clearPendingTimeout(pEmail, "race detectada: taxista ya no asignado");
+                    clearPendingTimeouts(pEmail, "race detectada: taxista ya no asignado");
                     return;
                 }
 
@@ -461,7 +479,7 @@ export const dispatchWithRetry = async (
                 });
 
                 // Limpiar timeout antes de reintentar
-                clearPendingTimeout(pEmail, "relanzando cascada");
+                clearPendingTimeouts(pEmail, "relanzando cascada");
 
                 logMotor(
                     "dispatch_timeout",
@@ -481,7 +499,7 @@ export const dispatchWithRetry = async (
             }
         }, timeoutMs);
 
-        pendingTimeouts.set(pEmail, timeout);
+        registerPendingTimeout(pEmail, timeout);
 
         logMotor(
             "dispatch_retry",
@@ -502,17 +520,18 @@ export const dispatchWithRetry = async (
         });
 
         // Reintentar después de 2 segundos
-        setTimeout(() => {
+        const retryTimeout = setTimeout(() => {
             dispatchWithRetry(io, pasajeroData, currentExcluidos, attempt);
         }, 2000);
+        registerPendingTimeout(pEmail, retryTimeout);
     }
 };
 
 // 🆕 Función para limpiar todos los timeouts (útil en shutdown)
 export const clearAllTimeouts = () => {
-    pendingTimeouts.forEach((timeout, key) => {
-        clearTimeout(timeout);
-        logMotor("dispatch_cleanup", `Timeout limpiado para ${key}`, "INFO");
+    pendingTimeouts.forEach((timeouts, key) => {
+        timeouts.forEach((timeout) => clearTimeout(timeout));
+        logMotor("dispatch_cleanup", `Timeout(s) limpiado(s) para ${key}`, "INFO");
     });
     pendingTimeouts.clear();
 };
@@ -520,7 +539,7 @@ export const clearAllTimeouts = () => {
 // 🆕 Función para obtener estadísticas de despacho
 export const getDispatchStats = () => {
     return {
-        pendingTimeouts: pendingTimeouts.size,
+        pendingTimeouts: Array.from(pendingTimeouts.values()).reduce((total, bucket) => total + bucket.size, 0),
         isAutoMode,
         maxRetries: MAX_RETRIES,
         maxDistance: MAX_DISPATCH_DISTANCE_KM

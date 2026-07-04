@@ -4,7 +4,7 @@ import { Position } from "../../models/Position";
 import { Trip } from "../../models/Trip";
 import { buildPayload } from "../../utils/payloadBuilder";
 import { reverseGeocode } from "../../services/geocodingService";
-import { dispatchWithRetry, pendingTimeouts } from "../../services/dispatchService";
+import { clearPendingTimeouts, dispatchWithRetry, pendingTimeouts } from "../../services/dispatchService";
 import { logMotor } from "../../utils/logger";
 import { calculateDistance } from "../../utils/distance";
 import { POSITION_STATES, TRIP_STATES } from "../../constants/states";
@@ -79,6 +79,8 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 }
 
                 // Crear nuevo request ID
+                clearPendingTimeouts(pEmail, "nuevo request_taxi");
+
                 const currentRequestId = new Date().getTime().toString();
 
                 // Actualizar posición a BUSCANDO
@@ -112,35 +114,36 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                     "INFO"
                 );
 
-                // 🚀 Geocodificación EN SEGUNDO PLANO (no bloqueante)
-                reverseGeocode(data.lat, data.lng)
-                    .then(async (direccion) => {
-                        const validacionP = await Position.findOne({ email: pEmail }).lean();
+                // 🧭 Resolver la dirección antes de despachar para no mandar payloads vacíos
+                let pickupAddress = data.pickupAddress || "Calculando ubicación...";
+                try {
+                    pickupAddress = await reverseGeocode(data.lat, data.lng);
 
-                        if (validacionP &&
-                            ["encamino", "encurso", "asignado", "preasignado"].includes(validacionP.estado)) {
-                            logMotor("geocoding",
-                                `Ignorando dirección tardía para ${pEmail}. Estado=${validacionP.estado}`,
-                                "WARN"
-                            );
-                            return;
-                        }
+                    const validacionP = await Position.findOne({ email: pEmail }).lean();
 
-                        if (validacionP?.requestId === currentRequestId) {
-                            await Position.updateOne(
-                                { email: pEmail },
-                                { $set: { pickupAddress: direccion } }
-                            );
-                            logMotor("geocoding",
-                                `Dirección inyectada: ${direccion} para ${pEmail}`,
-                                "INFO"
-                            );
-                        }
-                    })
-                    .catch(err => logMotor("geocoding",
-                        `Error en geocoding para ${pEmail}: ${err}`,
+                    if (validacionP &&
+                        [POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO, POSITION_STATES.PREASIGNADO].includes(validacionP.estado as any)) {
+                        logMotor("geocoding",
+                            `Ignorando dirección tardía para ${pEmail}. Estado=${validacionP.estado}`,
+                            "WARN"
+                        );
+                    } else if (validacionP?.requestId === currentRequestId) {
+                        await Position.updateOne(
+                            { email: pEmail },
+                            { $set: { pickupAddress } }
+                        );
+                        logMotor("geocoding",
+                            `Dirección inyectada: ${pickupAddress} para ${pEmail}`,
+                            "INFO"
+                        );
+                    }
+                } catch (geoError) {
+                    logMotor("geocoding",
+                        `Error en geocoding para ${pEmail}: ${geoError}`,
                         "ERROR"
-                    ));
+                    );
+                    pickupAddress = "Ubicación no disponible";
+                }
 
                 // Preparar payload para dispatch
                 const pasajeroPayload = {
@@ -148,7 +151,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                     name: data.name || "Pasajero",
                     lat: data.lat,
                     lng: data.lng,
-                    pickupAddress: data.pickupAddress || "Calculando ubicación...",
+                    pickupAddress,
                     destinationLat: data.destinationLat ?? null,
                     destinationLng: data.destinationLng ?? null,
                     destinationAddress: data.destinationAddress || "Destino no especificado",
@@ -197,8 +200,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
         // 🎯 LIMPIEZA PREVENTIVA: Cancelar timeout del pasajero
         if (pendingTimeouts.has(pEmail)) {
-            clearTimeout(pendingTimeouts.get(pEmail)!);
-            pendingTimeouts.delete(pEmail);
+            clearPendingTimeouts(pEmail, "respuesta del taxi");
             logMotor("taxi_response", `Pasajero=${pEmail} -> Timeout cancelado`, "INFO");
         }
 
@@ -288,10 +290,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 session.endSession();
 
                 // 🎯 LIMPIEZA EXTREMA: Matar cualquier timeout residual
-                if (pendingTimeouts.has(pEmail)) {
-                    clearTimeout(pendingTimeouts.get(pEmail)!);
-                    pendingTimeouts.delete(pEmail);
-                }
+                clearPendingTimeouts(pEmail, "aceptación push");
 
                 // Obtener datos frescos
                 const tPos = await Position.findOne({ email: tEmail });
@@ -425,8 +424,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
             // 🎯 LIMPIEZA DE TIMEOUTS
             if (pendingTimeouts.has(pEmail)) {
-                clearTimeout(pendingTimeouts.get(pEmail)!);
-                pendingTimeouts.delete(pEmail);
+                clearPendingTimeouts(pEmail, "subida de pasajero");
                 logMotor("passenger_on_board",
                     `Pasajero=${pEmail} -> Timeout limpiado`,
                     "INFO"
@@ -533,8 +531,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             // 🎯 LIMPIEZA EXHAUSTIVA DE TIMEOUTS
             // Limpiar timeout del pasajero
             if (pendingTimeouts.has(pEmail)) {
-                clearTimeout(pendingTimeouts.get(pEmail)!);
-                pendingTimeouts.delete(pEmail);
+                clearPendingTimeouts(pEmail, "cancelación pasajero");
                 logMotor("passenger_cancel",
                     `Pasajero=${pEmail} -> Timeout pasajero limpiado`,
                     "INFO"
@@ -543,8 +540,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
             // Limpiar timeout del taxista si existe
             if (tEmail && pendingTimeouts.has(tEmail)) {
-                clearTimeout(pendingTimeouts.get(tEmail)!);
-                pendingTimeouts.delete(tEmail);
+                clearPendingTimeouts(tEmail, "cancelación pasajero");
                 logMotor("passenger_cancel",
                     `Pasajero=${pEmail} Taxista=${tEmail} -> Timeout taxista limpiado`,
                     "INFO"
@@ -589,6 +585,11 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
                 await session.commitTransaction();
                 session.endSession();
+
+                clearPendingTimeouts(pEmail, "cancelación definitiva");
+                if (tEmail) {
+                    clearPendingTimeouts(tEmail, "cancelación definitiva");
+                }
 
                 // Notificar al taxista
                 if (tEmail) {
