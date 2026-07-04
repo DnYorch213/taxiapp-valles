@@ -27,7 +27,19 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
         }
 
         const pPosActualizado = await Position.findOneAndUpdate(
-            { email: pEmail, estado: { $in: [POSITION_STATES.BUSCANDO, POSITION_STATES.PREASIGNADO, POSITION_STATES.ACTIVO] } },
+            {
+                email: pEmail,
+                $or: [
+                    {
+                        estado: { $in: [POSITION_STATES.BUSCANDO, POSITION_STATES.ACTIVO] },
+                        $or: [{ taxistaAsignado: null }, { taxistaAsignado: tEmail }]
+                    },
+                    {
+                        estado: POSITION_STATES.PREASIGNADO,
+                        taxistaAsignado: tEmail
+                    }
+                ]
+            },
             {
                 $set: {
                     estado: POSITION_STATES.ENCAMINO,

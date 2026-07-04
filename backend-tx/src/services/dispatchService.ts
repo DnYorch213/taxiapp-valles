@@ -414,12 +414,41 @@ export const dispatchWithRetry = async (
 
                 io.to(tEmail).emit("dispatch_timeout");
 
-                await Position.updateOne(
-                    { email: tEmail },
+                const taxistaLiberado = await Position.updateOne(
+                    {
+                        email: tEmail,
+                        estado: POSITION_STATES.ASIGNADO,
+                        pasajeroAsignado: pEmail
+                    },
                     {
                         $set: {
                             estado: POSITION_STATES.ACTIVO,
                             pasajeroAsignado: null,
+                            updatedAt: new Date()
+                        }
+                    }
+                );
+
+                if (!taxistaLiberado.modifiedCount) {
+                    logMotor(
+                        "dispatch_timeout",
+                        `Pasajero=${pEmail} Taxista=${tEmail} -> Fallback cancelado por carrera (ya no sigue asignado a este pasajero)`,
+                        "INFO"
+                    );
+                    clearPendingTimeout(pEmail, "race detectada: taxista ya no asignado");
+                    return;
+                }
+
+                await Position.updateOne(
+                    {
+                        email: pEmail,
+                        estado: POSITION_STATES.PREASIGNADO,
+                        taxistaAsignado: tEmail
+                    },
+                    {
+                        $set: {
+                            estado: POSITION_STATES.BUSCANDO,
+                            taxistaAsignado: null,
                             updatedAt: new Date()
                         }
                     }

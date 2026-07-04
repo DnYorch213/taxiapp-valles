@@ -44,6 +44,7 @@ const PasajeroView: React.FC = () => {
   const [destinationAddress, setDestinationAddress] = useState("");
   const [destinationLat, setDestinationLat] = useState<number | null>(null);
   const [destinationLng, setDestinationLng] = useState<number | null>(null);
+  const [destinoColapsado, setDestinoColapsado] = useState(false);
   const [isSearchingDestination, setIsSearchingDestination] = useState(false);
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
   const [geometriaRuta, setGeometriaRuta] = useState<L.LatLngExpression[]>([]);
@@ -656,6 +657,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
   const enCaminoUI = ["asignado", "encamino"].includes(estado);
 
+  useEffect(() => {
+    setDestinoColapsado(enCaminoUI);
+  }, [enCaminoUI]);
+
   return (
     <div className="h-dvh bg-slate-50 flex flex-col items-center font-sans relative overflow-hidden">
       <ToastContainer theme="light" />
@@ -792,11 +797,8 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               )}
             </MapContainer>
 
-            <div
-              className={`absolute left-3 right-3 bottom-1 z-[1100] bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl p-3 transition-all duration-300 ${
-                enCaminoUI ? "space-y-1" : "space-y-2"
-              }`}
-            >
+            {!destinoColapsado && (
+            <div className="absolute left-3 right-3 bottom-1 z-[1100] bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl p-3 transition-all duration-300 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400">Destino</p>
@@ -804,7 +806,16 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                     {destinationAddress || "Elige una dirección o mueve el pin"}
                   </p>
                 </div>
-                {!enCaminoUI && (
+                <div className="flex items-center gap-2">
+                  {enCaminoUI && (
+                    <button
+                      type="button"
+                      onClick={() => setDestinoColapsado(true)}
+                      className="text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700"
+                    >
+                      Colapsar
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={limpiarDestino}
@@ -812,34 +823,31 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                   >
                     Limpiar
                   </button>
-                )}
+                </div>
               </div>
 
-              {!enCaminoUI && (
-                <div className="flex gap-2">
-                  <input
-                    value={destinationQuery}
-                    onChange={(e) => setDestinationQuery(e.target.value)}
-                    placeholder="Escribe tu destino"
-                    className="flex-1 min-w-0 bg-slate-100 border border-slate-200 rounded-xl px-3 py-3 text-sm font-medium text-slate-800 outline-none focus:ring-2 focus:ring-[#22c55e]/30 disabled:opacity-60"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void geocodificarDestino(destinationQuery)}
-                    disabled={isSearchingDestination || !destinationQuery.trim()}
-                    className="px-4 rounded-xl bg-[#22c55e] text-[#0f172a] font-black text-[9px] uppercase tracking-widest disabled:opacity-60 active:scale-95"
-                  >
-                    {isSearchingDestination ? "..." : "Buscar"}
-                  </button>
-                </div>
-              )}
+              <div className="flex gap-2">
+                <input
+                  value={destinationQuery}
+                  onChange={(e) => setDestinationQuery(e.target.value)}
+                  placeholder="Escribe tu destino"
+                  className="flex-1 min-w-0 bg-slate-100 border border-slate-200 rounded-xl px-3 py-3 text-sm font-medium text-slate-800 outline-none focus:ring-2 focus:ring-[#22c55e]/30 disabled:opacity-60"
+                />
+                <button
+                  type="button"
+                  onClick={() => void geocodificarDestino(destinationQuery)}
+                  disabled={isSearchingDestination || !destinationQuery.trim()}
+                  className="px-4 rounded-xl bg-[#22c55e] text-[#0f172a] font-black text-[9px] uppercase tracking-widest disabled:opacity-60 active:scale-95"
+                >
+                  {isSearchingDestination ? "..." : "Buscar"}
+                </button>
+              </div>
 
               <p className="text-[8px] font-bold text-slate-400 uppercase tracking-[0.18em]">
-                {enCaminoUI
-                  ? "Destino bloqueado mientras la unidad va en camino."
-                  : "Arrastra el pin verde para ajustar la ubicación exacta."}
+                Arrastra el pin verde para ajustar la ubicación exacta.
               </p>
             </div>
+            )}
             </>
           ) : (
             <div className="flex items-center justify-center h-full text-slate-400 font-black text-[10px] uppercase tracking-widest animate-pulse">
@@ -882,6 +890,26 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
         {/* BOTONES */}
         <div className="px-6 pt-7 pb-18 flex flex-col shrink-0 bg-white">
+          {enCaminoUI && destinoColapsado && (
+            <div className="mb-3 p-3 rounded-2xl border border-slate-200 bg-slate-50">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1">Destino</p>
+                  <p className="text-[10px] font-bold text-slate-700 truncate">
+                    {destinationAddress || "Sin destino especificado"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDestinoColapsado(false)}
+                  className="text-[8px] font-black uppercase tracking-widest text-[#22c55e]"
+                >
+                  Expandir
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="mb-3">
             <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
               Servicio Valles
