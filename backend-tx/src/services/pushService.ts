@@ -33,7 +33,7 @@ export const enviarNotificacionPush = async (subscription: any, pasajeroData: an
         const payload = JSON.stringify({
             title: "¡NUEVO VIAJE DISPONIBLE! 🚕",
             body: `Pasajero: ${pasajeroData.name || pasajeroData.pasajeroEmail}\nDistancia: ${distanciaMetros}m`,
-            icon: "/icon-192x192.png",
+            icon: `${process.env.FRONTEND_URL}/icon-192x192.png`,
             vibrate: [200, 100, 200, 100, 200],
             actions: [
                 { action: "aceptar", title: "✅ ACEPTAR VIAJE" },

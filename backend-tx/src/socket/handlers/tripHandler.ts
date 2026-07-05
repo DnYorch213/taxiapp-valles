@@ -4,7 +4,7 @@ import { Position } from "../../models/Position";
 import { Trip } from "../../models/Trip";
 import { buildPayload } from "../../utils/payloadBuilder";
 import { reverseGeocode } from "../../services/geocodingService";
-import { bindPassengerRequestId, clearPendingTimeouts, clearRequestTimeouts, dispatchWithRetry, getActiveRequestIdForPassenger } from "../../services/dispatchService";
+import { bindPassengerRequestId, clearPassengerRequestBinding, clearPendingTimeouts, clearRequestTimeouts, dispatchWithRetry, getActiveRequestIdForPassenger, clearDispatchCycle } from "../../services/dispatchService";
 import { logMotor } from "../../utils/logger";
 import { calculateDistance } from "../../utils/distance";
 import { POSITION_STATES, TRIP_STATES } from "../../constants/states";
@@ -296,6 +296,13 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
                 await session.commitTransaction();
                 session.endSession();
+
+                // 🛡️ Candado: cerrar la solicitud para evitar más reintentos
+                if (pPosActualizado?.requestId) {
+                    clearDispatchCycle(pPosActualizado.requestId, "viaje aceptado");
+                    clearPassengerRequestBinding(pEmail);
+                }
+
 
                 // 🎯 LIMPIEZA EXTREMA: Matar cualquier timeout residual
                 clearPendingTimeouts(pEmail, "aceptación push");

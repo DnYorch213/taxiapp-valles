@@ -17,7 +17,7 @@ export interface IPosition extends Document {
     pasajeroAsignado?: string;
     pickupAddress?: string;
     destinationAddress?: string;
-    requestId?: string;
+    requestId: string;
     pushSubscription?: any;
     updatedAt?: Date;
     createdAt?: Date;
@@ -39,7 +39,7 @@ const positionSchema = new Schema(
         pasajeroAsignado: { type: String, lowercase: true, trim: true },
         pickupAddress: { type: String },
         destinationAddress: { type: String },
-        requestId: { type: String },
+        requestId: { type: String, required: true },
         pushSubscription: { type: Schema.Types.Mixed },
         updatedAt: { type: Date, default: Date.now },
         createdAt: { type: Date, default: Date.now }
