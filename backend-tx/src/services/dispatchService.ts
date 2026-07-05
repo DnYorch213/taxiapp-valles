@@ -316,8 +316,15 @@ const runDispatchWithRetry = async (
             }
 
             // Actualizar pasajero a PREASIGNADO
-            await Position.updateOne(
-                { email: pEmail },
+            const pasajeroPreasignado = await Position.updateOne(
+                {
+                    email: pEmail,
+                    requestId: reqId,
+                    $or: [
+                        { estado: POSITION_STATES.BUSCANDO, taxistaAsignado: null },
+                        { estado: POSITION_STATES.PREASIGNADO, taxistaAsignado: tEmail }
+                    ]
+                },
                 {
                     $set: {
                         estado: POSITION_STATES.PREASIGNADO,
@@ -328,6 +335,32 @@ const runDispatchWithRetry = async (
                 },
                 { session }
             );
+
+            if (!pasajeroPreasignado.modifiedCount) {
+                await Position.updateOne(
+                    { email: tEmail, estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail },
+                    {
+                        $set: {
+                            estado: POSITION_STATES.ACTIVO,
+                            pasajeroAsignado: null,
+                            updatedAt: new Date()
+                        }
+                    },
+                    { session }
+                );
+
+                await session.abortTransaction();
+                session.endSession();
+
+                logMotor(
+                    "dispatch_retry",
+                    `Pasajero=${pEmail} Taxista=${tEmail} -> Preasignación descartada por carrera de estado`,
+                    "WARN"
+                );
+
+                await runDispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt);
+                return;
+            }
 
             await session.commitTransaction();
             session.endSession();
@@ -421,7 +454,7 @@ const runDispatchWithRetry = async (
 
         // 🎯 8. PROGRAMAR TIMEOUT DINÁMICO
         // 🆕 Limpiar timeout anterior si existe
-        clearPendingTimeouts(pEmail, "nuevo intento de despacho");
+        clearRequestTimeouts(reqId, "nuevo intento de despacho");
 
         const timeoutMs = calculateDynamicTimeout(distancia);
 
