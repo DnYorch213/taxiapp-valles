@@ -113,7 +113,7 @@ export const unlockDispatchCycle = (requestId: string) => {
 
 export const clearDispatchCycle = (requestId: string, reason: string) => {
     clearRequestTimeouts(requestId, reason);
-    unlockDispatchCycle(requestId);
+    unlockDispatchCycle(requestId); // 🔓 Aquí es donde se debe liberar el candado de forma segura
 };
 
 // 🆕 Calcular timeout dinámico basado en distancia
@@ -432,6 +432,7 @@ const runDispatchWithRetry = async (
                 if (bucket) {
                     bucket.delete(timeout);
                 }
+
                 const tCheck = await Position.findOne({ email: tEmail }).lean();
                 const pRefresh = await Position.findOne({ email: pEmail }).lean();
 
@@ -588,23 +589,20 @@ export const dispatchWithRetry = async (
     attempt: number = 1
 ) => {
     const reqId = pasajeroData?.requestId;
-    if (!reqId) {
-        const pEmail = pasajeroData?.email?.toLowerCase?.().trim?.() || "desconocido";
-        logMotor("dispatch_retry", `Pasajero=${pEmail} -> requestId no proporcionado`, "ERROR");
-        return;
-    }
+    if (!reqId) return;
 
+    // 🛡️ Si ya hay un hilo de despacho procesando O ESPERANDO respuesta para este RequestId, bloquear.
     if (!lockDispatchCycle(reqId)) {
-        logMotor("dispatch_retry", `RequestId=${reqId} -> Cascada ya en curso, intento bloqueado`, "WARN");
+        logMotor("dispatch_retry", `RequestId=${reqId} -> Bloqueado: Ya existe una oferta en curso o temporizador activo.`, "WARN");
         return;
     }
 
     try {
         await runDispatchWithRetry(io, pasajeroData, excludedEmails, attempt);
-    } finally {
-        // 🔓 Pase lo que pase (éxito o error de ejecución), liberamos el candado de entrada
-        // para permitir futuros reintentos o llamadas controladas de este RequestId
+    } catch (error) {
+        // Solo si hay un error síncrono/crítico antes de programar el timeout, liberamos para no congelar el viaje
         unlockDispatchCycle(reqId);
+        logMotor("dispatch_retry", `Error crítico inicial: ${error}`, "ERROR");
     }
 };
 

@@ -100,6 +100,11 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   });
   const estadoRef = useRef(estado);
   const pasajeroAsignadoRef = useRef<Payload | null>(null);
+  const pushRehydrateRef = useRef<{ pasajero: string | null; taxista: string | null; autoAccept: boolean }>({
+    pasajero: null,
+    taxista: null,
+    autoAccept: false,
+  });
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [vistaActual, setVistaActual] = useState('mapa'); // 'mapa' o 'historial'
   const [isAccepting, setIsAccepting] = useState(false);
@@ -127,8 +132,15 @@ useEffect(() => {
   const pasajero = params.get("pasajero");
   const taxista = params.get("taxista");
   const autoAccept = params.get("autoAccept");
+  const isPushFlow = Boolean(pasajero && taxista);
 
-  if (pasajero && taxista) {
+  pushRehydrateRef.current = {
+    pasajero,
+    taxista,
+    autoAccept: autoAccept === "true",
+  };
+
+  if (isPushFlow) {
     console.log("🔄 Rehidratando viaje desde notificación:", pasajero, taxista);
     
     // Si viene del botón aceptar del Push, forzamos un estado de carga inmediato
@@ -136,8 +148,11 @@ useEffect(() => {
       setIsAccepting(true);
       setEstado(POSITION_STATES.ENCAMINO); // Lo movemos visualmente a ruta mientras responde el socket
     }
-    
-    socket.emit("request_rehydrate");
+
+    // Si ya hay conexión, disparamos de inmediato. Si no, se reintentará en el listener de connect.
+    if (socket.connected) {
+      socket.emit("request_rehydrate");
+    }
   }
 }, []);
 
@@ -319,14 +334,25 @@ useGeolocation(
 
   // 🚩 REHIDRATACIÓN AUTOMÁTICA AL CARGAR
 useEffect(() => {
+  const onConnectRehydrate = () => {
+    const { pasajero, taxista } = pushRehydrateRef.current;
+    if (pasajero && taxista) {
+      console.log("🔄 Rehidratación de respaldo tras reconexión de socket");
+      socket.emit("request_rehydrate");
+    }
+  };
+
   // Intentar rehidratar de inmediato
   checkStatus();
+  onConnectRehydrate();
 
   // Si el socket tarda en conectar, reintentar al conectar
   socket.on("connect", checkStatus);
+  socket.on("connect", onConnectRehydrate);
   
   return () => {
     socket.off("connect", checkStatus);
+    socket.off("connect", onConnectRehydrate);
   };
 }, [checkStatus]);
 
