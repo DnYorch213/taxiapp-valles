@@ -325,15 +325,20 @@ const runDispatchWithRetry = async (
                 // Si el viaje ya avanzó por aceptación legítima, abortar el timeout sin romper nada
                 if (pRefresh && [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(pRefresh.estado as any)) {
                     logMotor("dispatch_timeout", `Pasajero=${pEmail} Estado=${pRefresh.estado} -> Solicitud aceptada, cerrando hilo.`, "INFO");
+                    clearDispatchCycle(reqId, "viaje activo");
                     return;
                 }
 
-                if (pRefresh && pRefresh.requestId !== reqId) return;
+                if (pRefresh && pRefresh.requestId !== reqId) {
+                    clearDispatchCycle(reqId, "requestId obsoleto en timeout");
+                    return;
+                }
 
                 // 🚨 CORRECCIÓN AQUÍ: Si ya no está asignado (ej. interactuó de otra forma), salimos pacíficamente
                 // SIN limpiar todo el mapa de dispatches globales.
                 if (!tCheck || tCheck.estado !== POSITION_STATES.ASIGNADO) {
                     logMotor("dispatch_timeout", `Taxista=${tEmail} Estado=${tCheck?.estado} -> Ya cambió de estado, cerrando timeout antiguo.`, "INFO");
+                    clearDispatchCycle(reqId, "taxista cambió de estado");
                     return;
                 }
 
@@ -345,7 +350,10 @@ const runDispatchWithRetry = async (
                     { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } }
                 );
 
-                if (!taxistaLiberado.modifiedCount) return;
+                if (!taxistaLiberado.modifiedCount) {
+                    clearDispatchCycle(reqId, "liberación de taxista no aplicada");
+                    return;
+                }
 
                 io.to(tEmail).emit("dispatch_timeout");
 
@@ -356,24 +364,26 @@ const runDispatchWithRetry = async (
 
                 io.emit("panel_update", { email: tEmail, estado: POSITION_STATES.ACTIVO });
 
-                // Habilitamos temporalmente la entrada para encadenar el siguiente intento secuencial
-                unlockDispatchCycle(reqId);
+                // Limpiamos timers del intento actual, pero mantenemos el ciclo en este hilo secuencial.
+                clearRequestTimeouts(reqId, "relanzando cascada");
                 await runDispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt + 1);
 
             } catch (tErr) {
-                unlockDispatchCycle(reqId);
+                clearDispatchCycle(reqId, "error en timeout");
             }
         }, timeoutMs);
 
         registerPendingTimeout(reqId, timeout);
 
-        // 🔓 LIBERAMOS el candado de ciclo de ejecución síncrono/asíncrono inmediato.
-        // Esto permite que las peticiones de cancelación o rechazos manuales entren limpiamente sin atorarse.
-        unlockDispatchCycle(reqId);
+        logMotor(
+            "dispatch_retry",
+            `Pasajero=${pEmail} Intento=${attempt} -> Taxista=${tEmail} asignado. Timeout programado: ${timeoutMs}ms`,
+            "INFO"
+        );
 
     } catch (error) {
         logMotor("dispatch_retry", `Error crítico en dispatch: ${error}`, "ERROR");
-        unlockDispatchCycle(reqId);
+        clearDispatchCycle(reqId, "error crítico en dispatch");
     }
 };
 
