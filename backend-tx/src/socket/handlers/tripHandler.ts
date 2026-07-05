@@ -191,13 +191,12 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         if (!tEmail || !pEmail) return;
 
         // 🛡️ VALIDACIÓN: El socket debe ser del taxista que responde
-        if (email !== tEmail) {
-            logMotor("taxi_response",
-                `⚠️ Socket=${email} intentó responder como ${tEmail}`,
-                "WARN"
-            );
+        const pasajero = await Position.findOne({ email: pEmail });
+        if (pasajero?.taxistaAsignado !== tEmail) {
+            logMotor("taxi_response", `⚠️ Taxista ${tEmail} intentó responder sin estar asignado al pasajero ${pEmail}`, "WARN");
             return;
         }
+
 
         // 🎯 LIMPIEZA PREVENTIVA: Cancelar timeout del pasajero
         if (getActiveRequestIdForPassenger(pEmail)) {
@@ -239,6 +238,14 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
         // 🚖 CASO: TAXISTA ACEPTA
         try {
+
+            // 🛡️ VALIDAR QUE EL PASAJERO NO ESTÉ CANCELADO
+            const pPos = await Position.findOne({ email: pEmail });
+            if (!pPos || pPos.estado === POSITION_STATES.CANCELADO) {
+                return io.to(tEmail).emit("trip_already_taken", {
+                    message: "El pasajero canceló la solicitud."
+                });
+            }
             // 🎯 TRANSACCIÓN ATÓMICA para asignar viaje
             const session = await Position.startSession();
             session.startTransaction();
