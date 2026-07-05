@@ -4,27 +4,29 @@ import { Server } from "socket.io";
 import { Position } from "../models/Position";
 import { User } from "../models/User";
 import { buildPayload } from "../utils/payloadBuilder";
-import { clearPendingTimeouts, dispatchWithRetry } from "../services/dispatchService";
-import { POSITION_STATES, STATE_GROUPS } from "../constants/states";
+import { clearDispatchCycle, dispatchWithRetry } from "../services/dispatchService";
+import { POSITION_STATES } from "../constants/states";
 
 // 🚖 1. CONTROLADOR PARA ACEPTAR EL VIAJE VIA PUSH
 export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Response) => {
-    const { taxistaEmail, pasajeroEmail } = req.body;
+    const { taxistaEmail, pasajeroEmail, requestId } = req.body;
 
-    if (!taxistaEmail || !pasajeroEmail) {
-        return res.status(400).json({ error: "Faltan taxistaEmail o pasajeroEmail" });
+    if (!taxistaEmail || !pasajeroEmail || !requestId) {
+        return res.status(400).json({ error: "Faltan taxistaEmail, pasajeroEmail o requestId" });
     }
 
     try {
         const tEmail = taxistaEmail.toLowerCase().trim();
         const pEmail = pasajeroEmail.toLowerCase().trim();
 
-        // Limpieza por ciclo activo del pasajero (requestId), no por clave directa en mapa.
-        clearPendingTimeouts(pEmail, "aceptación push");
+        // Matar el timeout del motor inmediatamente por requestId real
+        clearDispatchCycle(requestId, "aceptación push legítima");
 
+        // Transacción de seguridad en la base de datos
         const pPosActualizado = await Position.findOneAndUpdate(
             {
                 email: pEmail,
+                requestId: requestId,
                 $or: [
                     {
                         estado: { $in: [POSITION_STATES.BUSCANDO, POSITION_STATES.ACTIVO] },
@@ -40,7 +42,6 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
                 $set: {
                     estado: POSITION_STATES.ENCAMINO,
                     taxistaAsignado: tEmail,
-                    requestId: null,
                     updatedAt: new Date()
                 }
             },
@@ -48,25 +49,26 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
         );
 
         if (!pPosActualizado) {
-            console.log(`🚫 PUSH LATE: El taxista ${tEmail} intentó aceptar pero el viaje ya fue tomado.`);
-            return res.status(410).json({ error: "El viaje ya no está disponible." });
+            console.log(`🚫 PUSH LATE: El taxista ${tEmail} intentó aceptar pero el viaje ya fue tomado o cancelado.`);
+            return res.status(410).json({ error: "El viaje ya no está disponible o expiró." });
         }
 
+        // Actualizar estado del conductor
         await Position.updateOne(
             { email: tEmail },
             {
                 $set: {
                     estado: POSITION_STATES.ENCAMINO,
                     pasajeroAsignado: pEmail,
-                    requestId: null,
                     updatedAt: new Date()
                 }
             }
         );
-        const tPos = await Position.findOne({ email: tEmail });
 
+        const tPos = await Position.findOne({ email: tEmail });
         const pasajeroPayload = buildPayload(pPosActualizado, pPosActualizado, POSITION_STATES.ENCAMINO);
 
+        // Notificaciones de sincronización de Sockets
         io.to(pEmail).emit("response_from_taxi", {
             accepted: true,
             tEmail,
@@ -78,25 +80,14 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
             taxiData: buildPayload(tPos, tPos, POSITION_STATES.ENCAMINO)
         });
 
-        io.to(tEmail).emit("assignment_confirmed", {
-            success: true,
-            pasajero: pasajeroPayload
-        });
-
-        io.to(tEmail).emit("trip_status_update", {
-            estado: POSITION_STATES.ENCAMINO,
-            pasajeroAsignado: pasajeroPayload
-        });
-
-        io.to(pEmail).emit("trip_status_update", {
-            estado: POSITION_STATES.ENCAMINO,
-            pasajeroEmail: pEmail
-        });
+        io.to(tEmail).emit("assignment_confirmed", { success: true, pasajero: pasajeroPayload });
+        io.to(tEmail).emit("trip_status_update", { estado: POSITION_STATES.ENCAMINO, pasajeroAsignado: pasajeroPayload });
+        io.to(pEmail).emit("trip_status_update", { estado: POSITION_STATES.ENCAMINO, pasajeroEmail: pEmail });
 
         io.emit("panel_update", buildPayload(tPos, tPos, POSITION_STATES.ENCAMINO, { pasajeroAsignado: pEmail }));
         io.emit("panel_update", buildPayload(pPosActualizado, pPosActualizado, POSITION_STATES.ENCAMINO, { taxistaAsignado: tEmail }));
 
-        console.log(`✅ [Push Engine] Viaje vinculado de forma robusta: ${tEmail} -> ${pEmail}`);
+        console.log(`✅ [Push Engine] Viaje vinculado de forma robusta vía HTTP: ${tEmail} -> ${pEmail}`);
         return res.status(200).json({ success: true });
     } catch (error) {
         console.error("❌ Error en handleAcceptTripPush:", error);
@@ -104,7 +95,7 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
     }
 };
 
-// 🔔 2. 🎯 EL MIGRANTE EXTRAVIADO: CONTROLADOR PARA GUARDAR SUSCRIPCIÓN PUSH
+// 🔔 2. 🎯 CONTROLADOR PARA GUARDAR SUSCRIPCIÓN PUSH
 export const handleSaveSubscription = async (req: Request, res: Response) => {
     const { email, subscription } = req.body;
 
@@ -129,17 +120,18 @@ export const handleSaveSubscription = async (req: Request, res: Response) => {
 
 // 🚖 3. CONTROLADOR PARA IGNORAR VIAJE VIA PUSH
 export const handleRejectTripPush = (io: Server) => async (req: Request, res: Response) => {
-    const { taxistaEmail, pasajeroEmail } = req.body;
+    const { taxistaEmail, pasajeroEmail, requestId } = req.body;
 
-    if (!taxistaEmail || !pasajeroEmail) {
-        return res.status(400).json({ error: "Faltan taxistaEmail o pasajeroEmail" });
+    if (!taxistaEmail || !pasajeroEmail || !requestId) {
+        return res.status(400).json({ error: "Faltan taxistaEmail, pasajeroEmail o requestId" });
     }
 
     try {
         const tEmail = String(taxistaEmail).toLowerCase().trim();
         const pEmail = String(pasajeroEmail).toLowerCase().trim();
 
-        clearPendingTimeouts(pEmail, "rechazo push");
+        // Limpieza por ID de ciclo directo
+        clearDispatchCycle(requestId, "rechazo push manual");
 
         await Position.updateOne(
             { email: tEmail },
@@ -149,6 +141,7 @@ export const handleRejectTripPush = (io: Server) => async (req: Request, res: Re
         await Position.updateOne(
             {
                 email: pEmail,
+                requestId: requestId,
                 estado: { $in: [POSITION_STATES.BUSCANDO, POSITION_STATES.PREASIGNADO, POSITION_STATES.ASIGNADO] }
             },
             {
