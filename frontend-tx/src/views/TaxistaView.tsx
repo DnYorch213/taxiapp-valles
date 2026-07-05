@@ -759,6 +759,7 @@ const finalizarViaje = () => {
   };
 
   const handleLogout = () => {
+    socket.disconnect();
     localStorage.clear();
     window.location.href = "/login";
   };

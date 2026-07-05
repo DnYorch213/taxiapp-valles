@@ -419,14 +419,43 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         }
 
         try {
-            const [pActual, tActual] = await Promise.all([
+            let [pActual, tActual] = await Promise.all([
                 Position.findOne({ email: pEmail }).lean(),
                 Position.findOne({ email: tEmail }).lean()
             ]);
 
-            if (!pActual || !tActual || pActual.taxistaAsignado !== tEmail || tActual.pasajeroAsignado !== pEmail) {
+            if (!pActual || !tActual) {
                 logMotor("passenger_on_board",
-                    `⚠️ Relación inválida para subir pasajero. P=${pEmail} T=${tEmail}`,
+                    `⚠️ Relación inválida para subir pasajero. P=${pEmail} T=${tEmail} (documentos faltantes)`,
+                    "WARN"
+                );
+                return;
+            }
+
+            const passengerMatchesTaxi = pActual.taxistaAsignado === tEmail;
+            const taxiMatchesPassenger = tActual.pasajeroAsignado === pEmail;
+
+            // Auto-repair seguro: solo cuando un lado está null y el otro ya coincide.
+            if (!passengerMatchesTaxi && !pActual.taxistaAsignado && taxiMatchesPassenger) {
+                await Position.updateOne(
+                    { email: pEmail },
+                    { $set: { taxistaAsignado: tEmail, updatedAt: new Date() } }
+                );
+                pActual = await Position.findOne({ email: pEmail }).lean();
+            }
+
+            if (!taxiMatchesPassenger && !tActual.pasajeroAsignado && passengerMatchesTaxi) {
+                await Position.updateOne(
+                    { email: tEmail },
+                    { $set: { pasajeroAsignado: pEmail, updatedAt: new Date() } }
+                );
+                tActual = await Position.findOne({ email: tEmail }).lean();
+            }
+
+            if (!pActual || !tActual || pActual.taxistaAsignado !== tEmail || tActual.pasajeroAsignado !== pEmail) {
+                logMotor(
+                    "passenger_on_board",
+                    `⚠️ Relación inválida para subir pasajero. P=${pEmail} (taxistaAsignado=${pActual?.taxistaAsignado || "null"}) T=${tEmail} (pasajeroAsignado=${tActual?.pasajeroAsignado || "null"})`,
                     "WARN"
                 );
                 return;
@@ -659,8 +688,8 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         let session: any = null; // 🎯 Declarar session fuera del try
 
         try {
-            const pPos = await Position.findOne({ email: pEmail });
-            const tPos = await Position.findOne({ email: tEmail });
+            let pPos = await Position.findOne({ email: pEmail });
+            let tPos = await Position.findOne({ email: tEmail });
 
             if (!pPos || !tPos) {
                 logMotor("end_trip",
@@ -670,9 +699,29 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 return;
             }
 
-            if (pPos.taxistaAsignado !== tEmail || tPos.pasajeroAsignado !== pEmail) {
+            const passengerMatchesTaxi = pPos.taxistaAsignado === tEmail;
+            const taxiMatchesPassenger = tPos.pasajeroAsignado === pEmail;
+
+            // Auto-repair seguro: solo cuando uno de los lados está null y el otro ya coincide.
+            if (!passengerMatchesTaxi && !pPos.taxistaAsignado && taxiMatchesPassenger) {
+                await Position.updateOne(
+                    { email: pEmail },
+                    { $set: { taxistaAsignado: tEmail, updatedAt: new Date() } }
+                );
+                pPos = await Position.findOne({ email: pEmail });
+            }
+
+            if (!taxiMatchesPassenger && !tPos.pasajeroAsignado && passengerMatchesTaxi) {
+                await Position.updateOne(
+                    { email: tEmail },
+                    { $set: { pasajeroAsignado: pEmail, updatedAt: new Date() } }
+                );
+                tPos = await Position.findOne({ email: tEmail });
+            }
+
+            if (!pPos || !tPos || pPos.taxistaAsignado !== tEmail || tPos.pasajeroAsignado !== pEmail) {
                 logMotor("end_trip",
-                    `Relación inconsistente al finalizar. P=${pEmail} T=${tEmail}`,
+                    `Relación inconsistente al finalizar. P=${pEmail} (taxistaAsignado=${pPos?.taxistaAsignado || "null"}) T=${tEmail} (pasajeroAsignado=${tPos?.pasajeroAsignado || "null"})`,
                     "WARN"
                 );
                 return;
