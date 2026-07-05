@@ -148,8 +148,7 @@ const runDispatchWithRetry = async (
             return;
         }
 
-        // 🛡️ Candado: Si el viaje ya avanzó más allá de búsqueda, abortar
-        // Nota: PREASIGNADO debe permitir reintento cuando un taxista ignora/timeout.
+        // 🛡️ Candado: Si el viaje ya avanzó, abortamos ESTE hilo, pero NO limpiamos el ciclo del Request
         if (
             [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(pStatusCheck.estado as any) ||
             pStatusCheck.estado === POSITION_STATES.FINALIZADO ||
@@ -157,14 +156,14 @@ const runDispatchWithRetry = async (
         ) {
             logMotor(
                 "dispatch_retry",
-                `Pasajero=${pEmail} Estado=${pStatusCheck.estado} Intento=${attempt} -> Viaje ya en curso/finalizado`,
+                `Pasajero=${pEmail} Estado=${pStatusCheck.estado} Intento=${attempt} -> Viaje ya activo (Cancelando propagación de este hilo)`,
                 "WARN"
             );
-            clearDispatchCycle(reqId, "viaje ya activo/finalizado");
+            // 💡 Quitamos clearDispatchCycle de aquí para no matar timeouts legítimos en background
             return;
         }
 
-        // 🛡️ Candado: Si el requestId cambió, este hilo es obsoleto
+        // 🛡️ Candado: Si el requestId cambió, este hilo es totalmente obsoleto
         if (
             [POSITION_STATES.BUSCANDO, POSITION_STATES.PREASIGNADO].includes(pStatusCheck.estado as any) &&
             pStatusCheck.requestId !== reqId
@@ -174,9 +173,9 @@ const runDispatchWithRetry = async (
                 `Pasajero=${pEmail} Intento=${attempt} -> RequestId obsoleto (Actual: ${pStatusCheck.requestId}, Esperado: ${reqId})`,
                 "WARN"
             );
-            clearDispatchCycle(reqId, "requestId obsoleto");
-            return;
+            return; // 💡 Sólo salimos, no limpiamos el ciclo del nuevo requestId activo
         }
+
 
         // 🛡️ Candado: Límite de reintentos
         if (attempt > MAX_RETRIES) {
@@ -428,6 +427,11 @@ const runDispatchWithRetry = async (
 
         const timeout = setTimeout(async () => {
             try {
+                // Remover ESTE timeout específico del bucket porque ya se está ejecutando
+                const bucket = activeTimeouts.get(reqId);
+                if (bucket) {
+                    bucket.delete(timeout);
+                }
                 const tCheck = await Position.findOne({ email: tEmail }).lean();
                 const pRefresh = await Position.findOne({ email: pEmail }).lean();
 
@@ -595,7 +599,13 @@ export const dispatchWithRetry = async (
         return;
     }
 
-    await runDispatchWithRetry(io, pasajeroData, excludedEmails, attempt);
+    try {
+        await runDispatchWithRetry(io, pasajeroData, excludedEmails, attempt);
+    } finally {
+        // 🔓 Pase lo que pase (éxito o error de ejecución), liberamos el candado de entrada
+        // para permitir futuros reintentos o llamadas controladas de este RequestId
+        unlockDispatchCycle(reqId);
+    }
 };
 
 // 🆕 Función para limpiar todos los timeouts (útil en shutdown)
