@@ -122,13 +122,18 @@ const calculateDynamicTimeout = (distanciaKm: number): number => {
     return Math.min(timeout, MAX_TIMEOUT_MS);
 };
 
+// ... (Tus imports y variables superiores se mantienen igual)
+
 const runDispatchWithRetry = async (
     io: Server,
     pasajeroData: any,
     excludedEmails: string[] = [],
     attempt: number = 1
 ) => {
-    if (!isAutoMode || !pasajeroData || !pasajeroData.email) return;
+    if (!isAutoMode || !pasajeroData || !pasajeroData.email) {
+        unlockDispatchCycle(pasajeroData?.requestId);
+        return;
+    }
 
     const pEmail = pasajeroData.email.toLowerCase().trim();
     const currentExcluidos = [...new Set(excludedEmails.map(e => e.toLowerCase().trim()))];
@@ -145,61 +150,36 @@ const runDispatchWithRetry = async (
 
         if (!pStatusCheck) {
             logMotor("dispatch_retry", `Pasajero=${pEmail} -> No encontrado en BD`, "WARN");
+            unlockDispatchCycle(reqId);
             return;
         }
 
-        // 🛡️ Candado: Si el viaje ya avanzó, abortamos ESTE hilo, pero NO limpiamos el ciclo del Request
         if (
             [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(pStatusCheck.estado as any) ||
             pStatusCheck.estado === POSITION_STATES.FINALIZADO ||
             pStatusCheck.estado === POSITION_STATES.CANCELADO
         ) {
-            logMotor(
-                "dispatch_retry",
-                `Pasajero=${pEmail} Estado=${pStatusCheck.estado} Intento=${attempt} -> Viaje ya activo (Cancelando propagación de este hilo)`,
-                "WARN"
-            );
-            // 💡 Quitamos clearDispatchCycle de aquí para no matar timeouts legítimos en background
+            logMotor("dispatch_retry", `Pasajero=${pEmail} Estado=${pStatusCheck.estado} Intento=${attempt} -> Viaje activo/finalizado`, "WARN");
+            unlockDispatchCycle(reqId);
             return;
         }
 
-        // 🛡️ Candado: Si el requestId cambió, este hilo es totalmente obsoleto
         if (
             [POSITION_STATES.BUSCANDO, POSITION_STATES.PREASIGNADO].includes(pStatusCheck.estado as any) &&
             pStatusCheck.requestId !== reqId
         ) {
-            logMotor(
-                "dispatch_retry",
-                `Pasajero=${pEmail} Intento=${attempt} -> RequestId obsoleto (Actual: ${pStatusCheck.requestId}, Esperado: ${reqId})`,
-                "WARN"
-            );
-            return; // 💡 Sólo salimos, no limpiamos el ciclo del nuevo requestId activo
+            logMotor("dispatch_retry", `Pasajero=${pEmail} Intento=${attempt} -> RequestId obsoleto (Actual: ${pStatusCheck.requestId}, Esperado: ${reqId})`, "WARN");
+            unlockDispatchCycle(reqId);
+            return;
         }
 
-
-        // 🛡️ Candado: Límite de reintentos
         if (attempt > MAX_RETRIES) {
-            logMotor(
-                "dispatch_retry",
-                `Pasajero=${pEmail} Intento=${attempt} -> Límite de intentos alcanzado`,
-                "ERROR"
-            );
-
+            logMotor("dispatch_retry", `Pasajero=${pEmail} Intento=${attempt} -> Límite de intentos alcanzado`, "ERROR");
             await Position.updateOne(
                 { email: pEmail },
-                {
-                    $set: {
-                        estado: POSITION_STATES.CANCELADO,
-                        pasajeroAsignado: null,
-                        updatedAt: new Date()
-                    }
-                }
+                { $set: { estado: POSITION_STATES.CANCELADO, pasajeroAsignado: null, updatedAt: new Date() } }
             );
-
-            io.to(pEmail).emit("no_taxis_available", {
-                message: "Sin unidades disponibles después de varios intentos."
-            });
-
+            io.to(pEmail).emit("no_taxis_available", { message: "Sin unidades disponibles." });
             clearDispatchCycle(reqId, "límite de reintentos");
             return;
         }
@@ -214,108 +194,55 @@ const runDispatchWithRetry = async (
         }).lean() as IPosition[];
 
         if (taxistasCandidatos.length === 0) {
-            logMotor(
-                "dispatch_retry",
-                `Pasajero=${pEmail} Intento=${attempt} -> No hay taxistas activos disponibles (excluidos=${currentExcluidos.join(",") || "ninguno"})`,
-                "WARN"
-            );
-            io.to(pEmail).emit("no_taxis_available", {
-                message: "Buscando más conductores..."
-            });
+            logMotor("dispatch_retry", `Pasajero=${pEmail} Intento=${attempt} -> No hay taxistas activos disponibles`, "WARN");
+            io.to(pEmail).emit("no_taxis_available", { message: "Buscando más conductores..." });
             clearDispatchCycle(reqId, "sin taxistas activos disponibles");
             return;
         }
 
-        // 🎯 3. ENCONTRAR EL MÁS CERCANO (OPTIMIZADO)
+        // 🎯 3. ENCONTRAR EL MÁS CERCANO
         const taxistasConDistancia = taxistasCandidatos
             .map(taxista => ({
                 taxista,
                 distancia: (taxista.lat && taxista.lng && pasajeroData.lat && pasajeroData.lng)
                     ? calculateDistance(pasajeroData.lat, pasajeroData.lng, taxista.lat, taxista.lng)
-                    : Infinity // Si no tiene coordenadas, descartar
+                    : Infinity
             }))
             .filter(({ distancia }) => distancia <= MAX_DISPATCH_DISTANCE_KM && distancia !== Infinity)
             .sort((a, b) => a.distancia - b.distancia);
 
         if (taxistasConDistancia.length === 0) {
-            logMotor(
-                "dispatch_retry",
-                `Pasajero=${pEmail} Intento=${attempt} -> No hay taxistas dentro de ${MAX_DISPATCH_DISTANCE_KM}km (excluidos=${currentExcluidos.join(",") || "ninguno"})`,
-                "WARN"
-            );
-            io.to(pEmail).emit("no_taxis_available", {
-                message: `No hay unidades disponibles en un radio de ${MAX_DISPATCH_DISTANCE_KM}km.`
-            });
-            clearDispatchCycle(reqId, "sin taxistas dentro del radio permitido");
+            logMotor("dispatch_retry", `Pasajero=${pEmail} Intento=${attempt} -> No hay taxistas en radio`, "WARN");
+            io.to(pEmail).emit("no_taxis_available", { message: "Sin unidades en el radio permitido." });
+            clearDispatchCycle(reqId, "sin taxistas en radio");
             return;
         }
 
         const { taxista: elMasCercano, distancia } = taxistasConDistancia[0];
         const tEmail = elMasCercano.email.toLowerCase().trim();
 
-        logMotor(
-            "dispatch_retry",
-            `Pasajero=${pEmail} Intento=${attempt} -> Taxista más cercano: ${tEmail} a ${distancia.toFixed(2)}km`,
-            "INFO"
-        );
+        logMotor("dispatch_retry", `Pasajero=${pEmail} Intento=${attempt} -> Taxista más cercano: ${tEmail} a ${distancia.toFixed(2)}km`, "INFO");
 
-        // 🆕 VALIDACIÓN ADICIONAL antes de usar coordenadas
-        if (!elMasCercano.lat || !elMasCercano.lng || !pasajeroData.lat || !pasajeroData.lng) {
-            logMotor(
-                "dispatch_retry",
-                `Pasajero=${pEmail} Taxista=${tEmail} -> Coordenadas faltantes, reintentando`,
-                "WARN"
-            );
-            await runDispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt);
-            return;
-        }
-
-        // Ahora TypeScript sabe que todos los valores son number
-        const distanciaFinal = calculateDistance(
-            pasajeroData.lat,
-            pasajeroData.lng,
-            elMasCercano.lat,
-            elMasCercano.lng
-        );
-
-        // 🎯 4. ASIGNACIÓN ATÓMICA DEL TAXISTA (evita condiciones de carrera)
+        // 🎯 4. ASIGNACIÓN ATÓMICA CON TRANSACCIÓN
         const session = await Position.startSession();
         session.startTransaction();
 
         try {
-            // Intentar asignar el taxista solo si sigue ACTIVO
             const taxistaActualizado = await Position.findOneAndUpdate(
-                {
-                    email: tEmail,
-                    estado: POSITION_STATES.ACTIVO // 🆕 Candado: solo si sigue activo
-                },
-                {
-                    $set: {
-                        estado: POSITION_STATES.ASIGNADO,
-                        pasajeroAsignado: pEmail,
-                        updatedAt: new Date()
-                    }
-                },
+                { email: tEmail, estado: POSITION_STATES.ACTIVO },
+                { $set: { estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail, updatedAt: new Date() } },
                 { session, returnDocument: "after" }
             );
 
-            // Si no se pudo actualizar (otro despacho lo tomó), abortar
             if (!taxistaActualizado) {
                 await session.abortTransaction();
                 session.endSession();
-
-                logMotor(
-                    "dispatch_retry",
-                    `Pasajero=${pEmail} Taxista=${tEmail} -> Ya no está activo, reintentando`,
-                    "WARN"
-                );
-
-                // Reintentar con el siguiente taxista
+                logMotor("dispatch_retry", `Pasajero=${pEmail} Taxista=${tEmail} -> Ya no está activo, saltando...`, "WARN");
+                // Recursión controlada: pasamos directo sin cerrar candado porque seguimos buscando en este hilo
                 await runDispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt);
                 return;
             }
 
-            // Actualizar pasajero a PREASIGNADO
             const pasajeroPreasignado = await Position.updateOne(
                 {
                     email: pEmail,
@@ -325,293 +252,128 @@ const runDispatchWithRetry = async (
                         { estado: POSITION_STATES.PREASIGNADO, taxistaAsignado: tEmail }
                     ]
                 },
-                {
-                    $set: {
-                        estado: POSITION_STATES.PREASIGNADO,
-                        requestId: reqId,
-                        taxistaAsignado: tEmail,
-                        updatedAt: new Date()
-                    }
-                },
+                { $set: { estado: POSITION_STATES.PREASIGNADO, taxistaAsignado: tEmail, updatedAt: new Date() } },
                 { session }
             );
 
             if (!pasajeroPreasignado.modifiedCount) {
+                // Rollback manual del taxista
                 await Position.updateOne(
                     { email: tEmail, estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail },
-                    {
-                        $set: {
-                            estado: POSITION_STATES.ACTIVO,
-                            pasajeroAsignado: null,
-                            updatedAt: new Date()
-                        }
-                    },
+                    { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } },
                     { session }
                 );
-
                 await session.abortTransaction();
                 session.endSession();
-
-                logMotor(
-                    "dispatch_retry",
-                    `Pasajero=${pEmail} Taxista=${tEmail} -> Preasignación descartada por carrera de estado`,
-                    "WARN"
-                );
-
+                logMotor("dispatch_retry", `Pasajero=${pEmail} Taxista=${tEmail} -> Conflicto de estado en pasajero, saltando...`, "WARN");
                 await runDispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt);
                 return;
             }
 
             await session.commitTransaction();
             session.endSession();
-
         } catch (txError) {
             await session.abortTransaction();
             session.endSession();
             throw txError;
         }
 
-        // 🎯 5. GEOCODIFICACIÓN (con caché para evitar llamadas repetidas)
+        // 🎯 5. GEOCODIFICACIÓN & PAYLOAD
         let direccion = pasajeroData.pickupAddress;
-
         if (!direccion || direccion.includes("Calculando")) {
             try {
                 direccion = await getCachedGeocoding(pasajeroData.lat, pasajeroData.lng);
-
-                await Position.updateOne(
-                    { email: pEmail },
-                    { $set: { pickupAddress: direccion } }
-                );
-
-                logMotor("geocoding", `Dirección generada: ${direccion} para ${pEmail}`, "INFO");
-            } catch (geoError) {
-                logMotor("geocoding", `Error en geocoding para ${pEmail}: ${geoError}`, "ERROR");
-                direccion = "Ubicación no disponible";
-            }
+                await Position.updateOne({ email: pEmail }, { $set: { pickupAddress: direccion } });
+            } catch (e) { direccion = "Ubicación no disponible"; }
         }
 
-        // 🎯 6. CONSTRUIR PAYLOAD COMPLETO
         const fullPayload = {
             ...pasajeroData,
             email: pEmail,
             pasajeroEmail: pEmail,
             taxistaEmail: tEmail,
-            pasajeroLat: pasajeroData.lat,
-            pasajeroLng: pasajeroData.lng,
-            taxistaLat: elMasCercano.lat,
-            taxistaLng: elMasCercano.lng,
             pickupAddress: direccion,
-            excludedEmails: currentExcluidos,
-            isNewOffer: true,
             attempt,
             distancia,
-            timeoutMs: calculateDynamicTimeout(distancia) // 🆕 Timeout dinámico
+            timeoutMs: calculateDynamicTimeout(distancia)
         };
 
-        // 🎯 7. EMITIR EVENTOS (verificando sockets por sala/email)
-        // Nota: io.sockets.sockets se indexa por socketId, no por email.
+        // 🎯 6. NOTIFICAR EMISIÓN
         const taxiSockets = await io.in(tEmail).fetchSockets();
-
-        const shouldSendPush = taxiSockets.length === 0;
-
-        if (!shouldSendPush) {
+        if (taxiSockets.length > 0) {
             io.to(tEmail).emit("pasajero_asignado", fullPayload);
-            logMotor("dispatch_retry", `Emitido pasajero_asignado a ${tEmail} (${taxiSockets.length} socket/s en sala)`, "INFO");
-        } else {
-            logMotor(
-                "dispatch_retry",
-                `Pasajero=${pEmail} Taxista=${tEmail} -> Socket no conectado, enviando push`,
-                "WARN"
-            );
         }
-
-        // Enviar push también con app abierta para reforzar entrega en segundo plano.
         if (elMasCercano.pushSubscription) {
-            try {
-                await enviarNotificacionPush(elMasCercano.pushSubscription, fullPayload, tEmail);
-            } catch (pushError) {
-                logMotor(
-                    "dispatch_push",
-                    `Error enviando push a ${tEmail}: ${pushError}`,
-                    "ERROR"
-                );
-            }
+            try { await enviarNotificacionPush(elMasCercano.pushSubscription, fullPayload, tEmail); } catch (pErr) { }
         }
 
-        // 🆕 Actualizar panel de admin con pre-asignación
-        io.emit("panel_update", {
-            email: tEmail,
-            estado: POSITION_STATES.ASIGNADO,
-            pasajeroAsignado: pEmail,
-            distancia
-        });
+        io.emit("panel_update", { email: tEmail, estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail });
+        io.emit("panel_update", { email: pEmail, estado: POSITION_STATES.PREASIGNADO, taxistaAsignado: tEmail });
 
-        io.emit("panel_update", {
-            email: pEmail,
-            estado: POSITION_STATES.PREASIGNADO,
-            taxistaAsignado: tEmail
-        });
-
-        // 🎯 8. PROGRAMAR TIMEOUT DINÁMICO
-        // 🆕 Limpiar timeout anterior si existe
+        // 🎯 7. PROGRAMAR TIMEOUT
         clearRequestTimeouts(reqId, "nuevo intento de despacho");
-
         const timeoutMs = calculateDynamicTimeout(distancia);
 
         const timeout = setTimeout(async () => {
             try {
-                // Remover ESTE timeout específico del bucket porque ya se está ejecutando
                 const bucket = activeTimeouts.get(reqId);
-                if (bucket) {
-                    bucket.delete(timeout);
-                }
+                if (bucket) bucket.delete(timeout);
 
                 const tCheck = await Position.findOne({ email: tEmail }).lean();
                 const pRefresh = await Position.findOne({ email: pEmail }).lean();
 
-                // 🛡️ Candado: Ignorar timeout solo si el viaje ya avanzó realmente.
-                // PREASIGNADO debe seguir permitiendo fallback a otra unidad.
-                if (
-                    pRefresh &&
-                    [
-                        POSITION_STATES.ASIGNADO,
-                        POSITION_STATES.ENCAMINO,
-                        POSITION_STATES.ENCURSO,
-                    ].includes(pRefresh.estado as any)
-                ) {
-                    logMotor(
-                        "dispatch_timeout",
-                        `Pasajero=${pEmail} Estado=${pRefresh.estado} -> Timeout ignorado, viaje activo`,
-                        "INFO"
-                    );
-                    clearDispatchCycle(reqId, "viaje activo");
+                // Si el viaje ya avanzó por aceptación legítima, abortar el timeout sin romper nada
+                if (pRefresh && [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(pRefresh.estado as any)) {
+                    logMotor("dispatch_timeout", `Pasajero=${pEmail} Estado=${pRefresh.estado} -> Solicitud aceptada, cerrando hilo.`, "INFO");
                     return;
                 }
 
-                // 🛡️ Candado: Si el requestId cambió, este timeout es obsoleto
-                if (pRefresh && pRefresh.requestId !== reqId) {
-                    logMotor(
-                        "dispatch_timeout",
-                        `Pasajero=${pEmail} RequestIdActual=${pRefresh.requestId} RequestIdEsperado=${reqId} -> Timeout obsoleto`,
-                        "WARN"
-                    );
-                    clearDispatchCycle(reqId, "requestId obsoleto");
-                    return;
-                }
+                if (pRefresh && pRefresh.requestId !== reqId) return;
 
-                // 🛡️ Candado: Si el taxista ya no está asignado, ignorar
+                // 🚨 CORRECCIÓN AQUÍ: Si ya no está asignado (ej. interactuó de otra forma), salimos pacíficamente
+                // SIN limpiar todo el mapa de dispatches globales.
                 if (!tCheck || tCheck.estado !== POSITION_STATES.ASIGNADO) {
-                    logMotor(
-                        "dispatch_timeout",
-                        `Taxista=${tEmail} Estado=${tCheck?.estado} -> Ya no está asignado`,
-                        "INFO"
-                    );
-                    clearDispatchCycle(reqId, "taxista ya no asignado");
+                    logMotor("dispatch_timeout", `Taxista=${tEmail} Estado=${tCheck?.estado} -> Ya cambió de estado, cerrando timeout antiguo.`, "INFO");
                     return;
                 }
 
-                // 👉 Si todo coincide, relanzar cascada
-                logMotor(
-                    "dispatch_timeout",
-                    `Pasajero=${pEmail} Taxista=${tEmail} Intento=${attempt} -> Taxista no respondió, relanzando cascada`,
-                    "INFO"
-                );
+                logMotor("dispatch_timeout", `Pasajero=${pEmail} Taxista=${tEmail} -> Expiró tiempo de respuesta. Liberando unidad...`, "INFO");
 
+                // Liberar taxista que no respondió
                 const taxistaLiberado = await Position.updateOne(
-                    {
-                        email: tEmail,
-                        estado: POSITION_STATES.ASIGNADO,
-                        pasajeroAsignado: pEmail
-                    },
-                    {
-                        $set: {
-                            estado: POSITION_STATES.ACTIVO,
-                            pasajeroAsignado: null,
-                            updatedAt: new Date()
-                        }
-                    }
+                    { email: tEmail, estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail },
+                    { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } }
                 );
 
-                if (!taxistaLiberado.modifiedCount) {
-                    logMotor(
-                        "dispatch_timeout",
-                        `Pasajero=${pEmail} Taxista=${tEmail} -> Fallback cancelado por carrera (ya no sigue asignado a este pasajero)`,
-                        "INFO"
-                    );
-                    clearDispatchCycle(reqId, "race detectada: taxista ya no asignado");
-                    return;
-                }
+                if (!taxistaLiberado.modifiedCount) return;
 
-                // Notificar timeout solo cuando se confirmó liberación real.
                 io.to(tEmail).emit("dispatch_timeout");
 
                 await Position.updateOne(
-                    {
-                        email: pEmail,
-                        estado: POSITION_STATES.PREASIGNADO,
-                        taxistaAsignado: tEmail
-                    },
-                    {
-                        $set: {
-                            estado: POSITION_STATES.BUSCANDO,
-                            taxistaAsignado: null,
-                            updatedAt: new Date()
-                        }
-                    }
+                    { email: pEmail, estado: POSITION_STATES.PREASIGNADO, taxistaAsignado: tEmail },
+                    { $set: { estado: POSITION_STATES.BUSCANDO, taxistaAsignado: null, updatedAt: new Date() } }
                 );
 
-                io.emit("panel_update", {
-                    email: tEmail,
-                    estado: POSITION_STATES.ACTIVO
-                });
+                io.emit("panel_update", { email: tEmail, estado: POSITION_STATES.ACTIVO });
 
-                // Limpiar timeout antes de reintentar
-                clearRequestTimeouts(reqId, "relanzando cascada");
-
-                logMotor(
-                    "dispatch_timeout",
-                    `Fallback activado -> Pasajero=${pEmail} excluyendo=${tEmail} próximoIntento=${attempt + 1}`,
-                    "INFO"
-                );
-
-                // Reintentar con el siguiente taxista
+                // Habilitamos temporalmente la entrada para encadenar el siguiente intento secuencial
+                unlockDispatchCycle(reqId);
                 await runDispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt + 1);
 
-            } catch (timeoutError) {
-                logMotor(
-                    "dispatch_timeout",
-                    `Error en timeout para Pasajero=${pEmail} Taxista=${tEmail}: ${timeoutError}`,
-                    "ERROR"
-                );
+            } catch (tErr) {
+                unlockDispatchCycle(reqId);
             }
         }, timeoutMs);
 
         registerPendingTimeout(reqId, timeout);
 
-        logMotor(
-            "dispatch_retry",
-            `Pasajero=${pEmail} Intento=${attempt} -> Taxista=${tEmail} asignado. Timeout programado: ${timeoutMs}ms`,
-            "INFO"
-        );
+        // 🔓 LIBERAMOS el candado de ciclo de ejecución síncrono/asíncrono inmediato.
+        // Esto permite que las peticiones de cancelación o rechazos manuales entren limpiamente sin atorarse.
+        unlockDispatchCycle(reqId);
 
     } catch (error) {
-        logMotor(
-            "dispatch_retry",
-            `Error crítico en dispatch para Pasajero=${pEmail} Intento=${attempt}: ${error}`,
-            "ERROR"
-        );
-
-        // 🆕 Notificar al pasajero del error
-        io.to(pEmail).emit("dispatch_error", {
-            message: "Error al buscar taxi. Reintentando..."
-        });
-
-        // Reintentar después de 2 segundos
-        const retryTimeout = setTimeout(() => {
-            unlockDispatchCycle(reqId);
-            runDispatchWithRetry(io, pasajeroData, currentExcluidos, attempt);
-        }, 2000);
-        registerPendingTimeout(reqId, retryTimeout);
+        logMotor("dispatch_retry", `Error crítico en dispatch: ${error}`, "ERROR");
+        unlockDispatchCycle(reqId);
     }
 };
 
@@ -624,19 +386,12 @@ export const dispatchWithRetry = async (
     const reqId = pasajeroData?.requestId;
     if (!reqId) return;
 
-    // 🛡️ Si ya hay un hilo de despacho procesando O ESPERANDO respuesta para este RequestId, bloquear.
     if (!lockDispatchCycle(reqId)) {
-        logMotor("dispatch_retry", `RequestId=${reqId} -> Bloqueado: Ya existe una oferta en curso o temporizador activo.`, "WARN");
+        logMotor("dispatch_retry", `RequestId=${reqId} -> Bloqueado: Operación en curso.`, "WARN");
         return;
     }
 
-    try {
-        await runDispatchWithRetry(io, pasajeroData, excludedEmails, attempt);
-    } catch (error) {
-        // Solo si hay un error síncrono/crítico antes de programar el timeout, liberamos para no congelar el viaje
-        unlockDispatchCycle(reqId);
-        logMotor("dispatch_retry", `Error crítico inicial: ${error}`, "ERROR");
-    }
+    await runDispatchWithRetry(io, pasajeroData, excludedEmails, attempt);
 };
 
 // 🆕 Función para limpiar todos los timeouts (útil en shutdown)
