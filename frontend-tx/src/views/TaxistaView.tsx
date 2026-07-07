@@ -720,14 +720,7 @@ const confirmarAbordo = () => {
   setEstado(POSITION_STATES.ENCURSO);
   setChatAbierto(false);
   
-  // 🎯 SOLUCIÓN AL ERROR DE TYPESCRIPT:
-  // Pasamos los objetos L.latLng individuales pero tipados de forma nativa como exige tu estado
-  if (pasajeroAsignado?.lat && pasajeroAsignado?.lng && taxiPos?.lat && taxiPos?.lng) {
-    setGeometriaRuta([
-      L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
-      L.latLng(Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng))
-    ] as any); // 👈 El "as any" o "as L.LatLng[]" le da la paz al compilador de TS
-  }
+  setGeometriaRuta([]); // Limpiamos la ruta hacia el pasajero, ahora vamos al destino final
   
   if (taxiPos?.lat && taxiPos?.lng) {
     setHistorialRuta([[Number(taxiPos.lat), Number(taxiPos.lng)]]);

@@ -957,7 +957,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
             {mostrarTextoBuscando && (
               <p className="text-center text-[10px] font-black uppercase tracking-[0.16em] text-amber-500 animate-pulse">
-                Buscando otra unidad...
+                Buscando unidad...
               </p>
             )}
 
