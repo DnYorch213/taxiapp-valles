@@ -5,68 +5,49 @@ const API_BASE_URL =
     : "https://taxiapp-valles.onrender.com";
 
 // 1. ESCUCHAR LA NOTIFICACIÓN PUSH
-self.addEventListener("push", (event) => {
-  let rawData = {};
+self.addEventListener("push", function (event) {
+  if (!event.data) return;
 
-  if (event.data) {
-    try {
-      rawData = event.data.json();
-    } catch {
-      rawData = { notification: { body: event.data.text() } };
-    }
+  try {
+    const rawData = event.data.json();
+    const title = rawData.title || "¡NUEVO VIAJE DISPONIBLE! 🚕";
+
+    const options = {
+      body: rawData.body || `Nuevo servicio solicitado.`,
+      icon: rawData.icon || "/icon-192x192.png",
+      vibrate: rawData.vibrate || [200, 100, 200],
+      actions: [
+        { action: "accept_action", title: "✅ ACEPTAR VIAJE" },
+        { action: "reject_action", title: "❌ IGNORAR" },
+      ],
+      requireInteraction: true,
+      data: rawData.data, // Contiene requestId, emailPasajero, emailTaxista, etc.
+    };
+
+    event.waitUntil(self.registration.showNotification(title, options));
+  } catch (err) {
+    console.error("Error procesando notificación push en background:", err);
   }
-
-  // Normalizamos de dónde viene la información (raíz o dentro de .notification)
-  const notificationDetails = rawData.notification || rawData || {};
-  const customData = rawData.data || notificationDetails.data || {};
-
-  const emailPasajero = customData.emailPasajero || "";
-  const emailTaxista = customData.emailTaxista || "";
-  const fallbackUrl = customData.url || "/taxista";
-
-  const options = {
-    body: notificationDetails.body || "Tienes un nuevo servicio pendiente 🚕",
-    icon: "/taxista.png",
-    badge: "/taxista.png",
-    vibrate: [500, 100, 500, 100, 500, 100, 800],
-    tag: "servicio-taxi",
-    renotify: true,
-    data: {
-      url: fallbackUrl,
-      emailPasajero: emailPasajero,
-      emailTaxista: emailTaxista,
-    },
-    // Botones directos en la notificación
-    actions: [
-      { action: "aceptar", title: "✅ ACEPTAR VIAJE" },
-      { action: "rechazar", title: "❌ IGNORAR" },
-    ],
-  };
-
-  event.waitUntil(
-    self.registration.showNotification(
-      notificationDetails.title || "🚕 Nuevo Servicio Disponible",
-      options,
-    ),
-  );
 });
 
 // 2. GESTIONAR EL CLICK Y LAS ACCIONES
 self.addEventListener("notificationclick", (event) => {
   const notification = event.notification;
-  const action = event.action; // 'aceptar', 'rechazar' o '' (clic normal)
+  const action = event.action;
   const notificationData = notification.data || {};
 
   notification.close();
 
   // --- CASO 1: EL TAXISTA RECHAZA EL VIAJE ---
-  if (action === "rechazar") {
+  // 🚨 CORRECCIÓN: Alineado con el ID 'reject_action'
+  if (action === "reject_action") {
     const apiPromise = fetch(`${API_BASE_URL}/api/reject-trip-push`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         taxistaEmail: notificationData.emailTaxista,
         pasajeroEmail: notificationData.emailPasajero,
+        requestId: notificationData.requestId, // 🚨 CORRECCIÓN: Enviamos requestId al backend
       }),
     }).catch((err) => {
       console.error("❌ Error al ignorar viaje vía Push:", err);
@@ -77,13 +58,15 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   // --- CASO 2: EL TAXISTA ACEPTA EL VIAJE ---
-  if (action === "aceptar") {
+  // 🚨 CORRECCIÓN: Alineado con el ID 'accept_action'
+  if (action === "accept_action") {
     const apiPromise = fetch(`${API_BASE_URL}/api/accept-trip-push`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         taxistaEmail: notificationData.emailTaxista,
         pasajeroEmail: notificationData.emailPasajero,
+        requestId: notificationData.requestId, // 🚨 CORRECCIÓN: Enviamos requestId al backend
       }),
     })
       .then(async (response) => {
@@ -91,12 +74,8 @@ self.addEventListener("notificationclick", (event) => {
 
         console.log("✅ Viaje pre-aceptado en BD desde el Service Worker.");
 
-        // 🚀 CONSTRUCCIÓN BLINDADA: Usamos el origen del propio Service Worker
-        // Esto asegura que apunte a http://localhost:5173/taxista en local
-        // y a https://tu-frontend.onrender.com/taxista en producción automáticamente.
         const pEmail = encodeURIComponent(notificationData.emailPasajero || "");
         const tEmail = encodeURIComponent(notificationData.emailTaxista || "");
-
         const targetUrl = `${self.location.origin}/taxista?pasajero=${pEmail}&taxista=${tEmail}&autoAccept=true`;
 
         return abrirOEnfocarApp(targetUrl);
@@ -107,7 +86,6 @@ self.addEventListener("notificationclick", (event) => {
           err,
         );
 
-        // Respaldo seguro en caso de falla: igual intentamos mandarlo con los parámetros
         const pEmail = encodeURIComponent(notificationData.emailPasajero || "");
         const tEmail = encodeURIComponent(notificationData.emailTaxista || "");
         return abrirOEnfocarApp(
@@ -120,32 +98,27 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   // --- CASO 3: CLIC NORMAL EN EL CUERPO DE LA NOTIFICACIÓN ---
-  // El taxista solo pulsó la alerta para ver de qué se trata sin decidir aún
   event.waitUntil(abrirOEnfocarApp(notificationData.url || "/taxista"));
 });
 
 // --- FUNCIÓN AUXILIAR: FOCO INTELIGENTE ---
 function abrirOEnfocarApp(targetPath) {
-  // Asegura que la URL sea absoluta usando el origen actual si viene relativa
   const urlToOpen = new URL(targetPath, self.location.origin).href;
 
   return clients
     .matchAll({ type: "window", includeUncontrolled: true })
     .then((windowClients) => {
-      // 1. Si hay una pestaña abierta en esa URL exacta, le damos foco
       for (let client of windowClients) {
         if (client.url === urlToOpen && "focus" in client) {
           return client.focus();
         }
       }
-      // 2. Si hay una pestaña de la app abierta pero en otra ruta, la redirigimos
       for (let client of windowClients) {
         if ("navigate" in client) {
           client.navigate(urlToOpen);
           return client.focus();
         }
       }
-      // 3. Si la app estaba completamente cerrada, abrimos una nueva ventana
       if (clients.openWindow) {
         return clients.openWindow(urlToOpen);
       }

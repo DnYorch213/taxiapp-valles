@@ -32,14 +32,18 @@ export const enviarNotificacionPush = async (subscription: any, pasajeroData: an
 
         const payload = JSON.stringify({
             title: "¡NUEVO VIAJE DISPONIBLE! 🚕",
-            body: `Pasajero: ${pasajeroData.name || pasajeroData.pasajeroEmail}\nDistancia: ${distanciaMetros}m`,
+            body: `Pasajero: ${pasajeroData.name || pasajeroData.pasajeroEmail || pasajeroData.email}\nDistancia: ${distanciaMetros}m`,
             icon: `${process.env.FRONTEND_URL}/icon-192x192.png`,
             vibrate: [200, 100, 200, 100, 200],
+            // 🚨 CORRECCIÓN: IDs alineados perfectamente con el public/sw.js del frontend
             actions: [
-                { action: "aceptar", title: "✅ ACEPTAR VIAJE" },
-                { action: "rechazar", title: "❌ IGNORAR" }
+                { action: "accept_action", title: "✅ ACEPTAR VIAJE" },
+                { action: "reject_action", title: "❌ IGNORAR" }
             ],
             data: {
+                requestId: pasajeroData.requestId,
+                pickupAddress: pasajeroData.pickupAddress,
+                // 🚨 CORRECCIÓN: Claves idénticas a las que consume tu Service Worker (emailPasajero y emailTaxista)
                 emailPasajero: pasajeroData.pasajeroEmail || pasajeroData.email,
                 emailTaxista: taxistaEmail,
                 pasajeroLat: pasajeroData.pasajeroLat || pasajeroData.lat,
@@ -49,7 +53,6 @@ export const enviarNotificacionPush = async (subscription: any, pasajeroData: an
                 url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/taxista`
             }
         });
-
 
         await webpush.sendNotification(subscription, payload, { TTL: 60, urgency: 'high' });
         console.log(`🔔 Push enviado con éxito a: ${taxistaEmail}`);

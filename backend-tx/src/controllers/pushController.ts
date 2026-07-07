@@ -6,6 +6,7 @@ import { User } from "../models/User";
 import { buildPayload } from "../utils/payloadBuilder";
 import { clearDispatchCycle, dispatchWithRetry } from "../services/dispatchService";
 import { POSITION_STATES } from "../constants/states";
+import { enviarNotificacionPush } from "../services/pushService";
 
 // 🚖 1. CONTROLADOR PARA ACEPTAR EL VIAJE VIA PUSH
 export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Response) => {
@@ -79,6 +80,20 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
             lng: tPos?.lng,
             taxiData: buildPayload(tPos, tPos, POSITION_STATES.ENCAMINO)
         });
+
+        if (pPosActualizado.pushSubscription) {
+            try {
+                await enviarNotificacionPush(pPosActualizado.pushSubscription, {
+                    type: "TRIP_ACCEPTED",
+                    requestId,
+                    taxistaEmail: tEmail,
+                    name: tPos?.name || "Conductor",
+                    taxiNumber: tPos?.taxiNumber || "S/N"
+                }, pEmail);
+            } catch (pushErr) {
+                console.error("No se pudo reforzar la aceptación vía Push al pasajero");
+            }
+        }
 
         io.to(tEmail).emit("assignment_confirmed", { success: true, pasajero: pasajeroPayload });
         io.to(tEmail).emit("trip_status_update", { estado: POSITION_STATES.ENCAMINO, pasajeroAsignado: pasajeroPayload });
