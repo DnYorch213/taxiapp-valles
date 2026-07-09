@@ -871,8 +871,14 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
     // ============================================================
     // 🎯 LIMPIEZA AL DESCONECTAR - MANEJO DE RECONEXIÓN
     // ============================================================
-    socket.on("disconnect", async () => {
-        logMotor("disconnect", `Socket desconectado: ${email}`, "INFO");
+    socket.on("disconnect", async (reason) => {
+        logMotor("disconnect", `Socket desconectado: ${email} | Razón: ${reason}`, "INFO");
+
+        // Para microcortes o reemplazo de sesión, el motor principal se encarga de conservar estado.
+        // Solo notificamos a la contraparte cuando la salida fue voluntaria desde cliente.
+        if (reason !== "client namespace disconnect") {
+            return;
+        }
 
         try {
             const posDoc = await Position.findOne({ email }).lean();

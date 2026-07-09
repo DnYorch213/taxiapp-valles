@@ -442,6 +442,12 @@ export const initSocketEngine = (io: Server) => {
 
                 if (!checkActive) return;
 
+                // Ignorar desconexiones de sockets obsoletos cuando ya existe una sesión más reciente.
+                if (checkActive.socketId && checkActive.socketId !== socket.id) {
+                    logMotor("socket_disconnect", `Ignorando disconnect obsoleto para ${email} | Socket=${socket.id} | Vigente=${checkActive.socketId}`, "INFO");
+                    return;
+                }
+
                 // 🆕 Protección contra microcortes con timer
                 if (["encamino", "encurso", "asignado", "preasignado"].includes(checkActive.estado)) {
                     logMotor("socket_microdrop", `Conservando estado '${checkActive.estado}' para ${email} (microcorte)`, "INFO");
