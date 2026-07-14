@@ -787,7 +787,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                         L.latLng(Number(userPosition.lat), Number(userPosition.lng)),
                       ]}
                       onRouteFound={(coords: L.LatLng[]) => {
-                        console.log("­ƒù║´©Å Nueva trayectoria trazada. Puntos:", coords.length);
+                        console.log("­Nueva trayectoria trazada. Puntos:", coords.length);
                         setGeometriaRuta(coords);
                       }}
                     />
