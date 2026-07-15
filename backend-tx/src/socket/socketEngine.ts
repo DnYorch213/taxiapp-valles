@@ -3,7 +3,7 @@ import { Server, Socket } from "socket.io";
 import { Position } from "../models/Position";
 import { User } from "../models/User";
 import { buildPayload } from "../utils/payloadBuilder";
-import { clearPendingTimeouts, isAutoMode } from "../services/dispatchService";
+import { clearPendingTimeouts, isAutoMode, setAutoMode } from "../services/dispatchService";
 import { registerLocationHandlers } from "./handlers/locationHandler";
 import { registerTripHandlers } from "./handlers/tripHandler";
 import { logMotor } from "../utils/logger";
@@ -319,6 +319,39 @@ export const initSocketEngine = (io: Server) => {
         socket.on("join_room", (roomEmail: string) => {
             if (roomEmail) {
                 socket.join(roomEmail.toLowerCase().trim());
+            }
+        });
+
+        socket.on("request_dispatch_mode", async () => {
+            try {
+                const adminUser = await User.findOne({ email }).lean();
+
+                if (!adminUser || adminUser.role !== "admin") {
+                    socket.emit("auth_error", { message: "No autorizado" });
+                    return;
+                }
+
+                socket.emit("dispatch_mode_changed", { auto: isAutoMode });
+            } catch (error) {
+                logMotor("socket_admin", `Error en request_dispatch_mode para ${email}: ${error}`, "ERROR");
+            }
+        });
+
+        socket.on("toggle_dispatch_mode", async ({ auto }) => {
+            try {
+                const adminUser = await User.findOne({ email }).lean();
+
+                if (!adminUser || adminUser.role !== "admin") {
+                    socket.emit("auth_error", { message: "No autorizado" });
+                    return;
+                }
+
+                const nextMode = Boolean(auto);
+                setAutoMode(nextMode);
+                io.emit("dispatch_mode_changed", { auto: nextMode });
+                logMotor("socket_admin", `Modo de despacho actualizado por ${email}: ${nextMode ? "AUTO" : "MANUAL"}`, "INFO");
+            } catch (error) {
+                logMotor("socket_admin", `Error en toggle_dispatch_mode para ${email}: ${error}`, "ERROR");
             }
         });
 

@@ -89,6 +89,7 @@ const TaxistaView: React.FC = () => {
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
   // 🚩 ESTADO PARA LA LÍNEA QUE SE VA BORRANDO (Hacia el pasajero)
 const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
+  const [rutaDestinoFinal, setRutaDestinoFinal] = useState<L.LatLng[]>([]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const chatDragRef = useRef({
@@ -115,6 +116,12 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
     setTimeout(() => setGeometriaRuta([]), 300);
   }
 }, [estado]);
+
+  useEffect(() => {
+    if (estado !== "encurso") {
+      setRutaDestinoFinal([]);
+    }
+  }, [estado]);
 
 // Sincronizador de referencia mutuable para hooks de hardware
 useEffect(() => {
@@ -543,19 +550,11 @@ socket.on("trip_status_update", (data: any) => {
     detenerSonido();
     setChatAbierto(false);
 
-    // 🚩 Recalcula polyline hacia el destino final, no hacia el punto de abordaje.
-    const taxiActual = taxiPosRef.current;
     const destinoFinal = getDestinoFinalLatLng(data.pasajeroAsignado || pasajeroAsignadoRef.current);
 
-    if (taxiActual?.lat && taxiActual?.lng && destinoFinal) {
-      setGeometriaRuta([
-        L.latLng(Number(taxiActual.lat), Number(taxiActual.lng)),
-        destinoFinal
-      ]);
-    } else {
-      // Si aún no tenemos destino geocodificado, evitamos dibujar una línea errónea al pickup.
-      setGeometriaRuta([]);
-    }
+    // Limpiar cualquier resto de la ruta de recogida y forzar un trazado real hacia destino.
+    setGeometriaRuta([]);
+    setRutaDestinoFinal(destinoFinal ? [] : []);
 
     setPasajeroAsignado((prev: any) => ({
       ...prev,
@@ -576,14 +575,14 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   if (estadoRef.current === "encurso") {
     const destinoFinal = getDestinoFinalLatLng(pasajeroAsignadoRef.current);
     if (!destinoFinal) {
-      setGeometriaRuta([]);
+      setRutaDestinoFinal([]);
       return;
     }
 
-    setGeometriaRuta([
-      L.latLng(data.lat, data.lng),
-      destinoFinal,
-    ]);
+    // Si la ruta ya no coincide con la calle actual, forzamos recálculo.
+    if (rutaDestinoFinal.length === 0) {
+      return;
+    }
   }
 });
 
@@ -695,6 +694,30 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }
 }, [taxiPos, estado]); // 🚩 dependemos de taxiPos y estado
 
+useEffect(() => {
+  if (!taxiPos || estado !== "encurso" || rutaDestinoFinal.length === 0) {
+    return;
+  }
+
+  const posTaxi = L.latLng(Number(taxiPos.lat), Number(taxiPos.lng));
+  let indiceMasCercano = 0;
+  let distanciaMinima = Infinity;
+
+  rutaDestinoFinal.forEach((punto, index) => {
+    const d = posTaxi.distanceTo(punto);
+    if (d < distanciaMinima) {
+      distanciaMinima = d;
+      indiceMasCercano = index;
+    }
+  });
+
+  if (distanciaMinima < 45 && indiceMasCercano > 0) {
+    setRutaDestinoFinal((prev) => prev.slice(indiceMasCercano));
+  } else if (distanciaMinima >= 45) {
+    setRutaDestinoFinal([]);
+  }
+}, [taxiPos, estado, rutaDestinoFinal.length]);
+
  // --- ACCIONES DEL TAXISTA ---
 const aceptarViaje = () => {
   if (isAccepting) return;
@@ -750,16 +773,8 @@ const confirmarAbordo = () => {
   setEstado(POSITION_STATES.ENCURSO);
   setChatAbierto(false);
 
-  // Al abordar, la ruta verde debe apuntar al destino final si ya existe coordenada destino.
-  const destinoFinal = getDestinoFinalLatLng(pasajeroAsignadoRef.current);
-  if (taxiPos?.lat && taxiPos?.lng && destinoFinal) {
-    setGeometriaRuta([
-      L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
-      destinoFinal
-    ]);
-  } else {
-    setGeometriaRuta([]);
-  }
+  setGeometriaRuta([]);
+  setRutaDestinoFinal([]);
   
   if (taxiPos?.lat && taxiPos?.lng) {
     setHistorialRuta([[Number(taxiPos.lat), Number(taxiPos.lng)]]);
@@ -1054,8 +1069,24 @@ return (
                 <Polyline positions={geometriaRuta} pathOptions={{ color: 'rgb(245, 33, 65)', weight: 4, lineJoin: 'round' }} />
               )}
 
-              {estado === "encurso" && geometriaRuta.length > 0 && (
-                <Polyline positions={geometriaRuta} pathOptions={{ color: 'rgb(55, 227, 55)', weight: 4, lineJoin: 'round' }} />
+              {estado === "encurso" &&
+                taxiPos?.lat &&
+                taxiPos?.lng &&
+                getDestinoFinalLatLng(pasajeroAsignado) &&
+                rutaDestinoFinal.length === 0 && (
+                  <Suspense fallback={null}>
+                    <RoutingMachine
+                      waypoints={[
+                        L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
+                        getDestinoFinalLatLng(pasajeroAsignado) as L.LatLng,
+                      ]}
+                      onRouteFound={(coords: L.LatLng[]) => setRutaDestinoFinal(coords)}
+                    />
+                  </Suspense>
+                )}
+
+              {estado === "encurso" && rutaDestinoFinal.length > 0 && (
+                <Polyline positions={rutaDestinoFinal} pathOptions={{ color: 'rgb(55, 227, 55)', weight: 4, lineJoin: 'round' }} />
               )}
 
               {estado === "encurso" && historialRuta.length > 0 && (

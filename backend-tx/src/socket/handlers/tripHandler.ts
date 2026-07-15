@@ -9,6 +9,24 @@ import { logMotor } from "../../utils/logger";
 import { calculateDistance } from "../../utils/distance";
 import { POSITION_STATES, TRIP_STATES } from "../../constants/states";
 
+const MAX_REQUEST_TAXI_RETRIES = 3;
+
+const isRetryableRequestTaxiError = (error: unknown) => {
+    const mongoError = error as {
+        errorLabels?: string[];
+        message?: string;
+        codeName?: string;
+    } | null;
+
+    const message = String(mongoError?.message || "").toLowerCase();
+    const labels = mongoError?.errorLabels || [];
+
+    return labels.includes("TransientTransactionError") ||
+        labels.includes("UnknownTransactionCommitResult") ||
+        message.includes("write conflict") ||
+        mongoError?.codeName === "WriteConflict";
+};
+
 export const registerTripHandlers = (io: Server, socket: Socket, email: string) => {
 
     // ============================================================
@@ -24,160 +42,173 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             return;
         }
 
+        const currentRequestId = `${Date.now()}_${socket.id}`;
+        clearPendingTimeouts(pEmail, "nuevo request_taxi");
+        bindPassengerRequestId(pEmail, currentRequestId);
+
         try {
-            // 🎯 TRANSACCIÓN ATÓMICA: Verificar y actualizar en un solo paso
-            const session = await Position.startSession();
-            session.startTransaction();
+            for (let attempt = 1; attempt <= MAX_REQUEST_TAXI_RETRIES; attempt++) {
+                const session = await Position.startSession();
 
-            try {
-                // Buscar viaje existente dentro de la transacción
-                const viajeExistente = await Position.findOne({
-                    $or: [
-                        {
-                            email: pEmail,
-                            estado: {
-                                $in: [
-                                    POSITION_STATES.ENCAMINO,
-                                    POSITION_STATES.ENCURSO,
-                                    POSITION_STATES.ASIGNADO,
-                                    POSITION_STATES.PREASIGNADO,
-                                    POSITION_STATES.BUSCANDO
-                                ]
-                            }
-                        },
-                        {
-                            email: pEmail,
-                            role: "pasajero",
-                            taxistaAsignado: { $ne: null }
-                        }
-                    ]
-                }).session(session).lean();
-
-                // Si ya tiene viaje activo, abortar transacción y responder
-                if (viajeExistente) {
-                    await session.abortTransaction();
-                    session.endSession();
-
-                    logMotor("request_taxi",
-                        `Pasajero=${pEmail} Estado=${viajeExistente.estado} -> Solicitud ignorada`,
-                        "WARN"
-                    );
-
-                    const taxistaData = viajeExistente.taxistaAsignado
-                        ? await Position.findOne({ email: viajeExistente.taxistaAsignado }).lean()
-                        : null;
-
-                    return socket.emit("response_from_taxi", {
-                        accepted: true,
-                        tEmail: viajeExistente.taxistaAsignado || "",
-                        name: taxistaData?.name || "Conductor",
-                        taxiNumber: taxistaData?.taxiNumber || "ECO",
-                        lat: taxistaData?.lat || null,
-                        lng: taxistaData?.lng || null,
-                        estado: viajeExistente.estado
-                    });
-                }
-
-                // Crear nuevo request ID
-                clearPendingTimeouts(pEmail, "nuevo request_taxi");
-
-                const currentRequestId = new Date().getTime().toString();
-                bindPassengerRequestId(pEmail, currentRequestId);
-
-                // Actualizar posición a BUSCANDO
-                await Position.findOneAndUpdate(
-                    { email: pEmail },
-                    {
-                        $set: {
-                            estado: POSITION_STATES.BUSCANDO,
-                            lat: data.lat,
-                            lng: data.lng,
-                            destinationLat: data.destinationLat ?? null,
-                            destinationLng: data.destinationLng ?? null,
-                            name: data.name || "Pasajero",
-                            role: "pasajero",
-                            taxistaAsignado: null,
-                            pasajeroAsignado: currentRequestId,
-                            requestId: currentRequestId,
-                            destinationAddress: data.destinationAddress || null,
-                            updatedAt: new Date()
-                        }
-                    },
-                    { upsert: true, session, returnDocument: "after" }
-                );
-
-                // Confirmar transacción
-                await session.commitTransaction();
-                session.endSession();
-
-                logMotor("request_taxi",
-                    `Solicitud legítima de: ${pEmail} (ID: ${currentRequestId})`,
-                    "INFO"
-                );
-
-                // 🧭 Resolver la dirección antes de despachar para no mandar payloads vacíos
-                let pickupAddress = data.pickupAddress || "Calculando ubicación...";
                 try {
-                    pickupAddress = await reverseGeocode(data.lat, data.lng);
+                    session.startTransaction();
 
-                    const validacionP = await Position.findOne({ email: pEmail }).lean();
+                    // Buscar viaje existente dentro de la transacción
+                    const viajeExistente = await Position.findOne({
+                        $or: [
+                            {
+                                email: pEmail,
+                                estado: {
+                                    $in: [
+                                        POSITION_STATES.ENCAMINO,
+                                        POSITION_STATES.ENCURSO,
+                                        POSITION_STATES.ASIGNADO,
+                                        POSITION_STATES.PREASIGNADO,
+                                        POSITION_STATES.BUSCANDO
+                                    ]
+                                }
+                            },
+                            {
+                                email: pEmail,
+                                role: "pasajero",
+                                taxistaAsignado: { $ne: null }
+                            }
+                        ]
+                    }).session(session).lean();
 
-                    if (validacionP &&
-                        [POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO, POSITION_STATES.PREASIGNADO].includes(validacionP.estado as any)) {
-                        logMotor("geocoding",
-                            `Ignorando dirección tardía para ${pEmail}. Estado=${validacionP.estado}`,
+                    if (viajeExistente) {
+                        await session.abortTransaction();
+
+                        logMotor("request_taxi",
+                            `Pasajero=${pEmail} Estado=${viajeExistente.estado} -> Solicitud ignorada`,
                             "WARN"
                         );
-                    } else if (validacionP?.requestId === currentRequestId) {
-                        await Position.updateOne(
-                            { email: pEmail },
-                            { $set: { pickupAddress } }
-                        );
-                        logMotor("geocoding",
-                            `Dirección inyectada: ${pickupAddress} para ${pEmail}`,
-                            "INFO"
-                        );
+
+                        const taxistaData = viajeExistente.taxistaAsignado
+                            ? await Position.findOne({ email: viajeExistente.taxistaAsignado }).lean()
+                            : null;
+
+                        clearPassengerRequestBinding(pEmail);
+
+                        return socket.emit("response_from_taxi", {
+                            accepted: true,
+                            tEmail: viajeExistente.taxistaAsignado || "",
+                            name: taxistaData?.name || "Conductor",
+                            taxiNumber: taxistaData?.taxiNumber || "ECO",
+                            lat: taxistaData?.lat || null,
+                            lng: taxistaData?.lng || null,
+                            estado: viajeExistente.estado
+                        });
                     }
-                } catch (geoError) {
-                    logMotor("geocoding",
-                        `Error en geocoding para ${pEmail}: ${geoError}`,
-                        "ERROR"
+
+                    await Position.findOneAndUpdate(
+                        { email: pEmail },
+                        {
+                            $set: {
+                                estado: POSITION_STATES.BUSCANDO,
+                                lat: data.lat,
+                                lng: data.lng,
+                                destinationLat: data.destinationLat ?? null,
+                                destinationLng: data.destinationLng ?? null,
+                                name: data.name || "Pasajero",
+                                role: "pasajero",
+                                taxistaAsignado: null,
+                                pasajeroAsignado: currentRequestId,
+                                requestId: currentRequestId,
+                                destinationAddress: data.destinationAddress || null,
+                                updatedAt: new Date()
+                            }
+                        },
+                        { upsert: true, session, returnDocument: "after" }
                     );
-                    pickupAddress = "Ubicación no disponible";
+
+                    await session.commitTransaction();
+
+                    logMotor("request_taxi",
+                        `Solicitud legítima de: ${pEmail} (ID: ${currentRequestId})`,
+                        "INFO"
+                    );
+
+                    let pickupAddress = data.pickupAddress || "Calculando ubicación...";
+                    try {
+                        pickupAddress = await reverseGeocode(data.lat, data.lng);
+
+                        const validacionP = await Position.findOne({ email: pEmail }).lean();
+
+                        if (validacionP &&
+                            [POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO, POSITION_STATES.PREASIGNADO].includes(validacionP.estado as any)) {
+                            logMotor("geocoding",
+                                `Ignorando dirección tardía para ${pEmail}. Estado=${validacionP.estado}`,
+                                "WARN"
+                            );
+                        } else if (validacionP?.requestId === currentRequestId) {
+                            await Position.updateOne(
+                                { email: pEmail },
+                                { $set: { pickupAddress } }
+                            );
+                            logMotor("geocoding",
+                                `Dirección inyectada: ${pickupAddress} para ${pEmail}`,
+                                "INFO"
+                            );
+                        }
+                    } catch (geoError) {
+                        logMotor("geocoding",
+                            `Error en geocoding para ${pEmail}: ${geoError}`,
+                            "ERROR"
+                        );
+                        pickupAddress = "Ubicación no disponible";
+                    }
+
+                    const pasajeroPayload = {
+                        email: pEmail,
+                        name: data.name || "Pasajero",
+                        lat: data.lat,
+                        lng: data.lng,
+                        pickupAddress,
+                        destinationLat: data.destinationLat ?? null,
+                        destinationLng: data.destinationLng ?? null,
+                        destinationAddress: data.destinationAddress || "Destino no especificado",
+                        requestId: currentRequestId
+                    };
+
+                    logMotor("request_taxi",
+                        `Buscando unidad más cercana para ${pEmail}`,
+                        "INFO"
+                    );
+
+                    dispatchWithRetry(io, pasajeroPayload, [], 1);
+                    return;
+
+                } catch (error) {
+                    if (session.inTransaction()) {
+                        await session.abortTransaction();
+                    }
+
+                    const retryable = isRetryableRequestTaxiError(error);
+                    if (retryable && attempt < MAX_REQUEST_TAXI_RETRIES) {
+                        logMotor("request_taxi",
+                            `Write conflict transitorio para ${pEmail}. Reintentando ${attempt + 1}/${MAX_REQUEST_TAXI_RETRIES}`,
+                            "WARN"
+                        );
+                        continue;
+                    }
+
+                    throw error;
+                } finally {
+                    session.endSession();
                 }
-
-                // Preparar payload para dispatch
-                const pasajeroPayload = {
-                    email: pEmail,
-                    name: data.name || "Pasajero",
-                    lat: data.lat,
-                    lng: data.lng,
-                    pickupAddress,
-                    destinationLat: data.destinationLat ?? null,
-                    destinationLng: data.destinationLng ?? null,
-                    destinationAddress: data.destinationAddress || "Destino no especificado",
-                    requestId: currentRequestId
-                };
-
-                logMotor("request_taxi",
-                    `Buscando unidad más cercana para ${pEmail}`,
-                    "INFO"
-                );
-
-                // Despachar
-                dispatchWithRetry(io, pasajeroPayload, [], 1);
-
-            } catch (error) {
-                await session.abortTransaction();
-                session.endSession();
-                throw error;
             }
-
         } catch (error) {
+            clearPassengerRequestBinding(pEmail);
+
             logMotor("error",
                 `Error en request_taxi para ${pEmail}: ${error}`,
                 "ERROR"
             );
+
+            socket.emit("dispatch_error", {
+                message: "No se pudo procesar la solicitud en este momento. Intenta nuevamente."
+            });
         }
     });
 

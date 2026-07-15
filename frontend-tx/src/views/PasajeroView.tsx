@@ -48,6 +48,7 @@ const PasajeroView: React.FC = () => {
   const [isSearchingDestination, setIsSearchingDestination] = useState(false);
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
   const [geometriaRuta, setGeometriaRuta] = useState<L.LatLngExpression[]>([]);
+  const [rutaDestinoPreview, setRutaDestinoPreview] = useState<L.LatLngExpression[]>([]);
 
   // REFS CENTRALIZADAS - Evitan closures obsoletos en listeners
   const taxistaAsignadoRef = useRef<Payload | null>(null);
@@ -140,6 +141,26 @@ const PasajeroView: React.FC = () => {
     setDestinationLat(userPosition.lat);
     setDestinationLng(userPosition.lng);
   }, [userPosition?.lat, userPosition?.lng, destinationLat, destinationLng]);
+
+  useEffect(() => {
+    if (estado === "encurso") {
+      setRutaDestinoPreview([]);
+      return;
+    }
+
+    if (!userPosition?.lat || !userPosition?.lng || !destinationPosition) {
+      setRutaDestinoPreview([]);
+      return;
+    }
+
+    setRutaDestinoPreview([]);
+  }, [
+    estado,
+    userPosition?.lat,
+    userPosition?.lng,
+    destinationPosition?.[0],
+    destinationPosition?.[1],
+  ]);
 
   const limpiarDestino = useCallback(() => {
     setDestinationQuery("");
@@ -738,17 +759,35 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 </Marker>
               )}
 
-              {destinationPosition && estado !== "encurso" && (
+              {destinationPosition && estado !== "encurso" && rutaDestinoPreview.length > 0 && (
                 <Polyline
-                  positions={[[userPosition.lat, userPosition.lng], destinationPosition]}
+                  positions={rutaDestinoPreview}
                   pathOptions={{
                     color: "#22c55e",
-                    weight: 3,
-                    opacity: 0.75,
-                    dashArray: "6 8",
+                    weight: 4,
+                    opacity: 0.85,
+                    lineJoin: "round",
+                    lineCap: "round",
                   }}
                 />
               )}
+
+              {destinationPosition &&
+                estado !== "encurso" &&
+                userPosition?.lat &&
+                userPosition?.lng && (
+                  <Suspense fallback={null}>
+                    <RoutingMachine
+                      waypoints={[
+                        L.latLng(Number(userPosition.lat), Number(userPosition.lng)),
+                        L.latLng(destinationPosition[0], destinationPosition[1]),
+                      ]}
+                      onRouteFound={(coords: L.LatLng[]) => {
+                        setRutaDestinoPreview(coords);
+                      }}
+                    />
+                  </Suspense>
+                )}
 
               {taxiPos && ["asignado", "encamino", "encurso"].includes(estado) && (
                 <RotatedMarker

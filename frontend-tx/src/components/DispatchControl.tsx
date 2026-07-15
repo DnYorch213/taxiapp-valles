@@ -8,12 +8,24 @@ const DispatchControl: React.FC = () => {
   useEffect(() => {
     if (!socket) return;
 
-    socket.on("dispatch_mode_changed", (data: { auto: boolean }) => {
-      setIsAuto(data.auto);
-    });
+    const syncDispatchMode = () => {
+      if (socket.connected) {
+        socket.emit("request_dispatch_mode");
+      }
+    };
+
+    const handleDispatchModeChanged = (data: { auto: boolean }) => {
+      setIsAuto(Boolean(data.auto));
+    };
+
+    socket.on("dispatch_mode_changed", handleDispatchModeChanged);
+    socket.on("connect", syncDispatchMode);
+
+    syncDispatchMode();
 
     return () => {
-      socket.off("dispatch_mode_changed");
+      socket.off("dispatch_mode_changed", handleDispatchModeChanged);
+      socket.off("connect", syncDispatchMode);
     };
   }, []);
 
