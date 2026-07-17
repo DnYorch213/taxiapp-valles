@@ -22,6 +22,9 @@ const RoutingMachine = lazy(() =>
 );
 
 const OFFROAD_TAIL_THRESHOLD_METERS = 22;
+const ROUTE_RECALC_THRESHOLD_METERS = 120;
+const PREVIEW_ORIGIN_RECALC_METERS = 25;
+const PREVIEW_DEST_RECALC_METERS = 6;
 
 const sanitizeRouteTail = (coords: L.LatLng[]) => {
   if (!coords || coords.length < 3) return coords;
@@ -40,9 +43,14 @@ const sanitizeRouteTail = (coords: L.LatLng[]) => {
 
 const destinationMarkerIcon = L.divIcon({
   className: "",
-  html: '<div class="h-9 w-9 rounded-full bg-[#22c55e] text-[#0f172a] shadow-xl border-2 border-white flex items-center justify-center text-xl">📍</div>',
-  iconSize: [36, 36],
-  iconAnchor: [18, 36],
+  html: `
+    <div style="position:relative;width:30px;height:42px;filter:drop-shadow(0 6px 10px rgba(0,0,0,0.28));">
+      <div style="position:absolute;left:50%;top:0;transform:translateX(-50%);width:30px;height:30px;background:#22c55e;border:2px solid #ffffff;border-radius:50% 50% 50% 0;transform-origin:center;rotate:-45deg;"></div>
+      <div style="position:absolute;left:50%;top:9px;transform:translateX(-50%);width:10px;height:10px;background:#ffffff;border-radius:9999px;"></div>
+    </div>
+  `,
+  iconSize: [30, 42],
+  iconAnchor: [15, 40],
 });
 
 const PasajeroView: React.FC = () => {
@@ -72,6 +80,10 @@ const PasajeroView: React.FC = () => {
   const estadoRef = useRef<ViajeEstado>(TRIP_STATES.PENDIENTE);
   const taxiPosRef = useRef<any>(null);
   const userPositionRef = useRef<any>(null);
+  const previewRouteSeedRef = useRef<{ origin: L.LatLng | null; destination: L.LatLng | null }>({
+    origin: null,
+    destination: null,
+  });
   const chatDragRef = useRef({
     startPointerX: 0,
     startBubbleX: 0,
@@ -151,19 +163,6 @@ const PasajeroView: React.FC = () => {
     return [destinationLat, destinationLng];
   }, [destinationLat, destinationLng]);
 
-  const destinationVisualPosition = useMemo<[number, number] | null>(() => {
-    if (!destinationPosition) return null;
-
-    if (rutaDestinoPreview.length > 0) {
-      const lastPoint = rutaDestinoPreview[rutaDestinoPreview.length - 1] as L.LatLng;
-      if (typeof lastPoint?.lat === "number" && typeof lastPoint?.lng === "number") {
-        return [lastPoint.lat, lastPoint.lng];
-      }
-    }
-
-    return destinationPosition;
-  }, [destinationPosition, rutaDestinoPreview]);
-
   useEffect(() => {
     if (destinationLat !== null && destinationLng !== null) return;
     if (!userPosition?.lat || !userPosition?.lng) return;
@@ -175,15 +174,33 @@ const PasajeroView: React.FC = () => {
   useEffect(() => {
     if (estado === "encurso") {
       setRutaDestinoPreview([]);
+      previewRouteSeedRef.current = { origin: null, destination: null };
       return;
     }
 
     if (!userPosition?.lat || !userPosition?.lng || !destinationPosition) {
       setRutaDestinoPreview([]);
+      previewRouteSeedRef.current = { origin: null, destination: null };
       return;
     }
 
-    setRutaDestinoPreview([]);
+    const currentOrigin = L.latLng(Number(userPosition.lat), Number(userPosition.lng));
+    const currentDestination = L.latLng(destinationPosition[0], destinationPosition[1]);
+    const previous = previewRouteSeedRef.current;
+
+    if (!previous.origin || !previous.destination) {
+      previewRouteSeedRef.current = { origin: currentOrigin, destination: currentDestination };
+      setRutaDestinoPreview([]);
+      return;
+    }
+
+    const originDelta = currentOrigin.distanceTo(previous.origin);
+    const destinationDelta = currentDestination.distanceTo(previous.destination);
+
+    if (originDelta >= PREVIEW_ORIGIN_RECALC_METERS || destinationDelta >= PREVIEW_DEST_RECALC_METERS) {
+      previewRouteSeedRef.current = { origin: currentOrigin, destination: currentDestination };
+      setRutaDestinoPreview([]);
+    }
   }, [
     estado,
     userPosition?.lat,
@@ -699,7 +716,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
     if (distanciaMinima < 45 && indiceMasCercano > 0) {
       setGeometriaRuta((prev) => prev.slice(indiceMasCercano));
-    } else if (distanciaMinima >= 45) {
+    } else if (distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS) {
       console.log("El taxista tomó otra calle. Recalculando polilínea...");
       setGeometriaRuta([]);
     }
@@ -774,7 +791,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
               {estado !== "encurso" && (
                 <Marker
-                  position={destinationVisualPosition || [userPosition.lat, userPosition.lng]}
+                  position={destinationPosition || [userPosition.lat, userPosition.lng]}
                   icon={destinationMarkerIcon}
                   draggable={true}
                   eventHandlers={{
@@ -805,7 +822,8 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               {destinationPosition &&
                 estado !== "encurso" &&
                 userPosition?.lat &&
-                userPosition?.lng && (
+                userPosition?.lng &&
+                rutaDestinoPreview.length === 0 && (
                   <Suspense fallback={null}>
                     <RoutingMachine
                       waypoints={[
