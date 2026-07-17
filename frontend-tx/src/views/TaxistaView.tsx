@@ -36,6 +36,22 @@ function urlBase64ToUint8Array(base64String: string) {
 
 const VAPID_PUBLIC_KEY = "BHtVjCOYiH1nbyPq-mPS_ZqA0oHjGcONq5r5PV-sTC1jXzAvgGuFFwL5iv0ymk725NUX4_obl82JLilVs9W49-A";
 const ROUTE_RECALC_THRESHOLD_METERS = 120;
+const OFFROAD_TAIL_THRESHOLD_METERS = 22;
+
+const sanitizeRouteTail = (coords: L.LatLng[]) => {
+  if (!coords || coords.length < 3) return coords;
+
+  const last = coords[coords.length - 1];
+  const prev = coords[coords.length - 2];
+  const tailDistance = prev.distanceTo(last);
+
+  // Si el último tramo es un salto corto fuera de calle, lo recortamos para evitar parpadeo visual.
+  if (tailDistance >= OFFROAD_TAIL_THRESHOLD_METERS) {
+    return coords.slice(0, -1);
+  }
+
+  return coords;
+};
 
 const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ duration, onFinish }) => {
   const [progress, setProgress] = useState(100);
@@ -1072,7 +1088,7 @@ return (
                       L.latLng(taxiPos.lat, taxiPos.lng),
                       L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng)
                     ]}
-                    onRouteFound={(coords: L.LatLng[]) => setGeometriaRuta(coords)}
+                    onRouteFound={(coords: L.LatLng[]) => setGeometriaRuta(sanitizeRouteTail(coords))}
                   />
                 </Suspense>
               )}
@@ -1092,7 +1108,7 @@ return (
                         L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
                         getDestinoFinalLatLng(pasajeroAsignado) as L.LatLng,
                       ]}
-                      onRouteFound={(coords: L.LatLng[]) => setRutaDestinoFinal(coords)}
+                      onRouteFound={(coords: L.LatLng[]) => setRutaDestinoFinal(sanitizeRouteTail(coords))}
                     />
                   </Suspense>
                 )}
@@ -1111,7 +1127,11 @@ return (
               
              {pasajeroAsignado?.lat && estado !== "encurso" && (
                 <Marker 
-                  position={[Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng)]} 
+                  position={
+                    estado === "encamino" && geometriaRuta.length > 0
+                      ? [geometriaRuta[geometriaRuta.length - 1].lat, geometriaRuta[geometriaRuta.length - 1].lng]
+                      : [Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng)]
+                  }
                   icon={pasajeroIcon}
                 />
               )}

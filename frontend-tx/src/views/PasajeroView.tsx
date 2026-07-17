@@ -21,6 +21,23 @@ const RoutingMachine = lazy(() =>
   }))
 );
 
+const OFFROAD_TAIL_THRESHOLD_METERS = 22;
+
+const sanitizeRouteTail = (coords: L.LatLng[]) => {
+  if (!coords || coords.length < 3) return coords;
+
+  const last = coords[coords.length - 1];
+  const prev = coords[coords.length - 2];
+  const tailDistance = prev.distanceTo(last);
+
+  // Recorta el último salto si cae fuera de calle para evitar parpadeo visual.
+  if (tailDistance >= OFFROAD_TAIL_THRESHOLD_METERS) {
+    return coords.slice(0, -1);
+  }
+
+  return coords;
+};
+
 const destinationMarkerIcon = L.divIcon({
   className: "",
   html: '<div class="h-9 w-9 rounded-full bg-[#22c55e] text-[#0f172a] shadow-xl border-2 border-white flex items-center justify-center text-xl">📍</div>',
@@ -133,6 +150,19 @@ const PasajeroView: React.FC = () => {
     if (destinationLat === null || destinationLng === null) return null;
     return [destinationLat, destinationLng];
   }, [destinationLat, destinationLng]);
+
+  const destinationVisualPosition = useMemo<[number, number] | null>(() => {
+    if (!destinationPosition) return null;
+
+    if (rutaDestinoPreview.length > 0) {
+      const lastPoint = rutaDestinoPreview[rutaDestinoPreview.length - 1] as L.LatLng;
+      if (typeof lastPoint?.lat === "number" && typeof lastPoint?.lng === "number") {
+        return [lastPoint.lat, lastPoint.lng];
+      }
+    }
+
+    return destinationPosition;
+  }, [destinationPosition, rutaDestinoPreview]);
 
   useEffect(() => {
     if (destinationLat !== null && destinationLng !== null) return;
@@ -744,7 +774,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
               {estado !== "encurso" && (
                 <Marker
-                  position={destinationPosition || [userPosition.lat, userPosition.lng]}
+                  position={destinationVisualPosition || [userPosition.lat, userPosition.lng]}
                   icon={destinationMarkerIcon}
                   draggable={true}
                   eventHandlers={{
@@ -783,7 +813,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                         L.latLng(destinationPosition[0], destinationPosition[1]),
                       ]}
                       onRouteFound={(coords: L.LatLng[]) => {
-                        setRutaDestinoPreview(coords);
+                        setRutaDestinoPreview(sanitizeRouteTail(coords));
                       }}
                     />
                   </Suspense>
@@ -827,7 +857,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                       ]}
                       onRouteFound={(coords: L.LatLng[]) => {
                         console.log("­Nueva trayectoria trazada. Puntos:", coords.length);
-                        setGeometriaRuta(coords);
+                        setGeometriaRuta(sanitizeRouteTail(coords));
                       }}
                     />
                   </Suspense>
