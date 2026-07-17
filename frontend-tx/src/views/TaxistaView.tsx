@@ -35,6 +35,7 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 const VAPID_PUBLIC_KEY = "BHtVjCOYiH1nbyPq-mPS_ZqA0oHjGcONq5r5PV-sTC1jXzAvgGuFFwL5iv0ymk725NUX4_obl82JLilVs9W49-A";
+const ROUTE_RECALC_THRESHOLD_METERS = 120;
 
 const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ duration, onFinish }) => {
   const [progress, setProgress] = useState(100);
@@ -139,10 +140,21 @@ useEffect(() => {
 const getDestinoFinalLatLng = useCallback((payload?: Partial<Payload> | null) => {
   if (!payload) return null;
 
-  const lat = Number(payload.destinationLat);
-  const lng = Number(payload.destinationLng);
+  const rawLat = payload.destinationLat;
+  const rawLng = payload.destinationLng;
+  if (rawLat === null || rawLat === undefined || rawLng === null || rawLng === undefined) {
+    return null;
+  }
 
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+  const lat = Number(rawLat);
+  const lng = Number(rawLng);
+
+  // Evitar destinos inválidos (p.ej. null convertido a 0) que generan líneas fantasma.
+  const coordsInvalidas = !Number.isFinite(lat) || !Number.isFinite(lng) ||
+    Math.abs(lat) > 90 || Math.abs(lng) > 180 ||
+    (lat === 0 && lng === 0);
+
+  if (!coordsInvalidas) {
     return L.latLng(lat, lng);
   }
 
@@ -681,13 +693,13 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       console.log("✅ Avance detectado, borrando puntos hasta índice:", indiceMasCercano);
       setGeometriaRuta(prev => prev.slice(indiceMasCercano));
     } 
-    // 🎯 CONDICIÓN 2: ¡DESVÍO DETECTADO! Si te alejas más de 45 metros de la línea original,
+    // 🎯 CONDICIÓN 2: Recalcular solo ante desvíos claros, no por jitter normal del GPS.
     // vaciamos la geometría para forzar a la RoutingMachine del JSX a trazar el nuevo camino por la otra calle
-    else if (distanciaMinima >= 45) {
+    else if (distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS) {
       console.log("🔄 [Ruta Taxista] Cambio de calle detectado. Vaciando polilínea para recalcular...");
       setGeometriaRuta([]); // Al quedar en cero, se activa automáticamente la RoutingMachine en el mapa
     } else {
-      console.log("⚠️ No se detectó avance suficiente dentro del rango de la ruta.");
+      console.log("⚠️ Jitter de GPS dentro del rango tolerado. Conservando ruta actual.");
     }
   } else {
     console.log("⚠️ Condiciones no cumplidas: estado !== 'encamino' o geometriaRuta vacía");
@@ -713,7 +725,7 @@ useEffect(() => {
 
   if (distanciaMinima < 45 && indiceMasCercano > 0) {
     setRutaDestinoFinal((prev) => prev.slice(indiceMasCercano));
-  } else if (distanciaMinima >= 45) {
+  } else if (distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS) {
     setRutaDestinoFinal([]);
   }
 }, [taxiPos, estado, rutaDestinoFinal.length]);
