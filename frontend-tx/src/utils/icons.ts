@@ -19,3 +19,10 @@ export const taxistaIcon = L.icon({
   popupAnchor: [0, -20],
   className: "taxi-orientado",
 });
+
+export const banderaIcon = L.icon({
+  iconUrl: "/icons/banderaIcon.png", // 🏁 icono de banderilla
+  iconSize: [25, 25], // tamaño del icono
+  iconAnchor: [12, 25], // punto de anclaje (base del icono)
+  popupAnchor: [0, -32], // posición del popup respecto al icono
+});
