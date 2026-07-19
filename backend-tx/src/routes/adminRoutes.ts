@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { updateTaxistaStatus, getPendingTaxistas, getVerifiedTaxistas, getTripsByDriver, getAllTripsHistory } from '../controllers/adminController';
+import { updateTaxistaStatus, getPendingTaxistas, getVerifiedTaxistas, getTripsByDriver, getAllTripsHistory, getPassengerControlStats } from '../controllers/adminController';
 import { verifyToken, isAdmin } from '../middleware/authMiddleware';
 
 const router = Router();
@@ -20,6 +20,8 @@ router.get('/verified', getVerifiedTaxistas);
 router.get('/historial-viajes', getAllTripsHistory);
 
 router.get('/historial-viajes/:email', getTripsByDriver);
+
+router.get('/pasajeros/control', getPassengerControlStats);
 
 
 export default router;

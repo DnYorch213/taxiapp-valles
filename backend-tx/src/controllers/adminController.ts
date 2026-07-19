@@ -101,3 +101,66 @@ export const getTripsByDriver = async (req: Request, res: Response) => {
         res.status(500).json({ message: "Error al filtrar viajes", error });
     }
 };
+
+// 6. Control de pasajeros: métricas generales + recientes
+export const getPassengerControlStats = async (req: Request, res: Response) => {
+    try {
+        const now = new Date();
+        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+        const daysParam = Number(req.query.days);
+        const searchParam = String(req.query.search || '').trim();
+        const limitParam = Math.max(1, Math.min(Number(req.query.limit) || 50, 500));
+
+        const createdAtFilter = Number.isFinite(daysParam) && daysParam > 0
+            ? { $gte: new Date(now.getTime() - daysParam * 24 * 60 * 60 * 1000) }
+            : undefined;
+
+        const searchRegex = searchParam ? new RegExp(searchParam, 'i') : null;
+
+        const listFilter: Record<string, any> = { role: 'pasajero' };
+        if (createdAtFilter) listFilter.createdAt = createdAtFilter;
+        if (searchRegex) {
+            listFilter.$or = [
+                { name: searchRegex },
+                { email: searchRegex },
+                { phone: searchRegex },
+            ];
+        }
+
+        const [
+            totalRegistered,
+            registeredLast7Days,
+            registeredLast30Days,
+            filteredRegistered,
+            passengersRecent,
+        ] = await Promise.all([
+            User.countDocuments({ role: 'pasajero' }),
+            User.countDocuments({ role: 'pasajero', createdAt: { $gte: sevenDaysAgo } }),
+            User.countDocuments({ role: 'pasajero', createdAt: { $gte: thirtyDaysAgo } }),
+            User.countDocuments(listFilter),
+            User.find(listFilter)
+                .select('name email phone createdAt updatedAt')
+                .sort({ createdAt: -1 })
+                .limit(limitParam)
+                .lean(),
+        ]);
+
+        res.json({
+            totalRegistered,
+            registeredLast7Days,
+            registeredLast30Days,
+            filteredRegistered,
+            passengersRecent,
+            filters: {
+                days: createdAtFilter ? daysParam : null,
+                search: searchParam || null,
+                limit: limitParam,
+            },
+            generatedAt: now.toISOString(),
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Error al obtener control de pasajeros', error });
+    }
+};
