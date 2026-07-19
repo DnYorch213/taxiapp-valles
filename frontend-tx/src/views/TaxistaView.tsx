@@ -38,6 +38,19 @@ const VAPID_PUBLIC_KEY = "BHtVjCOYiH1nbyPq-mPS_ZqA0oHjGcONq5r5PV-sTC1jXzAvgGuFFw
 const ROUTE_RECALC_THRESHOLD_METERS = 120;
 const OFFROAD_TAIL_THRESHOLD_METERS = 22;
 
+const finishFlagIcon = L.divIcon({
+  className: "",
+  html: `
+    <div style="position:relative;width:28px;height:40px;filter:drop-shadow(0 6px 10px rgba(0,0,0,0.35));">
+      <div style="position:absolute;left:12px;top:6px;width:3px;height:28px;background:#ffffff;border-radius:2px;"></div>
+      <div style="position:absolute;left:14px;top:6px;width:12px;height:10px;clip-path:polygon(0 0,100% 0,74% 52%,100% 100%,0 100%);background:conic-gradient(from 90deg,#ffffff 0 25%,#111827 0 50%,#ffffff 0 75%,#111827 0);"></div>
+      <div style="position:absolute;left:8px;bottom:2px;width:12px;height:6px;background:#0f172a;border:1px solid rgba(255,255,255,0.65);border-radius:9999px;"></div>
+    </div>
+  `,
+  iconSize: [28, 40],
+  iconAnchor: [14, 38],
+});
+
 const sanitizeRouteTail = (coords: L.LatLng[]) => {
   if (!coords || coords.length < 3) return coords;
 
@@ -98,6 +111,7 @@ const TaxistaView: React.FC = () => {
   const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(null);
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
   const [chatAbierto, setChatAbierto] = useState(false);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [chatBubbleX, setChatBubbleX] = useState<number | null>(null);
   const [chatBubbleY, setChatBubbleY] = useState<number | null>(null);
   const [isDraggingChatBubble, setIsDraggingChatBubble] = useState(false);
@@ -746,6 +760,12 @@ useEffect(() => {
   }
 }, [taxiPos, estado, rutaDestinoFinal.length]);
 
+useEffect(() => {
+  if (chatAbierto) {
+    setUnreadChatCount(0);
+  }
+}, [chatAbierto]);
+
  // --- ACCIONES DEL TAXISTA ---
 const aceptarViaje = () => {
   if (isAccepting) return;
@@ -1012,6 +1032,7 @@ return (
 
         <div className="flex items-center gap-2 bg-[#1e293b]/95 px-3 py-1 rounded-full border border-white/10 backdrop-blur-sm">
           <div className={`h-1.5 w-1.5 rounded-full ${taxiPos?.lat && taxiPos?.lng ? 'bg-[#22c55e]' : 'bg-red-500 animate-ping'}`}></div>
+          <img src="/icons/taxista.png" alt="Taxi" className="h-3.5 w-3.5 object-contain" />
           <span className="text-[8px] font-black text-slate-300 uppercase tracking-widest">
             ECO-{user.taxiNumber}
           </span>
@@ -1114,7 +1135,28 @@ return (
                 )}
 
               {estado === "encurso" && rutaDestinoFinal.length > 0 && (
-                <Polyline positions={rutaDestinoFinal} pathOptions={{ color: 'rgb(55, 227, 55)', weight: 4, lineJoin: 'round' }} />
+                <Polyline
+                  positions={rutaDestinoFinal}
+                  pathOptions={{
+                    color: '#06b6d4',
+                    weight: 4,
+                    opacity: 0.95,
+                    lineJoin: 'round',
+                    lineCap: 'round',
+                  }}
+                />
+              )}
+
+              {estado === "encurso" && rutaDestinoFinal.length > 0 && (
+                <Marker
+                  position={[
+                    rutaDestinoFinal[rutaDestinoFinal.length - 1].lat,
+                    rutaDestinoFinal[rutaDestinoFinal.length - 1].lng,
+                  ]}
+                  icon={finishFlagIcon}
+                >
+                  <Popup>Meta del destino</Popup>
+                </Marker>
               )}
 
               {estado === "encurso" && historialRuta.length > 0 && (
@@ -1184,7 +1226,15 @@ return (
               </div>
             </div>
             <div className="h-[260px]">
-              <ChatBox toEmail={pasajeroAsignado.email} userName={`Taxi Valles`} />
+              <ChatBox
+                toEmail={pasajeroAsignado.email}
+                userName={`Taxi Valles`}
+                onIncomingMessage={() => {
+                  if (!chatAbierto) {
+                    setUnreadChatCount((prev) => Math.min(prev + 1, 99));
+                  }
+                }}
+              />
             </div>
           </div>
 
@@ -1197,12 +1247,17 @@ return (
               left: `${chatBubbleX ?? CHAT_BUBBLE_MARGIN}px`,
               top: `${chatBubbleY ?? CHAT_BUBBLE_MARGIN}px`,
             }}
-            className={`fixed z-[2000] h-[52px] w-[52px] bg-[#22c55e] text-[#0f172a] rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-lg flex items-center justify-center active:translate-y-1 select-none touch-none transition-opacity duration-150 ${chatAbierto ? "opacity-0 pointer-events-none" : "opacity-100"}`}
+            className={`fixed z-[2000] h-[52px] w-[52px] bg-[#22c55e] text-[#0f172a] rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-lg flex items-center justify-center active:translate-y-1 select-none touch-none transition-opacity duration-150 ${chatAbierto ? "opacity-0 pointer-events-none" : "opacity-100"} ${unreadChatCount > 0 ? "animate-pulse ring-4 ring-[#22c55e]/45" : ""}`}
             title="Chat con pasajero"
             aria-label="Abrir chat con pasajero"
             data-dragging={isDraggingChatBubble ? "true" : "false"}
           >
             💬
+            {unreadChatCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 border-2 border-[#0f172a] text-[9px] leading-none font-black flex items-center justify-center text-white">
+                {unreadChatCount > 9 ? "9+" : unreadChatCount}
+              </span>
+            )}
           </button>
         </>
       )}

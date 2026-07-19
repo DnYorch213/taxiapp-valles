@@ -10,9 +10,10 @@ interface Message {
 interface ChatBoxProps {
   toEmail: string;
   userName: string;
+  onIncomingMessage?: () => void;
 }
 
-export const ChatBox: React.FC<ChatBoxProps> = ({ toEmail, userName }) => {
+export const ChatBox: React.FC<ChatBoxProps> = ({ toEmail, userName, onIncomingMessage }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -33,6 +34,8 @@ export const ChatBox: React.FC<ChatBoxProps> = ({ toEmail, userName }) => {
         message: data.message,
         timestamp: data.timestamp || new Date().toISOString()
       }]);
+
+      onIncomingMessage?.();
       
       if ("vibrate" in navigator) navigator.vibrate(100);
     });
@@ -40,7 +43,7 @@ export const ChatBox: React.FC<ChatBoxProps> = ({ toEmail, userName }) => {
     return () => { 
       socket.off("receive_message"); 
     };
-  }, []);
+  }, [onIncomingMessage]);
 
   const enviar = (e: React.FormEvent) => {
     e.preventDefault();

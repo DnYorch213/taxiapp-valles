@@ -63,6 +63,7 @@ const PasajeroView: React.FC = () => {
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
   const [searchFlowActivo, setSearchFlowActivo] = useState(false);
   const [chatAbierto, setChatAbierto] = useState(false);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [chatBubbleX, setChatBubbleX] = useState<number | null>(null);
   const [isDraggingChatBubble, setIsDraggingChatBubble] = useState(false);
   const [destinationQuery, setDestinationQuery] = useState("");
@@ -743,6 +744,12 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     setDestinoColapsado(enCaminoUI);
   }, [enCaminoUI]);
 
+  useEffect(() => {
+    if (chatAbierto) {
+      setUnreadChatCount(0);
+    }
+  }, [chatAbierto]);
+
   return (
     <div className="h-dvh bg-slate-50 flex flex-col items-center font-sans relative overflow-hidden">
       <ToastContainer theme="light" />
@@ -1093,6 +1100,11 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               <ChatBox
                 toEmail={taxistaAsignado.email || (taxistaAsignado as any).taxistaEmail || ""}
                 userName={userPosition?.name || "Pasajero"}
+                onIncomingMessage={() => {
+                  if (!chatAbierto) {
+                    setUnreadChatCount((prev) => Math.min(prev + 1, 99));
+                  }
+                }}
               />
             </div>
           </div>
@@ -1104,12 +1116,17 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               onPointerUp={finishChatBubbleDrag}
               onPointerCancel={finishChatBubbleDrag}
               style={{ left: `${chatBubbleX ?? CHAT_BUBBLE_MARGIN}px` }}
-              className="fixed z-[2000] bottom-24 h-[52px] w-[52px] bg-[#22c55e] text-white rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-lg flex items-center justify-center active:translate-y-1 select-none"
+              className={`fixed z-[2000] bottom-24 h-[52px] w-[52px] bg-[#22c55e] text-white rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-lg flex items-center justify-center active:translate-y-1 select-none ${unreadChatCount > 0 ? "animate-pulse ring-4 ring-[#22c55e]/45" : ""}`}
               title="Chat con unidad"
               aria-label="Abrir chat con unidad"
               data-dragging={isDraggingChatBubble ? "true" : "false"}
             >
               💬
+              {unreadChatCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 border-2 border-white text-[9px] leading-none font-black flex items-center justify-center text-white">
+                  {unreadChatCount > 9 ? "9+" : unreadChatCount}
+                </span>
+              )}
             </button>
           )}
         </>

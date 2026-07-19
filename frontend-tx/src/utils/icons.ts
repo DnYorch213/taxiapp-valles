@@ -13,7 +13,7 @@ export const pasajeroIcon = L.icon({
 
 // 🚖 Ícono del taxista
 export const taxistaIcon = L.icon({
-  iconUrl: "/icons/taxista.png", // asegúrate de tener esta imagen en public/icons/
+  iconUrl: "/icons/taxista.png",
   iconSize: [40, 40],
   iconAnchor: [20, 20],
   popupAnchor: [0, -20],
