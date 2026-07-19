@@ -25,6 +25,12 @@ const OFFROAD_TAIL_THRESHOLD_METERS = 22;
 const ROUTE_RECALC_THRESHOLD_METERS = 120;
 const PREVIEW_ORIGIN_RECALC_METERS = 25;
 const PREVIEW_DEST_RECALC_METERS = 6;
+const DESTINATION_STORAGE_TTL_MS = 12 * 60 * 60 * 1000;
+
+const isValidCoordinatePair = (lat: number, lng: number) => {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+};
 
 const sanitizeRouteTail = (coords: L.LatLng[]) => {
   if (!coords || coords.length < 3) return coords;
@@ -85,6 +91,7 @@ const PasajeroView: React.FC = () => {
     origin: null,
     destination: null,
   });
+  const hasSeededDestinationRef = useRef(false);
   const chatDragRef = useRef({
     startPointerX: 0,
     startBubbleX: 0,
@@ -102,15 +109,24 @@ const PasajeroView: React.FC = () => {
     const savedAddress = localStorage.getItem("taxi_destination_address") || "";
     const savedLat = localStorage.getItem("taxi_destination_lat");
     const savedLng = localStorage.getItem("taxi_destination_lng");
+    const savedUpdatedAt = localStorage.getItem("taxi_destination_updated_at");
 
     if (savedQuery) setDestinationQuery(savedQuery);
     if (savedAddress) setDestinationAddress(savedAddress);
     if (savedLat && savedLng) {
       const latNum = Number(savedLat);
       const lngNum = Number(savedLng);
-      if (!Number.isNaN(latNum) && !Number.isNaN(lngNum)) {
+      const updatedAtNum = Number(savedUpdatedAt || "0");
+      const isFresh = Number.isFinite(updatedAtNum) && Date.now() - updatedAtNum <= DESTINATION_STORAGE_TTL_MS;
+
+      if (isFresh && isValidCoordinatePair(latNum, lngNum)) {
         setDestinationLat(latNum);
         setDestinationLng(lngNum);
+        hasSeededDestinationRef.current = true;
+      } else {
+        localStorage.removeItem("taxi_destination_lat");
+        localStorage.removeItem("taxi_destination_lng");
+        localStorage.removeItem("taxi_destination_updated_at");
       }
     }
   }, []);
@@ -129,11 +145,13 @@ const PasajeroView: React.FC = () => {
     if (destinationLat !== null && destinationLng !== null) {
       localStorage.setItem("taxi_destination_lat", String(destinationLat));
       localStorage.setItem("taxi_destination_lng", String(destinationLng));
+      localStorage.setItem("taxi_destination_updated_at", String(Date.now()));
       return;
     }
 
     localStorage.removeItem("taxi_destination_lat");
     localStorage.removeItem("taxi_destination_lng");
+    localStorage.removeItem("taxi_destination_updated_at");
   }, [destinationLat, destinationLng]);
 
   // GEOCONFIG ESTABLE - Solo cambia cuando el email cambia realmente
@@ -165,11 +183,16 @@ const PasajeroView: React.FC = () => {
   }, [destinationLat, destinationLng]);
 
   useEffect(() => {
-    if (destinationLat !== null && destinationLng !== null) return;
+    if (hasSeededDestinationRef.current) return;
+    if (destinationLat !== null && destinationLng !== null) {
+      hasSeededDestinationRef.current = true;
+      return;
+    }
     if (!userPosition?.lat || !userPosition?.lng) return;
 
     setDestinationLat(userPosition.lat);
     setDestinationLng(userPosition.lng);
+    hasSeededDestinationRef.current = true;
   }, [userPosition?.lat, userPosition?.lng, destinationLat, destinationLng]);
 
   useEffect(() => {
@@ -265,6 +288,11 @@ const PasajeroView: React.FC = () => {
   }, []);
 
   const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number) => {
+    if (!isValidCoordinatePair(lat, lng)) {
+      toast.error("La posición seleccionada no es válida.");
+      return;
+    }
+
     setDestinationLat(lat);
     setDestinationLng(lng);
 
@@ -796,9 +824,9 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 <Marker position={[userPosition.lat, userPosition.lng]} icon={pasajeroIcon} />
               )}
 
-              {estado !== "encurso" && (
+              {estado !== "encurso" && destinationPosition && (
                 <Marker
-                  position={destinationPosition || [userPosition.lat, userPosition.lng]}
+                  position={destinationPosition}
                   icon={destinationMarkerIcon}
                   draggable={true}
                   eventHandlers={{
@@ -981,23 +1009,26 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
         {/* CARD DEL TAXISTA */}
         {taxistaAsignado && (
-          <div className={`mx-5 ${enCaminoUI ? "mt-8" : "mt-5"} relative z-[1001] ${compactoInferior ? "p-2.5" : "p-3"} bg-white border border-slate-100 rounded-[1.4rem] flex items-center ${compactoInferior ? "gap-3" : "gap-4"} shadow-xl transition-all duration-300`}>
-            <div className={`${compactoInferior ? "h-8 w-8 text-base" : "h-10 w-10 text-lg"} bg-green-50 rounded-xl flex items-center justify-center`}>
+          <div className={`mx-4 ${enCaminoUI ? "mt-3" : "mt-4"} relative z-[1001] px-3 py-2 bg-white/98 border border-slate-200 rounded-2xl flex items-center gap-2 shadow-md transition-all duration-300`}>
+            <div className="h-7 w-7 bg-green-50 rounded-lg flex items-center justify-center text-sm">
               🚖
             </div>
-            <div className="flex-1 flex items-baseline gap-2">
-              <p className={`${compactoInferior ? "text-[12px]" : "text-[14px]"} font-black text-slate-800 leading-tight`}>
-                {taxistaAsignado.name}
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-black text-slate-800 leading-tight truncate uppercase">
+                {taxistaAsignado.name || "Unidad asignada"}
               </p>
-              <p className={`${compactoInferior ? "text-[13px]" : "text-[16px]"} font-black text-[#22c55e] whitespace-nowrap`}>
-                Taxi {taxistaAsignado.taxiNumber || "ECO"}
+              <p className="text-[10px] font-black text-[#22c55e] tracking-wide truncate">
+                TAXI {taxistaAsignado.taxiNumber || "ECO"}
               </p>
             </div>
+            <span className="text-[8px] font-black uppercase tracking-widest text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-1">
+              {estado === "encamino" ? "En camino" : "Asignado"}
+            </span>
           </div>
         )}
 
         {/* BOTONES */}
-        <div className={`${compactoInferior ? "px-4 pt-4 pb-14" : "px-5 pt-5 pb-16"} flex flex-col shrink-0 bg-white transition-all duration-300`}>
+        <div className={`${compactoInferior ? "px-4 pt-3 pb-12" : "px-5 pt-4 pb-14"} flex flex-col shrink-0 bg-white transition-all duration-300`}>
           {enCaminoUI && destinoColapsado && (
             <div className={`${compactoInferior ? "mb-2 p-2.5" : "mb-3 p-3"} rounded-2xl border border-slate-200 bg-slate-50`}>
               <div className="flex items-center justify-between gap-2">
@@ -1018,7 +1049,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
             </div>
           )}
 
-          <div className={`${compactoInferior ? "mb-2" : "mb-3"}`}>
+          <div className={`${compactoInferior ? "mb-1.5" : "mb-2.5"}`}>
             <p className={`${compactoInferior ? "text-[7px]" : "text-[8px]"} font-black text-slate-400 uppercase tracking-[0.2em] mb-1`}>
               Servicio Valles
             </p>

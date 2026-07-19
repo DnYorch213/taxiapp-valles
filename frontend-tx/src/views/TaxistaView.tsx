@@ -971,7 +971,7 @@ const finalizarViaje = () => {
       : CHAT_BUBBLE_MARGIN;
 
 return (
-  <div className="h-dvh bg-[#0f172a] flex flex-col overflow-hidden font-sans relative text-slate-100">
+  <div className="h-dvh bg-[#14532d] flex flex-col overflow-hidden font-sans relative text-slate-100">
     <ToastContainer theme="dark" />
     
     {/* OVERLAY OSCURO */}
@@ -983,7 +983,7 @@ return (
     )}
 
     {/* MENÚ LATERAL */}
-    <div className={`fixed top-0 left-0 h-full w-72 bg-[#1e293b] z-[1005] transform ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out shadow-2xl border-r border-white/5`}>
+    <div className={`fixed top-0 left-0 h-full w-72 bg-[#166534] z-[1005] transform ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out shadow-2xl border-r border-white/10`}>
       <div className="p-8 bg-gradient-to-br from-[#22c55e] to-[#16a34a] text-[#0f172a]">
         <div className="h-16 w-16 bg-white rounded-2xl mb-4 flex items-center justify-center text-2xl shadow-lg font-black">
           {user.name?.charAt(0)}
@@ -1019,18 +1019,18 @@ return (
     </div>
 
     {/* CONTENIDO DINÁMICO (Mapa o Historial) */}
-    <main className="flex-1 w-full relative bg-[#1e293b] overflow-hidden">
+    <main className="flex-1 w-full relative bg-[#166534] overflow-hidden">
       <div className="absolute top-3 left-3 right-3 z-[1200] flex items-center justify-between pointer-events-none">
         <button
           onClick={() => setIsMenuOpen(true)}
-          className="pointer-events-auto bg-[#1e293b]/95 p-2.5 rounded-full shadow-lg border border-white/10 active:scale-90 transition-transform"
+          className="pointer-events-auto bg-[#14532d]/95 p-2.5 rounded-full shadow-lg border border-white/10 active:scale-90 transition-transform"
         >
           <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
 
-        <div className="flex items-center gap-2 bg-[#1e293b]/95 px-3 py-1 rounded-full border border-white/10 backdrop-blur-sm">
+        <div className="flex items-center gap-2 bg-[#14532d]/95 px-3 py-1 rounded-full border border-white/10 backdrop-blur-sm">
           <div className={`h-1.5 w-1.5 rounded-full ${taxiPos?.lat && taxiPos?.lng ? 'bg-[#22c55e]' : 'bg-red-500 animate-ping'}`}></div>
           <img src="/icons/taxista.png" alt="Taxi" className="h-3.5 w-3.5 object-contain" />
           <span className="text-[8px] font-black text-slate-300 uppercase tracking-widest">
@@ -1045,7 +1045,7 @@ return (
             
            {/* 🚨 MODAL FLOTANTE DE ACCIÓN MEDIA-ALTA (SOLO CUANDO SE ASIGNA) */}
 {estado === "asignado" && pasajeroAsignado ? (
-    <div className="absolute inset-x-0 top-6 mx-4 z-[4000] bg-slate-900/95 border-2 border-[#22c55e] rounded-[2.5rem] p-5 shadow-[0_15px_40px_rgba(0,0,0,0.6)] backdrop-blur-md animate-pulse-subtle">
+  <div className="absolute inset-x-0 top-6 mx-4 z-[4000] bg-[#14532d]/95 border-2 border-[#22c55e] rounded-[2.5rem] p-5 shadow-[0_15px_40px_rgba(0,0,0,0.45)] backdrop-blur-md animate-pulse-subtle">
         <div className="flex items-center gap-4 mb-3">
             <div className="w-12 h-12 rounded-2xl bg-[#22c55e] flex items-center justify-center text-2xl shadow-lg">⚡</div>
             <div className="flex-1">
@@ -1085,7 +1085,7 @@ return (
                   </button>
                   <button 
                     onClick={rechazarViaje} 
-                    className="col-span-2 py-4 bg-slate-800 border-b-4 border-slate-950 text-slate-400 rounded-2xl font-black text-xs uppercase tracking-widest active:translate-y-1"
+                    className="col-span-2 py-4 bg-[#166534] border-b-4 border-[#14532d] text-emerald-100 rounded-2xl font-black text-xs uppercase tracking-widest active:translate-y-1"
                   >
                     Ignorar
                   </button>
@@ -1138,7 +1138,7 @@ return (
                 <Polyline
                   positions={rutaDestinoFinal}
                   pathOptions={{
-                    color: '#06b6d4',
+                    color: '#f4216e',
                     weight: 4,
                     opacity: 0.95,
                     lineJoin: 'round',
@@ -1183,14 +1183,14 @@ return (
           <div className="h-full w-full flex items-center justify-center text-slate-500 text-[10px] font-black uppercase italic animate-pulse">🛰️ Sincronizando GPS...</div>
         )
       ) : (
-        <div className="h-full w-full bg-[#0f172a] overflow-y-auto pt-4">
+        <div className="h-full w-full bg-[#14532d] overflow-y-auto pt-4">
           <HistorialViajes email={user.email} />
         </div>
       )}
 
       {/* Badge de estado flotante */}
       {vistaActual === 'mapa' && (
-        <div className="absolute top-14 sm:top-16 right-3 sm:right-4 z-[1000] bg-[#1e293b]/90 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-white/10 flex items-center gap-2">
+        <div className="absolute top-14 sm:top-16 right-3 sm:right-4 z-[1000] bg-[#14532d]/90 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-white/10 flex items-center gap-2">
           <div className={`h-2 w-2 rounded-full ${estado === "activo" ? "bg-[#22c55e]" : "bg-orange-500 animate-ping"}`}></div>
           <span className="text-[8px] sm:text-[11px] font-black text-white uppercase tracking-widest">{estado}</span>
         </div>
@@ -1200,7 +1200,7 @@ return (
       {vistaActual === 'mapa' && estado === "encamino" && pasajeroAsignado && (
         <>
           <div
-            className={`fixed z-[2000] sm:w-[340px] bg-[#0f172a]/95 border border-white/10 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md transition-all duration-200 ${chatAbierto ? "opacity-100 scale-100 pointer-events-auto" : "opacity-0 scale-95 pointer-events-none"}`}
+            className={`fixed z-[2000] sm:w-[340px] bg-[#14532d]/95 border border-white/10 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md transition-all duration-200 ${chatAbierto ? "opacity-100 scale-100 pointer-events-auto" : "opacity-0 scale-95 pointer-events-none"}`}
             style={{
               left: chatPanelOnLeft ? "12px" : "auto",
               right: chatPanelOnLeft ? "auto" : "12px",
@@ -1264,13 +1264,13 @@ return (
     </main>
   
     {/* PANEL DE ACCIONES INFERIOR (Solo para EnCamino, EnCurso o Buscando) */}
-    <div className="w-full max-w-md mx-auto bg-[#1e293b] rounded-t-[2.5rem] shadow-[0_-25px_60px_rgba(0,0,0,0.5)] shrink-0 z-[1001] relative border-t border-white/5">
+    <div className="w-full max-w-md mx-auto bg-[#166534] rounded-t-[2.5rem] shadow-[0_-25px_60px_rgba(0,0,0,0.35)] shrink-0 z-[1001] relative border-t border-white/10">
       <div className="absolute top-3 left-1/2 -translate-x-1/2 w-12 h-1 bg-slate-700 rounded-full"></div>
 
       {pasajeroAsignado && estado !== "asignado" ? (
         <div className="flex flex-col">
           <div className={isCompactTripPanel ? "px-4 pt-4 pb-1" : "px-6 pt-6 pb-2"}>
-            <div className={isCompactTripPanel ? "p-3 rounded-[1.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-2" : "p-5 rounded-[2.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-3"}>
+            <div className={isCompactTripPanel ? "p-3 rounded-[1.5rem] bg-[#14532d]/65 border border-white/10 flex flex-col gap-2" : "p-5 rounded-[2.5rem] bg-[#14532d]/65 border border-white/10 flex flex-col gap-3"}>
               <div className={isCompactTripPanel ? "flex items-center gap-3" : "flex items-center gap-4"}>
                 <div className={isCompactTripPanel ? "w-9 h-9 rounded-xl bg-white flex items-center justify-center text-lg shadow-lg" : "w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shadow-lg"}>👤</div>
                 <div className="flex-1">
@@ -1321,7 +1321,7 @@ return (
       ) : (
         /* ESTADO BUSCANDO DEFAULT */
         <div className="py-12 flex flex-col items-center justify-center">
-          <div className="w-16 h-16 bg-[#0f172a] border-4 border-[#22c55e] rounded-[2rem] flex items-center justify-center text-3xl mb-4 shadow-2xl animate-bounce">🚕</div>
+          <div className="w-16 h-16 bg-[#14532d] border-4 border-[#22c55e] rounded-[2rem] flex items-center justify-center text-3xl mb-4 shadow-2xl animate-bounce">🚕</div>
           <h2 className="text-xl font-black text-white uppercase italic tracking-tighter">VALLES<span className="text-[#22c55e]">CONECTA</span></h2>
           <p className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.2em] mt-1 animate-pulse">Esperando señal de viaje...</p>
         </div>
