@@ -71,32 +71,19 @@ self.addEventListener("notificationclick", (event) => {
     const requestId = encodeURIComponent(notificationData.requestId || "");
     const targetUrl = `${self.location.origin}/taxista?pasajero=${pEmail}&taxista=${tEmail}&requestId=${requestId}&autoAccept=true`;
 
-    event.waitUntil(
-      (async () => {
-        // 🚀 Primero enfocamos la ventana para no perder el permiso táctil
-        await abrirOEnfocarApp(targetUrl);
+    // 🚀 Lanza la apertura de la app Y el fetch HTTP AL MISMO TIEMPO sin await intermedio
+    const promesaFoco = abrirOEnfocarApp(targetUrl);
+    const promesaApi = fetch(`${API_BASE_URL}/api/accept-trip-push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        taxistaEmail: notificationData.emailTaxista,
+        pasajeroEmail: notificationData.emailPasajero,
+        requestId: notificationData.requestId,
+      }),
+    }).catch((err) => console.error("❌ Error al aceptar vía Push:", err));
 
-        try {
-          const response = await fetch(`${API_BASE_URL}/api/accept-trip-push`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              taxistaEmail: notificationData.emailTaxista,
-              pasajeroEmail: notificationData.emailPasajero,
-              requestId: notificationData.requestId,
-            }),
-          });
-
-          if (!response.ok) {
-            throw new Error("Error en servidor al aceptar viaje");
-          }
-
-          console.log("✅ Viaje pre-aceptado en BD desde el Service Worker.");
-        } catch (err) {
-          console.error("❌ Error al aceptar vía Push:", err);
-        }
-      })(),
-    );
+    event.waitUntil(Promise.all([promesaFoco, promesaApi]));
     return;
   }
 
