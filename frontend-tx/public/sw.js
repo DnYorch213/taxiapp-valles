@@ -60,6 +60,13 @@ self.addEventListener("notificationclick", (event) => {
   // --- CASO 2: EL TAXISTA ACEPTA EL VIAJE ---
   // 🚨 CORRECCIÓN: Alineado con el ID 'accept_action'
   if (action === "accept_action") {
+    const pEmail = encodeURIComponent(notificationData.emailPasajero || "");
+    const tEmail = encodeURIComponent(notificationData.emailTaxista || "");
+    const requestId = encodeURIComponent(notificationData.requestId || "");
+    const targetUrl = `${self.location.origin}/taxista?pasajero=${pEmail}&taxista=${tEmail}&requestId=${requestId}&autoAccept=true`;
+
+    const openPromise = abrirOEnfocarApp(targetUrl);
+
     const apiPromise = fetch(`${API_BASE_URL}/api/accept-trip-push`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -71,30 +78,16 @@ self.addEventListener("notificationclick", (event) => {
     })
       .then(async (response) => {
         if (!response.ok) throw new Error("Error en servidor al aceptar viaje");
-
         console.log("✅ Viaje pre-aceptado en BD desde el Service Worker.");
-
-        const pEmail = encodeURIComponent(notificationData.emailPasajero || "");
-        const tEmail = encodeURIComponent(notificationData.emailTaxista || "");
-        const requestId = encodeURIComponent(notificationData.requestId || "");
-        const targetUrl = `${self.location.origin}/taxista?pasajero=${pEmail}&taxista=${tEmail}&requestId=${requestId}&autoAccept=true`;
-
-        return abrirOEnfocarApp(targetUrl);
       })
       .catch((err) => {
         console.error(
           "❌ Error al aceptar vía Push, redirigiendo a respaldo:",
           err,
         );
-
-        const pEmail = encodeURIComponent(notificationData.emailPasajero || "");
-        const tEmail = encodeURIComponent(notificationData.emailTaxista || "");
-        return abrirOEnfocarApp(
-          `${self.location.origin}/taxista?pasajero=${pEmail}&taxista=${tEmail}&requestId=${encodeURIComponent(notificationData.requestId || "")}`,
-        );
       });
 
-    event.waitUntil(apiPromise);
+    event.waitUntil(Promise.allSettled([openPromise, apiPromise]));
     return;
   }
 
