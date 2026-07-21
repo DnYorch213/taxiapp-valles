@@ -7,8 +7,11 @@ import './index.css';
 
 // 🚀 Registro directo y temprano del Service Worker (Optimizado para Producción)
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js')
-    .then(reg => console.log('✅ SW registrado desde main.tsx:', reg.scope))
+  navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+    .then(reg => {
+      console.log('✅ SW registrado desde main.tsx:', reg.scope);
+      reg.update().catch(() => {});
+    })
     .catch(err => console.error('❌ Error registrando SW:', err));
 }
 
