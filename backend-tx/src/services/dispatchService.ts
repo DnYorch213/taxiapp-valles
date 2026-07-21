@@ -26,6 +26,7 @@ const MAX_DISPATCH_DISTANCE_KM = 15; // 🆕 Distancia máxima para despachar
 const BASE_TIMEOUT_MS = 15000; // 🆕 Timeout base: 15s
 const TIMEOUT_PER_KM_MS = 1000; // 🆕 1s adicional por km de distancia
 const MAX_TIMEOUT_MS = 45000; // 🆕 Timeout máximo: 45s
+const RETRY_BACKOFF_MS = 1500;
 
 export let isAutoMode = true;
 
@@ -201,8 +202,20 @@ const runDispatchWithRetry = async (
 
         if (taxistasCandidatos.length === 0) {
             logMotor("dispatch_retry", `Pasajero=${pEmail} Intento=${attempt} -> No hay taxistas activos disponibles`, "WARN");
-            io.to(pEmail).emit("no_taxis_available", { message: "Buscando conductores..." });
             clearDispatchCycle(reqId, "sin taxistas activos");
+
+            if (attempt >= MAX_RETRIES) {
+                await Position.updateOne(
+                    { email: pEmail },
+                    { $set: { estado: POSITION_STATES.CANCELADO, pasajeroAsignado: null, updatedAt: new Date() } }
+                );
+                io.to(pEmail).emit("no_taxis_available", { message: "Sin unidades disponibles." });
+                return;
+            }
+
+            setTimeout(() => {
+                void runDispatchWithRetry(io, pasajeroData, currentExcluidos, attempt + 1);
+            }, RETRY_BACKOFF_MS);
             return;
         }
 
@@ -220,6 +233,19 @@ const runDispatchWithRetry = async (
         if (taxistasConDistancia.length === 0) {
             logMotor("dispatch_retry", `Pasajero=${pEmail} -> Fuera de radio`, "WARN");
             clearDispatchCycle(reqId, "sin taxistas en radio");
+
+            if (attempt >= MAX_RETRIES) {
+                await Position.updateOne(
+                    { email: pEmail },
+                    { $set: { estado: POSITION_STATES.CANCELADO, pasajeroAsignado: null, updatedAt: new Date() } }
+                );
+                io.to(pEmail).emit("no_taxis_available", { message: "Sin unidades disponibles." });
+                return;
+            }
+
+            setTimeout(() => {
+                void runDispatchWithRetry(io, pasajeroData, currentExcluidos, attempt + 1);
+            }, RETRY_BACKOFF_MS);
             return;
         }
 
