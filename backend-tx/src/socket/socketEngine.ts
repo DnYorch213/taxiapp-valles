@@ -356,9 +356,12 @@ export const initSocketEngine = (io: Server) => {
         });
 
         // 🆕 Listener de rehidratación manual (solo si el frontend lo solicita)
-        socket.on("request_rehydrate", async () => {
+        socket.on("request_rehydrate", async (payload?: { requestId?: string }) => {
             try {
-                const miEstado = await Position.findOne({ email }).lean();
+                const requestId = payload?.requestId?.toString().trim();
+                const miEstado = requestId
+                    ? await Position.findOne({ email, requestId }).lean()
+                    : await Position.findOne({ email }).lean();
 
                 if (!miEstado) {
                     socket.emit("trip_status_update", { estado: POSITION_STATES.PENDIENTE });

@@ -76,7 +76,8 @@ self.addEventListener("notificationclick", (event) => {
 
         const pEmail = encodeURIComponent(notificationData.emailPasajero || "");
         const tEmail = encodeURIComponent(notificationData.emailTaxista || "");
-        const targetUrl = `${self.location.origin}/taxista?pasajero=${pEmail}&taxista=${tEmail}&autoAccept=true`;
+        const requestId = encodeURIComponent(notificationData.requestId || "");
+        const targetUrl = `${self.location.origin}/taxista?pasajero=${pEmail}&taxista=${tEmail}&requestId=${requestId}&autoAccept=true`;
 
         return abrirOEnfocarApp(targetUrl);
       })
@@ -89,7 +90,7 @@ self.addEventListener("notificationclick", (event) => {
         const pEmail = encodeURIComponent(notificationData.emailPasajero || "");
         const tEmail = encodeURIComponent(notificationData.emailTaxista || "");
         return abrirOEnfocarApp(
-          `${self.location.origin}/taxista?pasajero=${pEmail}&taxista=${tEmail}`,
+          `${self.location.origin}/taxista?pasajero=${pEmail}&taxista=${tEmail}&requestId=${encodeURIComponent(notificationData.requestId || "")}`,
         );
       });
 

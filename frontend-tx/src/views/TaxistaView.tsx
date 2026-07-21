@@ -144,9 +144,10 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   const estadoRef = useRef(estado);
   const pasajeroAsignadoRef = useRef<Payload | null>(null);
   const taxiPosRef = useRef(taxiPos);
-  const pushRehydrateRef = useRef<{ pasajero: string | null; taxista: string | null; autoAccept: boolean }>({
+  const pushRehydrateRef = useRef<{ pasajero: string | null; taxista: string | null; requestId: string | null; autoAccept: boolean }>({
     pasajero: null,
     taxista: null,
+    requestId: null,
     autoAccept: false,
   });
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -209,12 +210,14 @@ useEffect(() => {
   const params = new URLSearchParams(window.location.search);
   const pasajero = params.get("pasajero");
   const taxista = params.get("taxista");
+  const requestId = params.get("requestId");
   const autoAccept = params.get("autoAccept");
   const isPushFlow = Boolean(pasajero && taxista);
 
   pushRehydrateRef.current = {
     pasajero,
     taxista,
+    requestId,
     autoAccept: autoAccept === "true",
   };
 
@@ -229,7 +232,7 @@ useEffect(() => {
 
     // Si ya hay conexión, disparamos de inmediato. Si no, se reintentará en el listener de connect.
     if (socket.connected) {
-      socket.emit("request_rehydrate");
+      socket.emit("request_rehydrate", { requestId });
     }
   }
 }, []);
@@ -413,10 +416,10 @@ useGeolocation(
   // 🚩 REHIDRATACIÓN AUTOMÁTICA AL CARGAR
 useEffect(() => {
   const onConnectRehydrate = () => {
-    const { pasajero, taxista } = pushRehydrateRef.current;
+    const { pasajero, taxista, requestId } = pushRehydrateRef.current;
     if (pasajero && taxista) {
       console.log("🔄 Rehidratación de respaldo tras reconexión de socket");
-      socket.emit("request_rehydrate");
+      socket.emit("request_rehydrate", { requestId });
     }
   };
 
