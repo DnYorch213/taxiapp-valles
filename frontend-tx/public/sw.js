@@ -47,7 +47,6 @@ self.addEventListener("notificationclick", (event) => {
   notification.close();
 
   // --- CASO 1: EL TAXISTA RECHAZA EL VIAJE ---
-  // 🚨 CORRECCIÓN: Alineado con el ID 'reject_action'
   if (action === "reject_action") {
     const apiPromise = fetch(`${API_BASE_URL}/api/reject-trip-push`, {
       method: "POST",
@@ -55,7 +54,7 @@ self.addEventListener("notificationclick", (event) => {
       body: JSON.stringify({
         taxistaEmail: notificationData.emailTaxista,
         pasajeroEmail: notificationData.emailPasajero,
-        requestId: notificationData.requestId, // 🚨 CORRECCIÓN: Enviamos requestId al backend
+        requestId: notificationData.requestId,
       }),
     }).catch((err) => {
       console.error("❌ Error al ignorar viaje vía Push:", err);
@@ -65,8 +64,7 @@ self.addEventListener("notificationclick", (event) => {
     return;
   }
 
-  // --- CASO 2: EL TAXISTA ACEPTA EL VIAJE ---
-  // 🚨 CORRECCIÓN: Alineado con el ID 'accept_action'
+  // --- CASO 2: EL TAXISTA ACEPTA EL VIAJE (BOTÓN "ACEPTAR") ---
   if (action === "accept_action") {
     const pEmail = encodeURIComponent(notificationData.emailPasajero || "");
     const tEmail = encodeURIComponent(notificationData.emailTaxista || "");
@@ -75,6 +73,7 @@ self.addEventListener("notificationclick", (event) => {
 
     event.waitUntil(
       (async () => {
+        // 🚀 Primero enfocamos la ventana para no perder el permiso táctil
         await abrirOEnfocarApp(targetUrl);
 
         try {
@@ -105,7 +104,7 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(abrirOEnfocarApp(notificationData.url || "/taxista"));
 });
 
-// --- FUNCIÓN AUXILIAR: FOCO INTELIGENTE ---
+// --- FUNCIÓN AUXILIAR: FOCO INTELIGENTE Y RÁPIDO ---
 function abrirOEnfocarApp(targetPath) {
   const urlToOpen = new URL(targetPath, self.location.origin).href;
 
@@ -119,7 +118,7 @@ function abrirOEnfocarApp(targetPath) {
         }
       }
 
-      // 2) Si existe una ventana en el mismo origen, navegarla y enfocarla.
+      // 2) Si existe una ventana del mismo origen, enfocar PRIMERO y navegar después.
       const sameOriginClient = windowClients.find((client) => {
         try {
           return new URL(client.url).origin === self.location.origin;
@@ -128,13 +127,18 @@ function abrirOEnfocarApp(targetPath) {
         }
       });
 
-      if (sameOriginClient && "navigate" in sameOriginClient) {
-        return sameOriginClient.navigate(urlToOpen).then(() => {
-          if ("focus" in sameOriginClient) return sameOriginClient.focus();
-        });
+      if (sameOriginClient) {
+        // 🚨 FOCO INMEDIATO: Evita que Android bloquee el levantamiento de ventana
+        if ("focus" in sameOriginClient) {
+          sameOriginClient.focus();
+        }
+        if ("navigate" in sameOriginClient) {
+          return sameOriginClient.navigate(urlToOpen);
+        }
+        return;
       }
 
-      // 3) Si no hay cliente compatible, abrir una ventana nueva.
+      // 3) Si la app estaba completamente cerrada en background, abrir ventana nueva.
       if (clients.openWindow) {
         return clients.openWindow(urlToOpen);
       }
