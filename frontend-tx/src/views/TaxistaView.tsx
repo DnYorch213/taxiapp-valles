@@ -54,6 +54,29 @@ const sanitizeRouteTail = (coords: L.LatLng[]) => {
   return coords;
 };
 
+const hasRealFinalDestination = (payload?: Partial<Payload> | null) => {
+  if (!payload) return false;
+
+  const destinationAddress = String(payload.destinationAddress || "").trim().toLowerCase();
+  const hasCoords =
+    payload.destinationLat !== null &&
+    payload.destinationLat !== undefined &&
+    payload.destinationLng !== null &&
+    payload.destinationLng !== undefined &&
+    Number.isFinite(Number(payload.destinationLat)) &&
+    Number.isFinite(Number(payload.destinationLng));
+
+  if (!hasCoords) return false;
+
+  return ![
+    "",
+    "destino no especificado",
+    "calculando...",
+    "calculando ubicación...",
+    "rumbo al destino...",
+  ].includes(destinationAddress);
+};
+
 const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ duration, onFinish }) => {
   const [progress, setProgress] = useState(100);
   useEffect(() => {
@@ -580,7 +603,10 @@ socket.on("trip_status_update", (data: any) => {
     detenerSonido();
     setChatAbierto(false);
 
-    const destinoFinal = getDestinoFinalLatLng(data.pasajeroAsignado || pasajeroAsignadoRef.current);
+    const pasajeroConDestinoReal = data.pasajeroAsignado || pasajeroAsignadoRef.current;
+    const destinoFinal = hasRealFinalDestination(pasajeroConDestinoReal)
+      ? getDestinoFinalLatLng(pasajeroConDestinoReal)
+      : null;
 
     // Limpiar cualquier resto de la ruta de recogida y forzar un trazado real hacia destino.
     setGeometriaRuta([]);
@@ -603,7 +629,9 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   setTaxiPos({ lat: data.lat, lng: data.lng, heading: 0 });
 
   if (estadoRef.current === "encurso") {
-    const destinoFinal = getDestinoFinalLatLng(pasajeroAsignadoRef.current);
+    const destinoFinal = hasRealFinalDestination(pasajeroAsignadoRef.current)
+      ? getDestinoFinalLatLng(pasajeroAsignadoRef.current)
+      : null;
     if (!destinoFinal) {
       setRutaDestinoFinal([]);
       return;
@@ -1020,7 +1048,6 @@ return (
 
         <div className="flex items-center gap-2 bg-[#1e293b]/95 px-3 py-1 rounded-full border border-white/10 backdrop-blur-sm">
           <div className={`h-1.5 w-1.5 rounded-full ${taxiPos?.lat && taxiPos?.lng ? 'bg-[#22c55e]' : 'bg-red-500 animate-ping'}`}></div>
-          <img src="/icons/taxista.png" alt="Taxi" className="h-3.5 w-3.5 object-contain" />
           <span className="text-[8px] font-black text-slate-300 uppercase tracking-widest">
             ECO-{user.taxiNumber}
           </span>
@@ -1109,6 +1136,7 @@ return (
               {estado === "encurso" &&
                 taxiPos?.lat &&
                 taxiPos?.lng &&
+                hasRealFinalDestination(pasajeroAsignado) &&
                 getDestinoFinalLatLng(pasajeroAsignado) &&
                 rutaDestinoFinal.length === 0 && (
                   <Suspense fallback={null}>
@@ -1122,7 +1150,7 @@ return (
                   </Suspense>
                 )}
 
-              {estado === "encurso" && rutaDestinoFinal.length > 0 && (
+              {estado === "encurso" && hasRealFinalDestination(pasajeroAsignado) && rutaDestinoFinal.length > 0 && (
                 <Polyline
                   positions={rutaDestinoFinal}
                   pathOptions={{
@@ -1135,7 +1163,7 @@ return (
                 />
               )}
 
-              {estado === "encurso" && rutaDestinoFinal.length > 0 && (
+              {estado === "encurso" && hasRealFinalDestination(pasajeroAsignado) && rutaDestinoFinal.length > 0 && (
                 <Marker
                   position={[
                     rutaDestinoFinal[rutaDestinoFinal.length - 1].lat,
@@ -1271,11 +1299,17 @@ return (
 
               <div className={isCompactTripPanel ? "p-2 rounded-xl flex items-start gap-2 bg-white/5" : "p-3 rounded-2xl flex items-start gap-3 bg-white/5"}>
                 <span className={isCompactTripPanel ? "text-base" : "text-xl"}>{estado === "encurso" ? "🚖" : "📍"}</span>
-                <div className="flex flex-col">
+                <div className="flex flex-col min-w-0 flex-1">
                   <span className={isCompactTripPanel ? "text-[8px] font-black uppercase tracking-widest text-slate-400" : "text-[9px] font-black uppercase tracking-widest text-slate-400"}>
                     {estado === "encurso" ? "Destino:" : "Punto de recogida:"}
                   </span>
-                  <p className={isCompactTripPanel ? "text-xs font-bold text-white leading-tight truncate max-w-[240px]" : "text-sm font-bold text-white leading-tight"}>
+                  <p
+                    className={
+                      isCompactTripPanel
+                        ? `text-xs font-bold text-white leading-tight ${estado === "encurso" ? "overflow-x-auto whitespace-nowrap pr-2 max-w-[240px]" : "truncate max-w-[240px]"}`
+                        : `${estado === "encurso" ? "overflow-x-auto whitespace-nowrap pr-2 max-w-full" : "text-sm"} font-bold text-white leading-tight`
+                    }
+                  >
                     {estado === "encurso" 
                       ? (pasajeroAsignado.destinationAddress || "Rumbo al destino...") 
                       : (pasajeroAsignado.pickupAddress || "Calculando ubicación...")
