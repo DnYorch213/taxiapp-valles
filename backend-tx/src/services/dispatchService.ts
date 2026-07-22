@@ -363,6 +363,7 @@ const runDispatchWithRetry = async (
 
                 if (!tCheck || tCheck.estado !== POSITION_STATES.ASIGNADO) {
                     logMotor("dispatch_timeout", `Taxista=${tEmail} ya no está asignado. Cerrando hilo muerto.`, "INFO");
+                    clearDispatchCycle(reqId, "taxista ya no asignado");
                     return;
                 }
 
