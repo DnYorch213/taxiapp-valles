@@ -85,7 +85,7 @@ router.post("/login", async (req: Request, res: Response) => {
 // 🛡️ Requiere token JWT válido para evitar actualizaciones no autorizadas
 router.post("/positions/update-gps", verifyToken, async (req: Request, res: Response) => {
     try {
-        const { email, lat, lng, estado } = req.body;
+        const { email, lat, lng } = req.body;
         const authenticatedEmail = (req as any).user?.email;
 
         // 🛡️ Valida que el usuario solo actualice su propia posición
@@ -101,14 +101,14 @@ router.post("/positions/update-gps", verifyToken, async (req: Request, res: Resp
         }
 
         // 🚀 RESPALDO DIRECTO EN MONGO ATLAS:
-        // Buscamos el correo de la unidad y machacamos las coordenadas en caliente
+        // Buscamos el correo de la unidad y actualizamos solo coordenadas.
+        // El estado del viaje NO debe venir del cliente para evitar estados fantasma.
         const posicionActualizada = await Position.findOneAndUpdate(
             { email: email.toLowerCase().trim() },
             {
                 $set: {
                     lat: Number(lat),
                     lng: Number(lng),
-                    estado: estado,
                     updatedAt: new Date()
                 }
             },
