@@ -2,8 +2,6 @@ import React, { useState } from "react";
 import axiosInstance from "../lib/axiosConfig";
 import { useNavigate } from "react-router-dom";
 import { useTravel } from "../context/TravelContext";
-import { socket, connectSocket } from "../lib/socket";
-// Busca esta línea y cámbiala así:
 
 interface LoginResponse {
   token: string;
@@ -38,11 +36,7 @@ const LoginView: React.FC = () => {
     if (phone) localStorage.setItem("phone", phone);
     if (taxiNumber) localStorage.setItem("taxiNumber", taxiNumber);
 
-    // 2. Sincronización de Socket (Usando tu nueva función)
-    // Esto es mucho más limpio y evita errores de conexión
-    connectSocket(cleanEmail, role);
-
-    // 3. Estado global de posición
+    // 2. Estado global de posición
     setUserPosition({
       email: cleanEmail,
       id: cleanEmail,

@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { jwtDecode, JwtPayload } from "jwt-decode";
 import { Position, Destination, Rol } from "../types/Positions";
-import { socket } from "../lib/socket"; // 🚨 Importación crucial para la persistencia
+import { socket, connectSocket } from "../lib/socket"; // 🚨 Importación crucial para la persistencia
 
 interface TravelContextType {
   userPosition: Position | null;
@@ -44,8 +44,6 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           role: decoded.role 
         };
         
-        if (!socket.connected) socket.connect();
-
         return {
           email: decoded.email,
           name: decoded.name || "Usuario",
@@ -69,6 +67,15 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [pasajerosActivos, setPasajerosActivos] = useState<Position[]>([]);
   const [taxiPos, setTaxiPos] = useState<{ lat: number; lng: number; heading?: number; taxiNumber?: string } | null>(null);
 
+  useEffect(() => {
+    const email = userPosition?.email || localStorage.getItem("email");
+    const role = userPosition?.role || (localStorage.getItem("role") as Rol | null);
+
+    if (!email || !role) return;
+
+    connectSocket(email, role);
+  }, [userPosition?.email, userPosition?.role]);
+
   // 🛰️ EFECTO "DESPERTADOR": Revive la app cuando el usuario regresa tras mucho tiempo
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -80,7 +87,7 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (!socket.connected) {
           const token = localStorage.getItem("token");
           socket.auth = { ...socket.auth, token };
-          socket.connect();
+          connectSocket(userPosition.email, userPosition.role);
         }
 
     // 2. Reportar posición de inmediato si ya tenemos coordenadas reales (taxiPos)

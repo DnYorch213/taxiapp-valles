@@ -16,13 +16,28 @@ export const socket = io(API_URL, {
 export const connectSocket = (email: string, role: string) => { // 👈 Ahora pide el rol
   if (!email || !role) return;
 
-  // Actualizamos la identidad completa
-  socket.auth = { email, role };
+  const normalizedEmail = email.toLowerCase().trim();
+  const currentAuth = (typeof socket.auth === "function" ? {} : (socket.auth || {})) as {
+    email?: string;
+    role?: string;
+    token?: string;
+  };
+  const sameIdentity = currentAuth.email === normalizedEmail && currentAuth.role === role;
 
-  if (socket.connected) {
+  // Actualizamos la identidad completa
+  socket.auth = { ...currentAuth, email: normalizedEmail, role };
+
+  if (sameIdentity && (socket.connected || socket.active)) {
+    return;
+  }
+
+  if (socket.connected && !sameIdentity) {
     socket.disconnect();
   }
 
-  socket.connect();
-  console.log(`✅ Socket conectado: ${email} como ${role}`);
+  if (!socket.connected) {
+    socket.connect();
+  }
+
+  console.log(`✅ Socket conectado: ${normalizedEmail} como ${role}`);
 };

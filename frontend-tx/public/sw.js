@@ -44,6 +44,13 @@ self.addEventListener("notificationclick", (event) => {
   const action = event.action; // 'accept_action', 'reject_action' o '' (clic normal)
   const notificationData = notification.data || {};
 
+  console.info("[SW] notificationclick", {
+    action,
+    pasajero: notificationData.emailPasajero || null,
+    taxista: notificationData.emailTaxista || null,
+    requestId: notificationData.requestId || null,
+  });
+
   notification.close();
 
   const pEmail = encodeURIComponent(notificationData.emailPasajero || "");
@@ -73,6 +80,8 @@ self.addEventListener("notificationclick", (event) => {
   if (action === "accept_action") {
     const autoAcceptUrl = `${targetUrl}&autoAccept=true`;
 
+    console.info("[SW] accept_action -> abriendo app", { autoAcceptUrl });
+
     const abrirVentanaPromesa = abrirOEnfocarApp(autoAcceptUrl);
 
     const aceptarApiPromesa = fetch(`${API_BASE_URL}/api/accept-trip-push`, {
@@ -83,7 +92,9 @@ self.addEventListener("notificationclick", (event) => {
         pasajeroEmail: notificationData.emailPasajero,
         requestId: notificationData.requestId,
       }),
-    }).catch((err) => console.error("❌ Error al aceptar HTTP:", err));
+    })
+      .then(() => console.info("[SW] accept_action -> backend OK"))
+      .catch((err) => console.error("❌ Error al aceptar HTTP:", err));
 
     event.waitUntil(Promise.all([abrirVentanaPromesa, aceptarApiPromesa]));
     return;
@@ -98,12 +109,20 @@ self.addEventListener("notificationclick", (event) => {
 function abrirOEnfocarApp(targetUrl) {
   const urlToOpen = new URL(targetUrl, self.location.origin).href;
 
+  console.info("[SW] abrirOEnfocarApp", { urlToOpen });
+
   return clients
     .matchAll({ type: "window", includeUncontrolled: true })
     .then((windowClients) => {
+      console.info("[SW] ventanas detectadas", { total: windowClients.length });
+
       // 1. Si hay ventanas abiertas del mismo origen
       for (const client of windowClients) {
         if ("focus" in client) {
+          console.info("[SW] enfocando cliente existente", {
+            clientUrl: client.url,
+            nextUrl: urlToOpen,
+          });
           if ("navigate" in client) {
             client.navigate(urlToOpen);
           }
@@ -113,7 +132,10 @@ function abrirOEnfocarApp(targetUrl) {
 
       // 2. Si la app estaba en segundo plano profundo o cerrada, abrir ventana nueva
       if (clients.openWindow) {
+        console.info("[SW] abriendo ventana nueva", { urlToOpen });
         return clients.openWindow(urlToOpen);
       }
+
+      console.warn("[SW] no se pudo enfocar ni abrir ventana", { urlToOpen });
     });
 }
