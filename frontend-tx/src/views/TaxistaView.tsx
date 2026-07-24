@@ -35,7 +35,7 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 const VAPID_PUBLIC_KEY = "BHtVjCOYiH1nbyPq-mPS_ZqA0oHjGcONq5r5PV-sTC1jXzAvgGuFFwL5iv0ymk725NUX4_obl82JLilVs9W49-A";
-const ROUTE_RECALC_THRESHOLD_METERS = 120;
+const ROUTE_RECALC_THRESHOLD_METERS = 45;
 const OFFROAD_TAIL_THRESHOLD_METERS = 22;
 
 
@@ -489,7 +489,8 @@ setPasajeroAsignado({
     if (data.isNewOffer) {
       /**
        * CASO A: Oferta Nueva (Viene del salto de Jorge o solicitud inicial)
-       * Forzamos estado "Asignado" para que React muestre el botón de ACEPTAR.
+       
+      * Forzamos estado "Asignado" para que React muestre el botón de ACEPTAR.
        */
       setEstado(POSITION_STATES.ASIGNADO); 
       reproducirAlerta();
