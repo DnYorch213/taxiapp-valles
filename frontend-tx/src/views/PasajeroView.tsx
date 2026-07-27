@@ -8,7 +8,6 @@ import { useGeolocation } from "../hooks/useGeolocation";
 import { Payload, ViajeEstado } from "../types/Payload";
 import { ChatBox } from "../components/ChatBox";
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
-import { MapRotationBinder } from "../components/MapRotationBinder";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { taxistaIcon, pasajeroIcon } from "../utils/icons";
@@ -74,7 +73,6 @@ const PasajeroView: React.FC = () => {
   const [chatBubbleX, setChatBubbleX] = useState<number | null>(null);
   const [isDraggingChatBubble, setIsDraggingChatBubble] = useState(false);
   const [destinationQuery, setDestinationQuery] = useState("");
-  const [mapBearing, setMapBearing] = useState(0);
   const [destinationAddress, setDestinationAddress] = useState("");
   const [destinationLat, setDestinationLat] = useState<number | null>(null);
   const [destinationLng, setDestinationLng] = useState<number | null>(null);
@@ -820,7 +818,6 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               className="h-full w-full"
               zoomControl={false}
             >
-              <MapRotationBinder bearing={mapBearing} />
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
               {estado !== "encurso" && (
@@ -935,30 +932,6 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 />
               )}
             </MapContainer>
-
-            <div className="absolute left-3 right-3 top-14 z-[1100] rounded-2xl border border-slate-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur-md">
-              <div className="mb-1 flex items-center justify-between">
-                <p className="text-[8px] font-black uppercase tracking-[0.18em] text-slate-500">Giro de mapa</p>
-                <button
-                  type="button"
-                  onClick={() => setMapBearing(0)}
-                  className="text-[8px] font-black uppercase tracking-widest text-[#22c55e]"
-                >
-                  Reset
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min={0}
-                  max={359}
-                  value={mapBearing}
-                  onChange={(event) => setMapBearing(Number(event.target.value))}
-                  className="h-1 w-full accent-[#22c55e]"
-                />
-                <span className="min-w-[36px] text-right text-[9px] font-black text-slate-600">{mapBearing}°</span>
-              </div>
-            </div>
 
             {!destinoColapsado && (
             <div className="absolute left-3 right-3 bottom-1 z-[1100] bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl p-3 transition-all duration-300 space-y-2">

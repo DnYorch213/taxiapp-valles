@@ -12,7 +12,6 @@ import { useGeolocation } from "../hooks/useGeolocation";
 import { Payload } from "../types/Payload";
 import { ChatBox } from "../components/ChatBox";
 import { HistorialViajes } from "../components/HistorialViajes";
-import { MapRotationBinder } from "../components/MapRotationBinder";
 import { taxistaIcon, pasajeroIcon, banderaIcon } from "../utils/icons";
 import { calcularHeading } from "../utils/heading"; // Función para calcular el heading entre dos puntos
 import { POSITION_STATES, STATE_GROUPS, PositionState } from "../constants/states";
@@ -127,7 +126,6 @@ const TaxistaView: React.FC = () => {
   const [chatBubbleX, setChatBubbleX] = useState<number | null>(null);
   const [chatBubbleY, setChatBubbleY] = useState<number | null>(null);
   const [isDraggingChatBubble, setIsDraggingChatBubble] = useState(false);
-  const [mapBearing, setMapBearing] = useState(0);
 
   // 🚩 ESTADO PARA EL RASTRO DEL VIAJE
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
@@ -1063,29 +1061,6 @@ return (
       {vistaActual === 'mapa' ? (
         taxiPos?.lat ? (
           <div className="relative w-full h-full">
-            <div className="absolute top-14 left-3 right-3 z-[1300] rounded-2xl border border-white/10 bg-[#1e293b]/95 px-3 py-2 shadow-lg backdrop-blur-md">
-              <div className="mb-1 flex items-center justify-between">
-                <p className="text-[8px] font-black uppercase tracking-[0.18em] text-slate-400">Giro de mapa</p>
-                <button
-                  type="button"
-                  onClick={() => setMapBearing(0)}
-                  className="text-[8px] font-black uppercase tracking-widest text-[#22c55e]"
-                >
-                  Reset
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min={0}
-                  max={359}
-                  value={mapBearing}
-                  onChange={(event) => setMapBearing(Number(event.target.value))}
-                  className="h-1 w-full accent-[#22c55e]"
-                />
-                <span className="min-w-[36px] text-right text-[9px] font-black text-slate-300">{mapBearing}°</span>
-              </div>
-            </div>
             
            {/* 🚨 MODAL FLOTANTE DE ACCIÓN MEDIA-ALTA (SOLO CUANDO SE ASIGNA) */}
 {estado === "asignado" && pasajeroAsignado ? (
@@ -1144,7 +1119,6 @@ return (
               zoomControl={false}
             >
               <MapFixer />
-              <MapRotationBinder bearing={mapBearing} />
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
               {estado === "encamino" && pasajeroAsignado?.lat && pasajeroAsignado?.lng && geometriaRuta.length === 0 && (
