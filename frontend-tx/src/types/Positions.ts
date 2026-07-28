@@ -11,6 +11,8 @@ export type EstadoUsuario =
   | "finalizado"    // viaje terminado
   | "cancelado"     // cancelación
   | "activo"        // taxista disponible
+  | "ocupado"      // taxista ocupado
+  | "inactivo"     // taxista inactivo
   | "desconectado"; // limpieza de fantasmas
 
 export interface Position {

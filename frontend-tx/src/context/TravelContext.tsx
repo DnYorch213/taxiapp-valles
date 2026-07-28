@@ -29,37 +29,42 @@ interface DecodedToken extends JwtPayload {
 
 const TravelContext = createContext<TravelContextType | undefined>(undefined);
 
+const restoreSessionFromStorage = (): Position | null => {
+  const token = localStorage.getItem("token");
+  if (!token) return null;
+
+  try {
+    const decoded = jwtDecode<DecodedToken>(token);
+    const storedRole = (localStorage.getItem("role") as Rol | null) || decoded.role;
+    const storedEmail = localStorage.getItem("email") || decoded.email;
+    const storedName = localStorage.getItem("userName") || decoded.name || "Usuario";
+    const storedPhone = localStorage.getItem("phone") || decoded.phone;
+    const storedTaxiNumber = localStorage.getItem("taxiNumber") || decoded.taxiNumber;
+
+    socket.auth = {
+      email: storedEmail,
+      token,
+      role: storedRole,
+    };
+
+    return {
+      email: storedEmail,
+      name: storedName,
+      phone: storedPhone || undefined,
+      lat: null,
+      lng: null,
+      role: storedRole,
+      taxiNumber: storedRole === "taxista" ? storedTaxiNumber || undefined : undefined,
+    };
+  } catch (err) {
+    console.error("❌ Error restaurando sesión desde storage:", err);
+    return null;
+  }
+};
+
 export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // 🚀 INICIALIZACIÓN SÍNCRONA: Recupera sesión y conecta Socket antes del primer render
-  const [userPosition, setUserPosition] = useState<Position | null>(() => {
-    const token = localStorage.getItem("token");
-    if (token) {
-      try {
-        const decoded = jwtDecode<DecodedToken>(token);
-        
-        // 🛡️ RE-CONEXIÓN INMEDIATA: Evita que el socket inicie vacío
-        socket.auth = { 
-          email: decoded.email, 
-          token: token, 
-          role: decoded.role 
-        };
-        
-        return {
-          email: decoded.email,
-          name: decoded.name || "Usuario",
-          phone: decoded.phone,
-          lat: null,
-          lng: null,
-          role: decoded.role,
-          taxiNumber: decoded.role === "taxista" ? decoded.taxiNumber : undefined,
-        };
-      } catch (err) {
-        console.error("❌ Error decodificando token inicial:", err);
-        return null;
-      }
-    }
-    return null;
-  });
+  const [userPosition, setUserPosition] = useState<Position | null>(() => restoreSessionFromStorage());
 
   const [destination, setDestination] = useState<Destination | null>(null);
   const [isTripActive, setIsTripActive] = useState(false);
@@ -79,26 +84,35 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // 🛰️ EFECTO "DESPERTADOR": Revive la app cuando el usuario regresa tras mucho tiempo
   useEffect(() => {
     const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+
+      const restoredSession = restoreSessionFromStorage();
+      if (!userPosition && restoredSession) {
+        console.log("🔄 Restaurando sesión local tras volver del segundo plano...");
+        setUserPosition(restoredSession);
+      }
+
       // Si la app vuelve a primer plano (visible) y tenemos un usuario logueado
-      if (document.visibilityState === "visible" && userPosition) {
+      if (userPosition || restoredSession) {
+        const activeSession = userPosition || restoredSession;
         console.log("☀️ Valles Conecta: Validando conexión en primer plano...");
         
         // 1. Forzar reconexión si el sistema operativo mató el socket
         if (!socket.connected) {
           const token = localStorage.getItem("token");
           socket.auth = { ...socket.auth, token };
-          connectSocket(userPosition.email, userPosition.role);
+          connectSocket(activeSession!.email, activeSession!.role);
         }
 
     // 2. Reportar posición de inmediato si ya tenemos coordenadas reales (taxiPos)
     if (taxiPos?.lat && taxiPos?.lng) {
       socket.emit("position", {
-        ...userPosition, // identidad
+        ...activeSession, // identidad
         lat: taxiPos.lat,
         lng: taxiPos.lng
       });
     }
-    }
+      }
   };
 
   document.addEventListener("visibilitychange", handleVisibilityChange);

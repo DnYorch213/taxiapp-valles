@@ -126,6 +126,7 @@ const TaxistaView: React.FC = () => {
   const [chatBubbleX, setChatBubbleX] = useState<number | null>(null);
   const [chatBubbleY, setChatBubbleY] = useState<number | null>(null);
   const [isDraggingChatBubble, setIsDraggingChatBubble] = useState(false);
+  const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
 
   // 🚩 ESTADO PARA EL RASTRO DEL VIAJE
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
@@ -314,6 +315,18 @@ useEffect(() => {
       audioRef.current.play().catch(err => console.log("Audio bloqueado:", err));
     }
   }, []);
+
+  const resetSolicitudActiva = useCallback(() => {
+    detenerSonido();
+    setIsAccepting(false);
+    setViajeSolicitado(null);
+    setPasajeroAsignado(null);
+    setExcludedEmails([]);
+    setChatAbierto(false);
+    setGeometriaRuta([]);
+    setRutaDestinoFinal([]);
+    setEstado(POSITION_STATES.ACTIVO);
+  }, [detenerSonido]);
 
   useEffect(() => {
     audioRef.current = new Audio("/sounds/alerta_taxi.mp3");
@@ -550,6 +563,9 @@ socket.on("assignment_confirmed", (data) => {
         email: pEmail
       }));
     }
+  } else {
+    setIsAccepting(false);
+    toast.error(data.message || "No se pudo confirmar el viaje.");
   }
 });
 
@@ -566,8 +582,7 @@ socket.on("assignment_confirmed", (data) => {
 
         // 2. IMPORTANTE: Limpiamos el estado para que la solicitud desaparezca
         // y el taxista pueda recibir nuevas alertas de inmediato.
-        setViajeSolicitado(null); 
-        setEstado(POSITION_STATES.ACTIVO); // Volvemos a estado inicial para que pueda recibir nuevas ofertas
+        resetSolicitudActiva();
         
         // Si usas algún contador o sonido de alerta, deténlo aquí
     });
@@ -663,9 +678,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         console.warn("🛡️ dispatch_timeout tardío ignorado: viaje ya confirmado.");
         return;
       }
-      detenerSonido();
-      setPasajeroAsignado(null);
-      setEstado(POSITION_STATES.ACTIVO);
+      resetSolicitudActiva();
     });
     socket.on("trip_cancelled_by_passenger", () => {
       detenerSonido();
@@ -713,7 +726,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       socket.off("trip_cancelled_by_passenger");
       socket.off("trip_finished");
     };
-  }, [handleAsignacion, checkStatus, detenerSonido, getDestinoFinalLatLng]);
+  }, [handleAsignacion, checkStatus, detenerSonido, getDestinoFinalLatLng, resetSolicitudActiva]);
 
  useEffect(() => {
   console.log("🔄 useEffect de rastreo disparado");
@@ -880,6 +893,51 @@ const finalizarViaje = () => {
   };
 
   const isCompactTripPanel = ["encamino", "encurso"].includes(estado);
+  const hasSystemTripActive = [POSITION_STATES.PREASIGNADO, POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(estado as any);
+
+  const statusBadgeConfig = useMemo(() => {
+    switch (estado) {
+      case POSITION_STATES.ACTIVO:
+        return {
+          dot: "bg-[#22c55e]",
+          label: "ACTIVO",
+          container: "bg-[#1e293b]/90 border-white/10 text-white",
+        };
+      case POSITION_STATES.OCUPADO:
+        return {
+          dot: "bg-amber-400",
+          label: "OCUPADO",
+          container: "bg-amber-500/20 border-amber-400/40 text-amber-100",
+        };
+      case POSITION_STATES.INACTIVO:
+        return {
+          dot: "bg-slate-500",
+          label: "INACTIVO",
+          container: "bg-slate-700/60 border-slate-500/40 text-slate-200",
+        };
+      default:
+        return {
+          dot: "bg-orange-500 animate-ping",
+          label: estado.toUpperCase(),
+          container: "bg-[#1e293b]/90 border-white/10 text-white",
+        };
+    }
+  }, [estado]);
+
+  const cambiarEstadoManual = useCallback((nextState: PositionState) => {
+    if (hasSystemTripActive) return;
+
+    socket.emit("update_driver_status", { estado: nextState }, (response: { success: boolean; estado?: string; message?: string }) => {
+      if (!response?.success || !response.estado) {
+        toast.error(response?.message || "No se pudo cambiar el estado del taxista.");
+        return;
+      }
+
+      setEstado(response.estado as PositionState);
+      setIsStatusMenuOpen(false);
+      toast.success(`Estado actualizado a ${response.estado}.`);
+    });
+  }, [hasSystemTripActive]);
 
   const clampBubbleX = useCallback((x: number) => {
     if (typeof window === "undefined") return x;
@@ -917,6 +975,12 @@ const finalizarViaje = () => {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, [chatBubbleX, chatBubbleY, clampBubbleX, clampBubbleY]);
+
+  useEffect(() => {
+    if (hasSystemTripActive) {
+      setIsStatusMenuOpen(false);
+    }
+  }, [hasSystemTripActive]);
 
   const handleChatBubblePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
@@ -1210,9 +1274,45 @@ return (
 
       {/* Badge de estado flotante */}
       {vistaActual === 'mapa' && (
-        <div className="absolute top-14 sm:top-16 right-3 sm:right-4 z-[1000] bg-[#1e293b]/90 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-white/10 flex items-center gap-2">
-          <div className={`h-2 w-2 rounded-full ${estado === "activo" ? "bg-[#22c55e]" : "bg-orange-500 animate-ping"}`}></div>
-          <span className="text-[8px] sm:text-[11px] font-black text-white uppercase tracking-widest">{estado}</span>
+        <div className="absolute top-14 sm:top-16 right-3 sm:right-4 z-[1000]">
+          <button
+            type="button"
+            onClick={() => !hasSystemTripActive && setIsStatusMenuOpen((prev) => !prev)}
+            className={`backdrop-blur-md px-3 py-1.5 rounded-2xl border flex items-center gap-2 ${statusBadgeConfig.container} ${hasSystemTripActive ? "cursor-default opacity-90" : "cursor-pointer"}`}
+          >
+            <div className={`h-2 w-2 rounded-full ${statusBadgeConfig.dot}`}></div>
+            <span className="text-[8px] sm:text-[11px] font-black uppercase tracking-widest">{statusBadgeConfig.label}</span>
+            {!hasSystemTripActive && <span className="text-[10px] text-white/70">▾</span>}
+          </button>
+
+          {isStatusMenuOpen && !hasSystemTripActive && (
+            <div className="mt-2 rounded-2xl border border-white/10 bg-[#0f172a]/95 p-2 shadow-2xl backdrop-blur-md">
+              <button
+                type="button"
+                onClick={() => cambiarEstadoManual(POSITION_STATES.ACTIVO)}
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/5"
+              >
+                <span className="h-2 w-2 rounded-full bg-[#22c55e]"></span>
+                Activo
+              </button>
+              <button
+                type="button"
+                onClick={() => cambiarEstadoManual(POSITION_STATES.OCUPADO)}
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/5"
+              >
+                <span className="h-2 w-2 rounded-full bg-amber-400"></span>
+                Ocupado
+              </button>
+              <button
+                type="button"
+                onClick={() => cambiarEstadoManual(POSITION_STATES.INACTIVO)}
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/5"
+              >
+                <span className="h-2 w-2 rounded-full bg-slate-500"></span>
+                Inactivo
+              </button>
+            </div>
+          )}
         </div>
       )}
 

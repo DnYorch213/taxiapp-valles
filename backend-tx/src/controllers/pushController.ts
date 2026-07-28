@@ -4,7 +4,7 @@ import { Server } from "socket.io";
 import { Position } from "../models/Position";
 import { User } from "../models/User";
 import { buildPayload } from "../utils/payloadBuilder";
-import { clearDispatchCycle, dispatchWithRetry } from "../services/dispatchService";
+import { clearDispatchCycle, clearPassengerRequestBinding, dispatchWithRetry } from "../services/dispatchService";
 import { POSITION_STATES } from "../constants/states";
 import { enviarNotificacionPush } from "../services/pushService";
 
@@ -22,6 +22,7 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
 
         // Matar el timeout del motor inmediatamente por requestId real
         clearDispatchCycle(requestId, "aceptación push legítima");
+        clearPassengerRequestBinding(pEmail);
 
         // Transacción de seguridad en la base de datos
         const pPosActualizado = await Position.findOneAndUpdate(
@@ -169,6 +170,8 @@ export const handleRejectTripPush = (io: Server) => async (req: Request, res: Re
         );
 
         io.to(pEmail).emit("taxi_rejected_request");
+        io.to(tEmail).emit("dispatch_timeout");
+        io.to(tEmail).emit("trip_status_update", { estado: POSITION_STATES.ACTIVO });
 
         const pData = await Position.findOne({ email: pEmail }).lean();
         if (pData && [POSITION_STATES.BUSCANDO, POSITION_STATES.PREASIGNADO].includes(pData.estado as any)) {

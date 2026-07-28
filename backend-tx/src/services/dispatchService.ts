@@ -117,6 +117,7 @@ export const unlockDispatchCycle = (requestId: string) => {
 
 export const clearDispatchCycle = (requestId: string, reason: string) => {
     clearRequestTimeouts(requestId, reason);
+    requestAttemptTokens.delete(requestId);
     unlockDispatchCycle(requestId); // 🔓 Aquí es donde se debe liberar el candado de forma segura
 };
 

@@ -1,6 +1,33 @@
 import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+let hasForcedRedirect = false;
+
+const shouldResetSession = (error: any) => {
+    const status = error?.response?.status;
+    const message = String(error?.response?.data?.message || "").toLowerCase();
+
+    if (status === 401) return true;
+    if (status !== 403) return false;
+
+    return message.includes("token expirado") ||
+        message.includes("token inválido") ||
+        message.includes("token no proporcionado");
+};
+
+const clearSessionAndRedirect = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("email");
+    localStorage.removeItem("role");
+    localStorage.removeItem("userName");
+    localStorage.removeItem("phone");
+    localStorage.removeItem("taxiNumber");
+
+    if (!hasForcedRedirect) {
+        hasForcedRedirect = true;
+        window.location.href = "/login";
+    }
+};
 
 // Crear instancia de axios con URL base
 export const axiosInstance = axios.create({
@@ -30,15 +57,9 @@ axiosInstance.interceptors.request.use(
 axiosInstance.interceptors.response.use(
     (response) => response,
     (error) => {
-        // Si recibimos 403, significa que el token es inválido o expiró
-        if (error.response?.status === 401 || error.response?.status === 403) {
+        if (shouldResetSession(error)) {
             console.error("❌ Token inválido o expirado");
-            // Limpiar localStorage
-            localStorage.removeItem("token");
-            localStorage.removeItem("email");
-            localStorage.removeItem("role");
-            // Redireccionar al login (opcional, según tu implementación)
-            window.location.href = "/login";
+            clearSessionAndRedirect();
         }
         return Promise.reject(error);
     }

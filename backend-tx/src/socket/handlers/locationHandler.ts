@@ -6,6 +6,38 @@ import { logMotor } from "../../utils/logger";
 import { POSITION_STATES } from "../../constants/states";
 
 export const registerLocationHandlers = (io: Server, socket: Socket, email: string) => {
+    socket.on("update_driver_status", async (data: { estado?: string }, callback?: (response: { success: boolean; estado?: string; message?: string }) => void) => {
+        try {
+            const nextState = String(data?.estado || "").toLowerCase().trim();
+            if (![POSITION_STATES.ACTIVO, POSITION_STATES.OCUPADO, POSITION_STATES.INACTIVO].includes(nextState as any)) {
+                callback?.({ success: false, message: "Estado de taxista no válido" });
+                return;
+            }
+
+            const currentDoc = await Position.findOne({ email, role: "taxista" });
+            if (!currentDoc) {
+                callback?.({ success: false, message: "Taxista no encontrado" });
+                return;
+            }
+
+            if ([POSITION_STATES.PREASIGNADO, POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(currentDoc.estado as any)) {
+                callback?.({ success: false, message: "No puedes cambiar tu estado durante un viaje activo" });
+                return;
+            }
+
+            currentDoc.estado = nextState;
+            currentDoc.updatedAt = new Date();
+            await currentDoc.save();
+
+            socket.emit("trip_status_update", { estado: currentDoc.estado, manualStatus: true });
+            io.emit("panel_update", buildPayload(currentDoc, currentDoc, currentDoc.estado));
+            callback?.({ success: true, estado: currentDoc.estado });
+        } catch (error) {
+            logMotor("driver_status", `Error al actualizar estado manual de ${email}: ${error}`, "ERROR");
+            callback?.({ success: false, message: "No se pudo actualizar el estado" });
+        }
+    });
+
     socket.on("update_trip_path", async (data) => {
         if (data.pasajeroEmail) {
             io.to(data.pasajeroEmail.toLowerCase().trim()).emit("update_trip_path", { lat: data.lat, lng: data.lng });

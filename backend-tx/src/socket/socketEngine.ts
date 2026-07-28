@@ -181,7 +181,9 @@ export const initSocketEngine = (io: Server) => {
             } else {
                 // 🆕 Sin viaje activo: estado correcto por rol
                 nuevoEstado = role === "taxista"
-                    ? POSITION_STATES.ACTIVO
+                    ? ([POSITION_STATES.OCUPADO, POSITION_STATES.INACTIVO].includes(miPosicion?.estado as any)
+                        ? miPosicion?.estado as PositionState
+                        : POSITION_STATES.ACTIVO)
                     : POSITION_STATES.PENDIENTE; // ← CORREGIDO: era BUSCANDO
             }
 
@@ -359,9 +361,11 @@ export const initSocketEngine = (io: Server) => {
         socket.on("request_rehydrate", async (payload?: { requestId?: string }) => {
             try {
                 const requestId = payload?.requestId?.toString().trim();
-                const miEstado = requestId
-                    ? await Position.findOne({ email, requestId }).lean()
-                    : await Position.findOne({ email }).lean();
+                const miEstado = role === "taxista"
+                    ? await Position.findOne({ email }).lean()
+                    : (requestId
+                        ? await Position.findOne({ email, requestId }).lean()
+                        : await Position.findOne({ email }).lean());
 
                 if (!miEstado) {
                     socket.emit("trip_status_update", { estado: POSITION_STATES.PENDIENTE });
@@ -393,15 +397,47 @@ export const initSocketEngine = (io: Server) => {
                         socket.emit("trip_status_update", { estado: POSITION_STATES.PENDIENTE });
                     }
                 } else if (role === "taxista") {
-                    if (miEstado.pasajeroAsignado) {
-                        const pasajeroData = await Position.findOne({ email: miEstado.pasajeroAsignado }).lean();
-                        if (pasajeroData) {
-                            socket.emit("assignment_confirmed", {
-                                success: true,
-                                pasajero: buildPayload(pasajeroData, pasajeroData, pasajeroData.estado as PositionState),
-                                rehydrated: true
-                            });
-                        }
+                    const pasajeroData = requestId
+                        ? await Position.findOne({
+                            requestId,
+                            taxistaAsignado: email,
+                            estado: {
+                                $in: [
+                                    POSITION_STATES.ASIGNADO,
+                                    POSITION_STATES.PREASIGNADO,
+                                    POSITION_STATES.ENCAMINO,
+                                    POSITION_STATES.ENCURSO,
+                                ]
+                            }
+                        }).lean()
+                        : (miEstado.pasajeroAsignado
+                            ? await Position.findOne({ email: miEstado.pasajeroAsignado }).lean()
+                            : await Position.findOne({
+                                role: "pasajero",
+                                taxistaAsignado: email,
+                                estado: {
+                                    $in: [
+                                        POSITION_STATES.ASIGNADO,
+                                        POSITION_STATES.PREASIGNADO,
+                                        POSITION_STATES.ENCAMINO,
+                                        POSITION_STATES.ENCURSO,
+                                    ]
+                                }
+                            }).lean());
+
+                    if (pasajeroData) {
+                        socket.emit("assignment_confirmed", {
+                            success: true,
+                            pasajero: buildPayload(pasajeroData, pasajeroData, pasajeroData.estado as PositionState),
+                            rehydrated: true
+                        });
+                        socket.emit("trip_status_update", {
+                            estado: pasajeroData.estado,
+                            pasajeroAsignado: buildPayload(pasajeroData, pasajeroData, pasajeroData.estado as PositionState),
+                            rehydrated: true
+                        });
+                    } else {
+                        socket.emit("trip_status_update", { estado: POSITION_STATES.ACTIVO });
                     }
                 }
             } catch (err) {
