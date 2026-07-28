@@ -77,6 +77,7 @@ const PasajeroView: React.FC = () => {
   const [destinationLat, setDestinationLat] = useState<number | null>(null);
   const [destinationLng, setDestinationLng] = useState<number | null>(null);
   const [destinoColapsado, setDestinoColapsado] = useState(false);
+  const [selectorDestinoAbierto, setSelectorDestinoAbierto] = useState(false);
   const [isSearchingDestination, setIsSearchingDestination] = useState(false);
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
   const [geometriaRuta, setGeometriaRuta] = useState<L.LatLngExpression[]>([]);
@@ -720,6 +721,8 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     setHistorialRuta([]);
     setGeometriaRuta([]);
     setChatAbierto(false);
+    setSelectorDestinoAbierto(false);
+    setDestinoColapsado(false);
     limpiarDestino();
   }, [limpiarDestino]);
 
@@ -768,9 +771,21 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   const compactoInferior = ["buscando", "preasignado", "asignado", "encamino", "encurso"].includes(estado);
   const mostrarTextoBuscando = !taxistaAsignado && ["buscando", "preasignado"].includes(estado);
 
+  const abrirSelectorDestino = () => {
+    setSelectorDestinoAbierto(true);
+    setDestinoColapsado(false);
+  };
+
   useEffect(() => {
-    setDestinoColapsado(enCaminoUI);
-  }, [enCaminoUI]);
+    if (enCaminoUI) {
+      setDestinoColapsado(true);
+      return;
+    }
+
+    if (estado === "pendiente" && !selectorDestinoAbierto) {
+      setDestinoColapsado(false);
+    }
+  }, [enCaminoUI, estado, selectorDestinoAbierto]);
 
   useEffect(() => {
     if (chatAbierto) {
@@ -824,7 +839,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 <Marker position={[userPosition.lat, userPosition.lng]} icon={pasajeroIcon} />
               )}
 
-              {estado !== "encurso" && destinationPosition && (
+              {estado !== "encurso" && selectorDestinoAbierto && destinationPosition && (
                 <Marker
                   position={destinationPosition}
                   icon={destinationMarkerIcon}
@@ -841,7 +856,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 </Marker>
               )}
 
-              {destinationPosition && estado !== "encurso" && rutaDestinoPreview.length > 0 && (
+              {selectorDestinoAbierto && destinationPosition && estado !== "encurso" && rutaDestinoPreview.length > 0 && (
                 <Polyline
                   positions={rutaDestinoPreview}
                   pathOptions={{
@@ -854,7 +869,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 />
               )}
 
-              {destinationPosition &&
+              {selectorDestinoAbierto && destinationPosition &&
                 estado !== "encurso" &&
                 userPosition?.lat &&
                 userPosition?.lng &&
@@ -933,7 +948,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               )}
             </MapContainer>
 
-            {!destinoColapsado && (
+            {selectorDestinoAbierto && !destinoColapsado && estado !== "encurso" && (
             <div className="absolute left-3 right-3 bottom-1 z-[1100] bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl p-3 transition-all duration-300 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <div>
@@ -943,13 +958,24 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {enCaminoUI && (
+                  {enCaminoUI ? (
                     <button
                       type="button"
                       onClick={() => setDestinoColapsado(true)}
                       className="text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700"
                     >
                       Colapsar
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectorDestinoAbierto(false);
+                        setDestinoColapsado(false);
+                      }}
+                      className="text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700"
+                    >
+                      Cerrar
                     </button>
                   )}
                   <button
@@ -1059,6 +1085,15 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               {["asignado", "encamino"].includes(estado) && "Tu taxi viene en camino"}
               {estado === "encurso" && "Buen viaje por Valles!"}
             </h2>
+            {estado === "pendiente" && (
+              <button
+                type="button"
+                onClick={abrirSelectorDestino}
+                className="mt-1 text-left text-[10px] font-black uppercase tracking-[0.16em] text-[#22c55e] hover:text-[#15803d]"
+              >
+                Selecciona tu Destino (Opcional)
+              </button>
+            )}
           </div>
 
           <div className={`${compactoInferior ? "space-y-2 pt-1" : "space-y-3 pt-2"}`}>
