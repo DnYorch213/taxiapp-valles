@@ -25,13 +25,25 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                 return;
             }
 
-            currentDoc.estado = nextState;
-            currentDoc.updatedAt = new Date();
-            await currentDoc.save();
+            const updatedDoc = await Position.findOneAndUpdate(
+                { email, role: "taxista" },
+                {
+                    $set: {
+                        estado: nextState,
+                        updatedAt: new Date(),
+                    }
+                },
+                { returnDocument: "after" }
+            );
 
-            socket.emit("trip_status_update", { estado: currentDoc.estado, manualStatus: true });
-            io.emit("panel_update", buildPayload(currentDoc, currentDoc, currentDoc.estado));
-            callback?.({ success: true, estado: currentDoc.estado });
+            if (!updatedDoc) {
+                callback?.({ success: false, message: "No se pudo actualizar el estado" });
+                return;
+            }
+
+            socket.emit("trip_status_update", { estado: updatedDoc.estado, manualStatus: true });
+            io.emit("panel_update", buildPayload(updatedDoc, updatedDoc, updatedDoc.estado));
+            callback?.({ success: true, estado: updatedDoc.estado });
         } catch (error) {
             logMotor("driver_status", `Error al actualizar estado manual de ${email}: ${error}`, "ERROR");
             callback?.({ success: false, message: "No se pudo actualizar el estado" });
