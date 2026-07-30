@@ -29,7 +29,7 @@ export const banderaIcon = L.icon({
 
 export const taxiValles = L.icon({
   iconUrl: "/icons/tx-valles.png",
-  iconSize: [40, 40],
-  iconAnchor: [20, 20],
+  iconSize: [50, 50],
+  iconAnchor: [30, 30],
   popupAnchor: [0, -20],
 });
