@@ -26,3 +26,10 @@ export const banderaIcon = L.icon({
   iconAnchor: [12, 25], // punto de anclaje (base del icono)
   popupAnchor: [0, -32], // posición del popup respecto al icono
 });
+
+export const taxiValles = L.icon({
+  iconUrl: "/icons/tx-valles.png",
+  iconSize: [40, 40],
+  iconAnchor: [20, 20],
+  popupAnchor: [0, -20],
+});

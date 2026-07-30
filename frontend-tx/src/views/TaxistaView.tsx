@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from "react-leaflet"; // 🚩 Importamos Polyline
 import { toast, ToastContainer } from "react-toastify";
-import L from 'leaflet';
+import L, { icon } from 'leaflet';
 import axiosInstance from "../lib/axiosConfig";
 import "react-toastify/dist/ReactToastify.css";
 import "leaflet/dist/leaflet.css";
@@ -12,7 +12,7 @@ import { useGeolocation } from "../hooks/useGeolocation";
 import { Payload } from "../types/Payload";
 import { ChatBox } from "../components/ChatBox";
 import { HistorialViajes } from "../components/HistorialViajes";
-import { taxistaIcon, pasajeroIcon, banderaIcon } from "../utils/icons";
+import { taxistaIcon, pasajeroIcon, banderaIcon, taxiValles } from "../utils/icons";
 import { calcularHeading } from "../utils/heading"; // Función para calcular el heading entre dos puntos
 import { POSITION_STATES, STATE_GROUPS, PositionState } from "../constants/states";
 
@@ -1455,7 +1455,9 @@ return (
       ) : (
         /* ESTADO BUSCANDO DEFAULT */
         <div className="py-12 flex flex-col items-center justify-center">
-          <div className="w-16 h-16 bg-[#0f172a] border-4 border-[#22c55e] rounded-[2rem] flex items-center justify-center text-3xl mb-4 shadow-2xl animate-bounce">🚕</div>
+          <div className="w-16 h-16 bg-[#0f172a] border-4 border-[#22c55e] rounded-[2rem] flex items-center justify-center text-3xl mb-4 shadow-2xl animate-bounce">
+            <img src={taxiValles.options.iconUrl} alt="Taxi Icon" className="w-8 h-8" />
+            </div>
           <h2 className="text-xl font-black text-white uppercase italic tracking-tighter">VALLES<span className="text-[#22c55e]">CONECTA</span></h2>
           <p className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.2em] mt-1 animate-pulse">Esperando señal de viaje...</p>
         </div>
