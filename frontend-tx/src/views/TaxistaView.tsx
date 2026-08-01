@@ -1455,8 +1455,8 @@ return (
       ) : (
         /* ESTADO BUSCANDO DEFAULT */
         <div className="py-12 flex flex-col items-center justify-center">
-          <div className="w-18 h-18 bg-[#0f172a] border-4 border-[#22c55e] rounded-[2rem] flex items-center justify-center text-3xl mb-4 shadow-2xl animate-bounce">
-            <img src={taxiValles.options.iconUrl} alt="Taxi Icon" className="w-15 h-15" />
+            <img src={taxiValles.options.iconUrl} alt="Taxi Icon" className="w-13 h-13" />
+          <div className="w-18 h-18 bg-[#0f172a] border-4 border-[#22c55e] rounded-[2rem] flex items-center justify-center text-3xl mb-4 shadow-2xl animate-bounce">LIBRE
             </div>
           <h2 className="text-xl font-black text-white uppercase italic tracking-tighter">VALLES<span className="text-[#22c55e]">CONECTA</span></h2>
           <p className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.2em] mt-1 animate-pulse">Esperando señal de viaje...</p>
