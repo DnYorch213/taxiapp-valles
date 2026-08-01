@@ -1454,12 +1454,33 @@ return (
         </div>
       ) : (
         /* ESTADO BUSCANDO DEFAULT */
-        <div className="py-12 flex flex-col items-center justify-center">
-            <img src={taxiValles.options.iconUrl} alt="Taxi Icon" className="w-13 h-13" />
-          <div className="w-18 h-18 bg-[#0f172a] border-4 border-[#22c55e] rounded-[2rem] flex items-center justify-center text-3xl mb-4 shadow-2xl animate-bounce">LIBRE
+        <div className="w-full py-8 px-4 flex items-center justify-center">
+          <div className="flex w-full max-w-[520px] items-center justify-center gap-4 sm:gap-8">
+            <div className="flex-shrink-0">
+              <img
+                src={taxiValles.options.iconUrl}
+                alt="Taxi Icon"
+                className="w-24 h-24 sm:w-28 sm:h-28 drop-shadow-[0_8px_16px_rgba(34,197,94,0.35)]"
+              />
             </div>
-          <h2 className="text-xl font-black text-white uppercase italic tracking-tighter">VALLES<span className="text-[#22c55e]">CONECTA</span></h2>
-          <p className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.2em] mt-1 animate-pulse">Esperando señal de viaje...</p>
+
+            <div className="flex flex-col items-center justify-center">
+              <div className="relative flex h-24 w-24 sm:h-28 sm:w-28 items-center justify-center rounded-full border-4 border-[#22c55e] bg-[#0f172a] shadow-[0_0_25px_rgba(34,197,94,0.35)] animate-bounce">
+                <span className="px-2 text-center text-[0.9rem] sm:text-[1.05rem] font-black uppercase tracking-[0.18em] leading-none text-white">
+                  LIBRE
+                </span>
+              </div>
+
+              <div className="mt-4 text-center">
+                <h2 className="text-xl sm:text-2xl font-black text-white uppercase italic tracking-tighter">
+                  VALLES<span className="text-[#22c55e]">CONECTA</span>
+                </h2>
+                <p className="mt-1 text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500 animate-pulse">
+                  Esperando señal de viaje...
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
