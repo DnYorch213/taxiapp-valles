@@ -20,22 +20,30 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
         const tEmail = taxistaEmail.toLowerCase().trim();
         const pEmail = pasajeroEmail.toLowerCase().trim();
 
-        // Matar el timeout del motor inmediatamente por requestId real
-        clearDispatchCycle(requestId, "aceptación push legítima");
-        clearPassengerRequestBinding(pEmail);
-
         // Transacción de seguridad en la base de datos
         const pPosActualizado = await Position.findOneAndUpdate(
             {
                 email: pEmail,
-                requestId: requestId,
                 $or: [
                     {
-                        estado: { $in: [POSITION_STATES.BUSCANDO, POSITION_STATES.ACTIVO] },
-                        $or: [{ taxistaAsignado: null }, { taxistaAsignado: tEmail }]
+                        requestId: requestId,
+                        $or: [
+                            {
+                                estado: { $in: [POSITION_STATES.BUSCANDO, POSITION_STATES.ACTIVO] },
+                                $or: [{ taxistaAsignado: null }, { taxistaAsignado: tEmail }]
+                            },
+                            {
+                                estado: POSITION_STATES.PREASIGNADO,
+                                taxistaAsignado: tEmail
+                            }
+                        ]
                     },
                     {
                         estado: POSITION_STATES.PREASIGNADO,
+                        taxistaAsignado: tEmail
+                    },
+                    {
+                        estado: POSITION_STATES.ENCAMINO,
                         taxistaAsignado: tEmail
                     }
                 ]
@@ -66,6 +74,9 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
                 }
             }
         );
+
+        clearDispatchCycle(pPosActualizado?.requestId || requestId, "aceptación push legítima");
+        clearPassengerRequestBinding(pEmail);
 
         const tPos = await Position.findOne({ email: tEmail });
         const pasajeroPayload = buildPayload(pPosActualizado, pPosActualizado, POSITION_STATES.ENCAMINO);
