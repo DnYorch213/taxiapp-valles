@@ -61,6 +61,18 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
         try {
             const currentDoc = await Position.findOne({ email: data.email });
             const finalName = (data.name && !data.name.includes('@')) ? data.name : (currentDoc?.name || data.name);
+            const explicitState = typeof data.estado === "string" && data.estado.trim()
+                ? data.estado.toLowerCase().trim()
+                : null;
+            const shouldPreserveState = Boolean(
+                currentDoc?.estado &&
+                ![POSITION_STATES.CANCELADO, POSITION_STATES.DESCONECTADO].includes(currentDoc.estado as any)
+            );
+            const resolvedEstado = explicitState && [POSITION_STATES.ACTIVO, POSITION_STATES.OCUPADO, POSITION_STATES.INACTIVO, POSITION_STATES.BUSCANDO, POSITION_STATES.PENDIENTE].includes(explicitState as any)
+                ? explicitState
+                : (shouldPreserveState
+                    ? currentDoc!.estado
+                    : (data.role === "taxista" ? POSITION_STATES.ACTIVO : POSITION_STATES.BUSCANDO));
 
             const updated = await Position.findOneAndUpdate(
                 { email: data.email },
@@ -69,7 +81,7 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                         lat: data.lat,
                         lng: data.lng,
                         name: finalName,
-                        estado: currentDoc?.estado || data.estado || (data.role === "taxista" ? POSITION_STATES.ACTIVO : POSITION_STATES.BUSCANDO),
+                        estado: resolvedEstado,
                         updatedAt: new Date()
                     }
                 },

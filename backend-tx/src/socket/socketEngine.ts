@@ -540,15 +540,19 @@ export const initSocketEngine = (io: Server) => {
                                 const activeSockets = await io.in(email).fetchSockets();
 
                                 if (activeSockets.length === 0) {
-                                    logMotor("socket_microdrop", `Limpiando estado huérfano para ${email} después de ${MICRODROP_TIMEOUT_MS}ms`, "WARN");
+                                    const isTaxista = stillDisconnected.role === "taxista";
+                                    const hasActiveTripRelation = Boolean(stillDisconnected.pasajeroAsignado || stillDisconnected.taxistaAsignado);
+                                    const fallbackState = isTaxista
+                                        ? (hasActiveTripRelation ? stillDisconnected.estado : POSITION_STATES.ACTIVO)
+                                        : (hasActiveTripRelation ? stillDisconnected.estado : POSITION_STATES.BUSCANDO);
+
+                                    logMotor("socket_microdrop", `Limpiando estado huérfano para ${email} -> ${fallbackState} después de ${MICRODROP_TIMEOUT_MS}ms`, "WARN");
 
                                     await Position.updateOne(
                                         { email },
                                         {
                                             $set: {
-                                                estado: POSITION_STATES.CANCELADO,
-                                                taxistaAsignado: null,
-                                                pasajeroAsignado: null,
+                                                estado: fallbackState,
                                                 socketId: null,
                                                 updatedAt: new Date()
                                             }
@@ -571,7 +575,7 @@ export const initSocketEngine = (io: Server) => {
 
                                     io.emit("panel_update", {
                                         email,
-                                        estado: POSITION_STATES.CANCELADO,
+                                        estado: fallbackState,
                                         reason: "microdrop_timeout"
                                     });
                                 }

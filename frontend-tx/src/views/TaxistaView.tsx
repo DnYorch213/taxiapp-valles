@@ -156,10 +156,15 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   const [isAccepting, setIsAccepting] = useState(false);
 
   useEffect(() => {
-  if (estado === "finalizado" || estado === "activo" || estado === "encamino") {
-    setTimeout(() => setGeometriaRuta([]), 300);
-  }
-}, [estado]);
+    if (estado === "finalizado" || estado === "activo") {
+      const timeout = window.setTimeout(() => setGeometriaRuta([]), 300);
+      return () => window.clearTimeout(timeout);
+    }
+
+    if (estado === "encamino") {
+      return;
+    }
+  }, [estado]);
 
   useEffect(() => {
     if (estado !== "encurso") {
@@ -1192,7 +1197,9 @@ return (
                       L.latLng(taxiPos.lat, taxiPos.lng),
                       L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng)
                     ]}
-                    onRouteFound={(coords: L.LatLng[]) => setGeometriaRuta(sanitizeRouteTail(coords))}
+                    onRouteFound={(coords: L.LatLng[]) =>
+                      setGeometriaRuta((prev) => (prev.length > 0 ? prev : sanitizeRouteTail(coords)))
+                    }
                   />
                 </Suspense>
               )}
@@ -1213,7 +1220,9 @@ return (
                         L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
                         getDestinoFinalLatLng(pasajeroAsignado) as L.LatLng,
                       ]}
-                      onRouteFound={(coords: L.LatLng[]) => setRutaDestinoFinal(sanitizeRouteTail(coords))}
+                      onRouteFound={(coords: L.LatLng[]) =>
+                        setRutaDestinoFinal((prev) => (prev.length > 0 ? prev : sanitizeRouteTail(coords)))
+                      }
                     />
                   </Suspense>
                 )}
@@ -1455,28 +1464,29 @@ return (
       ) : (
         /* ESTADO BUSCANDO DEFAULT */
         <div className="w-full py-8 px-4 flex items-center justify-center">
-          <div className="flex w-full max-w-[520px] items-center justify-center gap-4 sm:gap-8">
-            <div className="flex-shrink-0">
+          <div className="flex w-full max-w-[560px] items-center justify-center gap-3 sm:gap-6">
+            <div className="flex-shrink-0 rounded-[2rem] bg-white/5 p-3 shadow-[0_10px_30px_rgba(0,0,0,0.25)] border border-white/10">
               <img
                 src={taxiValles.options.iconUrl}
                 alt="Taxi Icon"
-                className="w-24 h-24 sm:w-28 sm:h-28 drop-shadow-[0_8px_16px_rgba(34,197,94,0.35)]"
+                className="w-24 h-24 sm:w-28 sm:h-28 object-contain"
               />
             </div>
 
             <div className="flex flex-col items-center justify-center">
-              <div className="relative flex h-24 w-24 sm:h-28 sm:w-28 items-center justify-center rounded-full border-4 border-[#22c55e] bg-[#0f172a] shadow-[0_0_25px_rgba(34,197,94,0.35)] animate-bounce">
-                <span className="px-2 text-center text-[0.9rem] sm:text-[1.05rem] font-black uppercase tracking-[0.18em] leading-none text-white">
+              <div className="relative flex h-28 w-28 sm:h-32 sm:w-32 items-center justify-center rounded-full border-[5px] border-[#22c55e] bg-gradient-to-br from-[#0f172a] via-[#111827] to-[#0f172a] shadow-[0_0_30px_rgba(34,197,94,0.35)] animate-bounce">
+                <div className="absolute inset-2 rounded-full border border-[#22c55e]/30" />
+                <span className="px-2 text-center text-[0.95rem] sm:text-[1.05rem] font-black uppercase tracking-[0.25em] leading-none text-white">
                   LIBRE
                 </span>
               </div>
 
               <div className="mt-4 text-center">
-                <h2 className="text-xl sm:text-2xl font-black text-white uppercase italic tracking-tighter">
-                  VALLES<span className="text-[#22c55e]">CONECTA</span>
+                <h2 className="text-[1.05rem] sm:text-[1.25rem] font-black text-white uppercase italic tracking-[0.18em]">
+                  VALLES<span className="ml-1 text-[#22c55e]">CONECTA</span>
                 </h2>
-                <p className="mt-1 text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500 animate-pulse">
-                  Esperando señal de viaje...
+                <p className="mt-1 text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.28em] text-slate-400 animate-pulse">
+                  Esperando señal de viaje
                 </p>
               </div>
             </div>
