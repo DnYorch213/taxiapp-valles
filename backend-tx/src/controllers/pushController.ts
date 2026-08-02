@@ -20,6 +20,23 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
         const tEmail = taxistaEmail.toLowerCase().trim();
         const pEmail = pasajeroEmail.toLowerCase().trim();
 
+        const currentPassenger = await Position.findOne({ email: pEmail }).lean();
+        const currentAssignedTaxi = currentPassenger?.taxistaAsignado?.toLowerCase().trim();
+        const currentState = currentPassenger?.estado;
+        const alreadyAssignedToAnotherDriver = Boolean(
+            currentAssignedTaxi &&
+            currentAssignedTaxi !== tEmail &&
+            [POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO, POSITION_STATES.PREASIGNADO].includes(currentState as any)
+        );
+
+        if (alreadyAssignedToAnotherDriver) {
+            console.log(`🚫 PUSH LATE: El taxista ${tEmail} intentó aceptar pero el viaje ya fue tomado por ${currentAssignedTaxi}.`);
+            io.to(tEmail).emit("trip_already_taken", {
+                message: "El viaje ya fue tomado por otro conductor."
+            });
+            return res.status(200).json({ success: false, late: true, message: "Trip already assigned" });
+        }
+
         // Transacción de seguridad en la base de datos
         const pPosActualizado = await Position.findOneAndUpdate(
             {
