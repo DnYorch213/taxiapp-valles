@@ -257,6 +257,9 @@ const PasajeroView: React.FC = () => {
     const passengerEmail = userPosition?.email?.toLowerCase().trim();
     if (!passengerEmail || !socket.connected) return;
 
+    setRutaDestinoPreview([]);
+    setRutaDestinoEnCurso([]);
+
     socket.emit("update_trip_destination", {
       pasajeroEmail: passengerEmail,
       destinationLat: nextLat,
@@ -304,6 +307,8 @@ const PasajeroView: React.FC = () => {
       const nextAddress = match.display_name || cleanQuery;
       setDestinationAddress(nextAddress);
       setDestinationQuery(nextAddress);
+      setRutaDestinoPreview([]);
+      setRutaDestinoEnCurso([]);
       if (estado === "encurso" || estado === "encamino" || estado === "asignado") {
         actualizarDestinoEnServidor(latNum, lngNum, nextAddress);
       }
@@ -324,6 +329,8 @@ const PasajeroView: React.FC = () => {
 
     setDestinationLat(lat);
     setDestinationLng(lng);
+    setRutaDestinoPreview([]);
+    setRutaDestinoEnCurso([]);
 
     try {
       const url = new URL("https://nominatim.openstreetmap.org/reverse");
@@ -439,6 +446,9 @@ const PasajeroView: React.FC = () => {
       const passengerEmail = userPositionRef.current?.email?.toLowerCase().trim();
       const incomingEmail = String(data?.pasajeroEmail || "").toLowerCase().trim();
       if (incomingEmail && passengerEmail && incomingEmail !== passengerEmail) return;
+
+      setRutaDestinoPreview([]);
+      setRutaDestinoEnCurso([]);
 
       if (data?.destinationLat !== undefined && data?.destinationLat !== null) {
         setDestinationLat(Number(data.destinationLat));
@@ -949,6 +959,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 rutaDestinoPreview.length === 0 && (
                   <Suspense fallback={null}>
                     <RoutingMachine
+                      key={`${userPosition.lat}-${userPosition.lng}-${destinationPosition[0]}-${destinationPosition[1]}-${estado}-${selectorDestinoAbierto}`}
                       waypoints={[
                         L.latLng(Number(userPosition.lat), Number(userPosition.lng)),
                         L.latLng(destinationPosition[0], destinationPosition[1]),
@@ -1015,6 +1026,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               {estado === "encurso" && taxiPos?.lat && taxiPos?.lng && destinationPosition && rutaDestinoEnCurso.length === 0 && (
                 <Suspense fallback={null}>
                   <RoutingMachine
+                    key={`${taxiPos.lat}-${taxiPos.lng}-${destinationPosition[0]}-${destinationPosition[1]}-${estado}`}
                     waypoints={[
                       L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
                       L.latLng(destinationPosition[0], destinationPosition[1]),

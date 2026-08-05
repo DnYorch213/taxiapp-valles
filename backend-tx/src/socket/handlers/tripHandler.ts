@@ -11,6 +11,19 @@ import { POSITION_STATES, TRIP_STATES } from "../../constants/states";
 
 const MAX_REQUEST_TAXI_RETRIES = 3;
 
+export const hasRealActiveRide = (positionDoc: { estado?: string; taxistaAsignado?: string | null } | null | undefined) => {
+    const estado = (positionDoc?.estado || "").toString().toLowerCase();
+    const hasAssignedTaxi = Boolean(positionDoc?.taxistaAsignado);
+    const hasActiveTripState = [
+        POSITION_STATES.PREASIGNADO,
+        POSITION_STATES.ASIGNADO,
+        POSITION_STATES.ENCAMINO,
+        POSITION_STATES.ENCURSO
+    ].includes(estado as any);
+
+    return hasActiveTripState && hasAssignedTaxi;
+};
+
 const isRetryableRequestTaxiError = (error: unknown) => {
     const mongoError = error as {
         errorLabels?: string[];
@@ -47,33 +60,40 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         bindPassengerRequestId(pEmail, currentRequestId);
 
         try {
+            const currentPassengerDoc = await Position.findOne({ email: pEmail, role: "pasajero" }).lean();
+            const hasStaleTripRelation = Boolean(
+                currentPassengerDoc &&
+                currentPassengerDoc.taxistaAsignado &&
+                [POSITION_STATES.ACTIVO, POSITION_STATES.PENDIENTE, POSITION_STATES.BUSCANDO, POSITION_STATES.FINALIZADO, POSITION_STATES.CANCELADO, POSITION_STATES.DESCONECTADO].includes(currentPassengerDoc.estado as any)
+            );
+
+            if (hasStaleTripRelation) {
+                await Position.updateOne(
+                    { email: pEmail, role: "pasajero" },
+                    { $set: { taxistaAsignado: null, updatedAt: new Date() } }
+                );
+                logMotor("request_taxi", `Limpiando relación obsoleta para ${pEmail} (estado=${currentPassengerDoc?.estado})`, "WARN");
+            }
+
             for (let attempt = 1; attempt <= MAX_REQUEST_TAXI_RETRIES; attempt++) {
                 const session = await Position.startSession();
 
                 try {
                     session.startTransaction();
 
-                    // Buscar viaje existente dentro de la transacción
+                    // Buscar viaje existente solo cuando exista una relación real con un taxista asignado.
                     const viajeExistente = await Position.findOne({
-                        $or: [
-                            {
-                                email: pEmail,
-                                estado: {
-                                    $in: [
-                                        POSITION_STATES.ENCAMINO,
-                                        POSITION_STATES.ENCURSO,
-                                        POSITION_STATES.ASIGNADO,
-                                        POSITION_STATES.PREASIGNADO,
-                                        POSITION_STATES.BUSCANDO
-                                    ]
-                                }
-                            },
-                            {
-                                email: pEmail,
-                                role: "pasajero",
-                                taxistaAsignado: { $ne: null }
-                            }
-                        ]
+                        email: pEmail,
+                        role: "pasajero",
+                        estado: {
+                            $in: [
+                                POSITION_STATES.PREASIGNADO,
+                                POSITION_STATES.ASIGNADO,
+                                POSITION_STATES.ENCAMINO,
+                                POSITION_STATES.ENCURSO
+                            ]
+                        },
+                        taxistaAsignado: { $ne: null }
                     }).session(session).lean();
 
                     if (viajeExistente) {

@@ -14,6 +14,27 @@ import { POSITION_STATES, STATE_GROUPS, PositionState, isValidPositionState } fr
 const MICRODROP_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos para microcortes
 const REHYDRATION_DELAY_MS = 300; // Delay para rehidratación
 const MAX_CONNECTIONS_PER_EMAIL = 3; // Rate limiting
+const TRANSIENT_DISCONNECT_REASONS = new Set(["transport close", "transport error", "server namespace disconnect", "client namespace disconnect"]);
+const PRESERVED_ON_DISCONNECT_STATES = new Set<string>([
+    POSITION_STATES.ACTIVO,
+    POSITION_STATES.OCUPADO,
+    POSITION_STATES.INACTIVO,
+    POSITION_STATES.PENDIENTE,
+    POSITION_STATES.BUSCANDO,
+    POSITION_STATES.PREASIGNADO,
+    POSITION_STATES.ASIGNADO,
+    POSITION_STATES.ENCAMINO,
+    POSITION_STATES.ENCURSO
+]);
+
+const shouldPreserveStateOnDisconnect = (state: string | undefined, reason: string) => {
+    const normalizedReason = reason?.toLowerCase() || "";
+    if (TRANSIENT_DISCONNECT_REASONS.has(normalizedReason)) {
+        return true;
+    }
+
+    return Boolean(state && PRESERVED_ON_DISCONNECT_STATES.has(state));
+};
 
 // 🆕 Mapa de conexiones activas por email (para rate limiting)
 const activeConnections = new Map<string, Set<string>>();
@@ -404,8 +425,9 @@ export const initSocketEngine = (io: Server) => {
                     }).lean();
 
                     if (pasajeroData) {
+                        const passengerPayload = buildPayload(pasajeroData, pasajeroData, pasajeroData.estado as PositionState);
                         socket.emit("pasajero_asignado", {
-                            ...buildPayload(pasajeroData, pasajeroData, pasajeroData.estado as PositionState),
+                            ...passengerPayload,
                             pasajeroEmail: pasajeroData.email,
                             pasajeroLat: pasajeroData.lat,
                             pasajeroLng: pasajeroData.lng,
@@ -415,6 +437,7 @@ export const initSocketEngine = (io: Server) => {
                         socket.emit("trip_status_update", {
                             estado: pasajeroData.estado,
                             pasajeroEmail: pasajeroData.email,
+                            pasajeroAsignado: passengerPayload,
                             rehydrated: true
                         });
                     } else {
@@ -497,14 +520,15 @@ export const initSocketEngine = (io: Server) => {
                             }).lean());
 
                     if (pasajeroData) {
+                        const passengerPayload = buildPayload(pasajeroData, pasajeroData, pasajeroData.estado as PositionState);
                         socket.emit("assignment_confirmed", {
                             success: true,
-                            pasajero: buildPayload(pasajeroData, pasajeroData, pasajeroData.estado as PositionState),
+                            pasajero: passengerPayload,
                             rehydrated: true
                         });
                         socket.emit("trip_status_update", {
                             estado: pasajeroData.estado,
-                            pasajeroAsignado: buildPayload(pasajeroData, pasajeroData, pasajeroData.estado as PositionState),
+                            pasajeroAsignado: passengerPayload,
                             rehydrated: true
                         });
                     } else {
@@ -591,9 +615,9 @@ export const initSocketEngine = (io: Server) => {
                     return;
                 }
 
-                // 🆕 Protección contra microcortes con timer
-                if (["encamino", "encurso", "asignado", "preasignado"].includes(checkActive.estado)) {
-                    logMotor("socket_microdrop", `Conservando estado '${checkActive.estado}' para ${email} (microcorte)`, "INFO");
+                // 🆕 Protección contra microcortes con timer: conserva el estado mientras llega la reconexión.
+                if (shouldPreserveStateOnDisconnect(checkActive.estado, reason)) {
+                    logMotor("socket_microdrop", `Conservando estado '${checkActive.estado}' para ${email} (${reason})`, "INFO");
 
                     await Position.updateOne(
                         { email },

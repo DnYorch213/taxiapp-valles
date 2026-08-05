@@ -133,6 +133,7 @@ const TaxistaView: React.FC = () => {
   // 🚩 ESTADO PARA LA LÍNEA QUE SE VA BORRANDO (Hacia el pasajero)
 const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   const [rutaDestinoFinal, setRutaDestinoFinal] = useState<L.LatLng[]>([]);
+  const [routeRefreshToken, setRouteRefreshToken] = useState(0);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const chatDragRef = useRef({
@@ -431,29 +432,58 @@ useGeolocation(
     }
   }, [userPosition?.email]);
 
-  // 🚩 REHIDRATACIÓN AUTOMÁTICA AL CARGAR
-useEffect(() => {
-  const onConnectRehydrate = () => {
-    const { pasajero, taxista, requestId } = pushRehydrateRef.current;
-    if (pasajero && taxista) {
-      console.log("🔄 Rehidratación de respaldo tras reconexión de socket");
-      socket.emit("request_rehydrate", { requestId });
+  const requestTripRehydrate = useCallback(() => {
+    const miEmail = userPosition?.email || localStorage.getItem("email");
+    const miRole = localStorage.getItem("role");
+
+    if (!miEmail || !miRole) return;
+
+    if ([POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO].includes(estadoRef.current as any)) {
+      setGeometriaRuta([]);
+      setRutaDestinoFinal([]);
+      setRouteRefreshToken((prev) => prev + 1);
     }
-  };
 
-  // Intentar rehidratar de inmediato
-  checkStatus();
-  onConnectRehydrate();
+    if (socket.connected) {
+      socket.emit("reproducir_estado_viaje", { email: miEmail.toLowerCase().trim(), role: miRole });
+      socket.emit("request_rehydrate", {});
+    } else {
+      socket.connect();
+    }
+  }, [userPosition?.email]);
 
-  // Si el socket tarda en conectar, reintentar al conectar
-  socket.on("connect", checkStatus);
-  socket.on("connect", onConnectRehydrate);
-  
-  return () => {
-    socket.off("connect", checkStatus);
-    socket.off("connect", onConnectRehydrate);
-  };
-}, [checkStatus]);
+  // 🚩 REHIDRATACIÓN AUTOMÁTICA AL CARGAR Y AL VOLVER AL PRIMER PLANO
+  useEffect(() => {
+    const onConnectRehydrate = () => {
+      const { pasajero, taxista, requestId } = pushRehydrateRef.current;
+      if (pasajero && taxista) {
+        console.log("🔄 Rehidratación de respaldo tras reconexión de socket");
+        socket.emit("request_rehydrate", { requestId });
+      }
+      requestTripRehydrate();
+    };
+
+    const onResume = () => {
+      if (document.visibilityState === "visible") {
+        requestTripRehydrate();
+      }
+    };
+
+    checkStatus();
+    onConnectRehydrate();
+
+    socket.on("connect", checkStatus);
+    socket.on("connect", onConnectRehydrate);
+    document.addEventListener("visibilitychange", onResume);
+    window.addEventListener("focus", onResume);
+
+    return () => {
+      socket.off("connect", checkStatus);
+      socket.off("connect", onConnectRehydrate);
+      document.removeEventListener("visibilitychange", onResume);
+      window.removeEventListener("focus", onResume);
+    };
+  }, [checkStatus, requestTripRehydrate]);
 
 const handleAsignacion = useCallback((data: any) => {
   console.log("📩 Nueva asignación recibida:", data);
@@ -562,6 +592,7 @@ else {
 
       setRutaDestinoFinal([]);
       setGeometriaRuta([]);
+      setRouteRefreshToken((prev) => prev + 1);
     };
 
     socket.on("pasajero_asignado", handleAsignacion);
@@ -1272,16 +1303,16 @@ return (
               )}
 
               {(estado === "encamino" || estado === "encurso") &&
-                taxiPos?.lat &&
-                taxiPos?.lng &&
+                pasajeroAsignado?.lat &&
+                pasajeroAsignado?.lng &&
                 hasRealFinalDestination(pasajeroAsignado) &&
                 getDestinoFinalLatLng(pasajeroAsignado) &&
                 rutaDestinoFinal.length === 0 && (
                   <Suspense fallback={null}>
                     <RoutingMachine
-                      key={`${getDestinoFinalLatLng(pasajeroAsignado)?.lat ?? "na"}-${getDestinoFinalLatLng(pasajeroAsignado)?.lng ?? "na"}-${estado}`}
+                      key={`${getDestinoFinalLatLng(pasajeroAsignado)?.lat ?? "na"}-${getDestinoFinalLatLng(pasajeroAsignado)?.lng ?? "na"}-${pasajeroAsignado?.lat ?? "na"}-${pasajeroAsignado?.lng ?? "na"}-${estado}-${routeRefreshToken}`}
                       waypoints={[
-                        L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
+                        L.latLng(Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng)),
                         getDestinoFinalLatLng(pasajeroAsignado) as L.LatLng,
                       ]}
                       onRouteFound={(coords: L.LatLng[]) =>
@@ -1295,8 +1326,8 @@ return (
                 <Polyline
                   positions={rutaDestinoFinal}
                   pathOptions={{
-                    color: '#f4216e',
-                    weight: 4,
+                    color: '#22c55e',
+                    weight: 5,
                     opacity: 0.95,
                     lineJoin: 'round',
                     lineCap: 'round',
