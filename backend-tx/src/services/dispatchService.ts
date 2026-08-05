@@ -12,7 +12,7 @@ export const activeTimeouts = new Map<string, Set<NodeJS.Timeout>>();
 export const pendingTimeouts = activeTimeouts;
 
 const requestAttemptTokens = new Map<string, string>();
-
+const respondedTaxistasByRequest = new Map<string, Set<string>>();
 
 // 🎯 Candado por requestId para evitar cascadas concurrentes
 const activeDispatches = new Set<string>();
@@ -103,6 +103,37 @@ export const clearRequestTimeouts = (requestId: string, reason: string) => {
 
 export const clearPassengerRequestBinding = (pEmail: string) => {
     passengerActiveRequestIds.delete(normalizeEmail(pEmail));
+};
+
+export const registerTaxiResponseForRequest = (requestId: string | null | undefined, tEmail: string | null | undefined) => {
+    const normalizedRequestId = String(requestId || "").trim();
+    const normalizedEmail = normalizeEmail(String(tEmail || ""));
+
+    if (!normalizedRequestId || !normalizedEmail) return;
+
+    let bucket = respondedTaxistasByRequest.get(normalizedRequestId);
+    if (!bucket) {
+        bucket = new Set<string>();
+        respondedTaxistasByRequest.set(normalizedRequestId, bucket);
+    }
+
+    bucket.add(normalizedEmail);
+};
+
+export const clearTaxiResponseRegistry = (requestId: string | null | undefined) => {
+    const normalizedRequestId = String(requestId || "").trim();
+    if (!normalizedRequestId) return;
+    respondedTaxistasByRequest.delete(normalizedRequestId);
+};
+
+const isTaxiAlreadyRespondedForRequest = (requestId: string | null | undefined, tEmail: string | null | undefined) => {
+    const normalizedRequestId = String(requestId || "").trim();
+    const normalizedEmail = normalizeEmail(String(tEmail || ""));
+
+    if (!normalizedRequestId || !normalizedEmail) return false;
+
+    const bucket = respondedTaxistasByRequest.get(normalizedRequestId);
+    return Boolean(bucket?.has(normalizedEmail));
 };
 
 export const lockDispatchCycle = (requestId: string) => {
@@ -250,7 +281,15 @@ const runDispatchWithRetry = async (
             return;
         }
 
-        const { taxista: elMasCercano, distancia } = taxistasConDistancia[0];
+        const elegibles = taxistasConDistancia.filter(({ taxista }) => !isTaxiAlreadyRespondedForRequest(reqId, taxista.email));
+
+        if (elegibles.length === 0) {
+            logMotor("dispatch_retry", `Pasajero=${pEmail} Intento=${attempt} -> Todos los taxistas elegibles ya respondieron para esta solicitud`, "WARN");
+            clearDispatchCycle(reqId, "sin taxistas elegibles restantes");
+            return;
+        }
+
+        const { taxista: elMasCercano, distancia } = elegibles[0];
         const tEmail = elMasCercano.email.toLowerCase().trim();
 
         // 🎯 4. ASIGNACIÓN ATÓMICA CON TRANSACCIÓN SECUENCIAL

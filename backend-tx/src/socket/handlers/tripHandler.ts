@@ -4,7 +4,7 @@ import { Position } from "../../models/Position";
 import { Trip } from "../../models/Trip";
 import { buildPayload } from "../../utils/payloadBuilder";
 import { reverseGeocode } from "../../services/geocodingService";
-import { bindPassengerRequestId, clearPassengerRequestBinding, clearPendingTimeouts, clearRequestTimeouts, dispatchWithRetry, getActiveRequestIdForPassenger, clearDispatchCycle } from "../../services/dispatchService";
+import { bindPassengerRequestId, clearPassengerRequestBinding, clearPendingTimeouts, clearRequestTimeouts, dispatchWithRetry, getActiveRequestIdForPassenger, clearDispatchCycle, registerTaxiResponseForRequest, clearTaxiResponseRegistry } from "../../services/dispatchService";
 import { logMotor } from "../../utils/logger";
 import { calculateDistance } from "../../utils/distance";
 import { POSITION_STATES, TRIP_STATES } from "../../constants/states";
@@ -257,6 +257,11 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
         // 🚨 CASO: TAXISTA RECHAZA
         if (!accepted) {
+            const passengerDoc = await Position.findOne({ email: pEmail }).lean();
+            if (passengerDoc?.requestId) {
+                registerTaxiResponseForRequest(passengerDoc.requestId, tEmail);
+            }
+
             await Position.updateOne(
                 { email: tEmail },
                 { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null } }
@@ -292,6 +297,16 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
             // 🛡️ VALIDAR QUE EL PASAJERO NO ESTÉ CANCELADO
             const pPos = await Position.findOne({ email: pEmail });
+            if (!pPos || pPos.estado === POSITION_STATES.CANCELADO) {
+                return io.to(tEmail).emit("trip_already_taken", {
+                    message: "El pasajero canceló la solicitud."
+                });
+            }
+
+            if (pPos.requestId) {
+                registerTaxiResponseForRequest(pPos.requestId, tEmail);
+            }
+
             if (!pPos || pPos.estado === POSITION_STATES.CANCELADO) {
                 return io.to(tEmail).emit("trip_already_taken", {
                     message: "El pasajero canceló la solicitud."
@@ -351,6 +366,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 // 🛡️ Candado: cerrar la solicitud para evitar más reintentos
                 if (pPosActualizado?.requestId) {
                     clearDispatchCycle(pPosActualizado.requestId, "viaje aceptado");
+                    clearTaxiResponseRegistry(pPosActualizado.requestId);
                     clearPassengerRequestBinding(pEmail);
                 }
 

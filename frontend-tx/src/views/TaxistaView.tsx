@@ -213,6 +213,7 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   const estadoRef = useRef(estado);
   const pasajeroAsignadoRef = useRef<Payload | null>(null);
   const taxiPosRef = useRef(taxiPos);
+  const answeredOfferRequestIdsRef = useRef(new Set<string>());
   const pushRehydrateRef = useRef<{ pasajero: string | null; taxista: string | null; requestId: string | null; autoAccept: boolean }>({
     pasajero: null,
     taxista: null,
@@ -567,6 +568,12 @@ const handleAsignacion = useCallback((data: any) => {
   const incomingEmail = String(rawData.email).toLowerCase().trim();
   const estadoActual = estadoRef.current;
   const actualAsignado = pasajeroAsignadoRef.current?.email?.toLowerCase().trim();
+  const requestId = String(rawData.requestId || data.requestId || "").trim();
+
+  if (requestId && answeredOfferRequestIdsRef.current.has(requestId)) {
+    console.warn("🛡️ Oferta ignorada: ya respondimos a esta solicitud.", requestId);
+    return;
+  }
 
   // Ignorar ofertas tardías cuando el viaje ya está confirmado o en curso.
   if (["encamino", "encurso"].includes(estadoActual)) {
@@ -966,6 +973,10 @@ const aceptarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.Pointe
 
   setIsAccepting(true);
   detenerSonido();
+
+  if (pasajeroAsignado?.requestId) {
+    answeredOfferRequestIdsRef.current.add(String(pasajeroAsignado.requestId));
+  }
   
   // Enviamos el email del pasajero tal cual lo recibimos del socket
   socket.emit("taxi_response", { 
@@ -989,6 +1000,9 @@ const rechazarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.Point
 
   setIsAccepting(true);
   detenerSonido();
+  if (pasajeroAsignado?.requestId) {
+    answeredOfferRequestIdsRef.current.add(String(pasajeroAsignado.requestId));
+  }
   socket.emit("taxi_response", { 
     requestEmail: pasajeroAsignado.email.toLowerCase().trim(), 
     accepted: false, 

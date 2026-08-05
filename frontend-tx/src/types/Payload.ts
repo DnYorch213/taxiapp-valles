@@ -53,4 +53,5 @@ export interface Payload {
     // Campos específicos para asignaciones
     pasajeroEmail?: string;
     taxistaEmail?: string;
+    requestId?: string | null;
 }
