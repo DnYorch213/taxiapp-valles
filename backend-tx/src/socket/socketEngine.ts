@@ -109,16 +109,15 @@ export const initSocketEngine = (io: Server) => {
         userConnections.add(socket.id);
         activeConnections.set(email, userConnections);
 
-        // 🆕 Notificar al socket anterior que fue reemplazado
+        // 🆕 Permitir que coexistan varias ventanas del mismo usuario sin cortar abruptamente la sesión anterior.
         const previousDoc = await Position.findOne({ email }).lean();
         if (previousDoc?.socketId && previousDoc.socketId !== socket.id) {
             const previousSocket = io.sockets.sockets.get(previousDoc.socketId);
             if (previousSocket) {
                 previousSocket.emit("session_replaced", {
-                    message: "Tu sesión fue iniciada en otro dispositivo"
+                    message: "Se abrió otra sesión para esta cuenta. El estado local se limpiará para evitar desincronización."
                 });
-                previousSocket.disconnect(true);
-                logMotor("socket_connect", `Socket anterior ${previousDoc.socketId} desconectado para ${email}`, "INFO");
+                logMotor("socket_connect", `Se notificó a la sesión anterior ${previousDoc.socketId} para ${email} sin cortarla`, "INFO");
             }
         }
 

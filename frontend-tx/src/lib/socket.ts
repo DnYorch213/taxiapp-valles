@@ -20,6 +20,17 @@ export const socket = io(API_URL, {
   autoConnect: false,
 });
 
+socket.on("connect_error", () => {
+  console.warn("⚠️ Socket connect_error: la sesión puede estar siendo reemplazada o la red está inestable.");
+});
+
+socket.on("session_replaced", () => {
+  console.warn("⚠️ Se recibió un reemplazo de sesión desde el servidor. Se limpiará el estado local.");
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("socket-session-replaced"));
+  }
+});
+
 // 🚀 FUNCIÓN CORREGIDA:
 export const connectSocket = (email: string, role: string) => {
   if (!email || !role) return;

@@ -14,6 +14,8 @@ import { taxistaIcon, pasajeroIcon } from "../utils/icons";
 import RotatedMarker from "../components/RotatedMarker";
 import { calcularHeading } from "../utils/heading";
 import { TRIP_STATES } from "../constants/states";
+import { shouldAcceptStateTransition } from "../utils/socketStateGuard";
+import { showToastOnce } from "../utils/toastGuard";
 
 const RoutingMachine = lazy(() =>
   import("../components/RoutingMachine").then((module) => ({
@@ -380,8 +382,25 @@ const PasajeroView: React.FC = () => {
       setChatBubbleX((current) => (current === null ? current : clampBubbleX(current)));
     };
 
+    const handleSessionReplaced = () => {
+      setSearchFlowActivo(false);
+      setTaxistaAsignado(null);
+      setTaxiPos(null);
+      setEstado(TRIP_STATES.PENDIENTE);
+      setHistorialRuta([]);
+      setGeometriaRuta([]);
+      setRutaDestinoPreview([]);
+      setRutaDestinoEnCurso([]);
+      setChatAbierto(false);
+      toast.warn("Se abrió otra sesión para esta cuenta. Se limpió el estado local.", { autoClose: 3500 });
+    };
+
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    window.addEventListener("socket-session-replaced", handleSessionReplaced as EventListener);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("socket-session-replaced", handleSessionReplaced as EventListener);
+    };
   }, [chatBubbleX, clampBubbleX]);
 
   const handleChatBubblePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -564,6 +583,11 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
       const nextEstado = String(data.estado || "").toLowerCase().trim();
 
+      if (!shouldAcceptStateTransition(estadoRef.current, nextEstado)) {
+        console.warn("🛡️ Estado ignorado por guard de sincronización:", { current: estadoRef.current, next: nextEstado });
+        return;
+      }
+
       if (data.estado === "encurso" && (!emailRecibido || emailRecibido === miEmail)) {
         setSearchFlowActivo(false);
         setEstado(TRIP_STATES.ENCURSO);
@@ -574,7 +598,9 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
           setHistorialRuta([[Number(taxiActual.lat), Number(taxiActual.lng)]]);
           setGeometriaRuta([L.latLng(Number(taxiActual.lat), Number(taxiActual.lng))]);
         }
-        toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
+        showToastOnce("pasajero:trip-started", () => {
+          toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
+        }, { cooldownMs: 4000 });
       }
 
       // Escudo contra saltos accidentales
@@ -609,7 +635,9 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         setChatAbierto(false);
         setGeometriaRuta([]);
         setRutaDestinoEnCurso([]);
-        toast.success("¡Viaje finalizado!");
+        showToastOnce("pasajero:trip-finished", () => {
+          toast.success("¡Viaje finalizado!");
+        }, { cooldownMs: 4000 });
       }
     });
 
@@ -631,10 +659,12 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         setGeometriaRuta([]);
         setRutaDestinoEnCurso([]);
         setChatAbierto(false);
-        toast.success("¡Viaje finalizado! Gracias por viajar con nosotros.", {
-          position: "top-center",
-          autoClose: 4000,
-        });
+        showToastOnce("pasajero:trip-finished-extended", () => {
+          toast.success("¡Viaje finalizado! Gracias por viajar con nosotros.", {
+            position: "top-center",
+            autoClose: 4000,
+          });
+        }, { cooldownMs: 4000 });
       }
     });
 
@@ -661,7 +691,9 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       setTaxiPos(null);
       setEstado(TRIP_STATES.BUSCANDO);
       if (payload?.message) {
-        toast.info(payload.message, { autoClose: 2500 });
+        showToastOnce(`pasajero:${payload.message || "dispatch-info"}`, () => {
+          toast.info(payload.message, { autoClose: 2500 });
+        }, { cooldownMs: 3000 });
       }
     });
 
@@ -673,7 +705,9 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       setSearchFlowActivo(true);
       setEstado(TRIP_STATES.BUSCANDO);
       if (payload?.message) {
-        toast.warn(payload.message, { autoClose: 2500 });
+        showToastOnce(`pasajero:${payload.message || "dispatch-warning"}`, () => {
+          toast.warn(payload.message, { autoClose: 2500 });
+        }, { cooldownMs: 3000 });
       }
     });
 

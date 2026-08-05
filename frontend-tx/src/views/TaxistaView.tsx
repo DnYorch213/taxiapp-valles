@@ -15,6 +15,8 @@ import { HistorialViajes } from "../components/HistorialViajes";
 import { taxistaIcon, pasajeroIcon, banderaIcon, taxiValles } from "../utils/icons";
 import { calcularHeading } from "../utils/heading"; // Función para calcular el heading entre dos puntos
 import { POSITION_STATES, STATE_GROUPS, PositionState } from "../constants/states";
+import { shouldAcceptStateTransition } from "../utils/socketStateGuard";
+import { showToastOnce } from "../utils/toastGuard";
 
 const RoutingMachine = lazy(() =>
   import("../components/RoutingMachine").then((module) => ({
@@ -604,7 +606,9 @@ socket.on("assignment_confirmed", (data) => {
     console.log("✅ Confirmación recibida del servidor:", data);
     setEstado(POSITION_STATES.ENCAMINO); 
     detenerSonido();
-    toast.success("¡Viaje vinculado! Dirígete al pasajero.");
+    showToastOnce("taxista:assignment-confirmed", () => {
+      toast.success("¡Viaje vinculado! Dirígete al pasajero.");
+    }, { cooldownMs: 4000 });
     setIsAccepting(false);
     setViajeSolicitado(null);
 
@@ -635,11 +639,13 @@ socket.on("assignment_confirmed", (data) => {
 // 🚩 AQUÍ PONES EL CANDADO DEL LADO DEL CLIENTE
     socket.on("trip_already_taken", (data: { message: string }) => {
         // 1. Avisamos al chofer con un mensaje claro
-        toast.info(data.message, {
-            position: "top-center",
-            autoClose: 4000,
-            icon: <span>⏳</span>
-        });
+        showToastOnce("taxista:trip-already-taken", () => {
+          toast.info(data.message, {
+              position: "top-center",
+              autoClose: 4000,
+              icon: <span>⏳</span>
+          });
+        }, { cooldownMs: 4000 });
 
         // 2. IMPORTANTE: Limpiamos el estado para que la solicitud desaparezca
         // y el taxista pueda recibir nuevas alertas de inmediato.
@@ -651,6 +657,12 @@ socket.on("assignment_confirmed", (data) => {
 // 2. 🔄 LISTENER DE CAMBIO DE ESTADO (BLINDADO)
 socket.on("trip_status_update", (data: any) => {
   console.log("🔄 [Socket Test] Cambio de estado recibido:", data);
+
+  const nextEstado = String(data.estado || "").toLowerCase().trim();
+  if (!shouldAcceptStateTransition(estadoRef.current, nextEstado)) {
+    console.warn("🛡️ Estado del taxista ignorado por guard de sincronización:", { current: estadoRef.current, next: nextEstado });
+    return;
+  }
 
     // 🛡️ Escudo: ignorar 'buscando' si ya estamos en encurso/finalizado/pendiente
   if (["encurso", "finalizado", "pendiente"].includes(estadoRef.current) && data.estado === "buscando") {
@@ -688,9 +700,11 @@ socket.on("trip_status_update", (data: any) => {
       ? getDestinoFinalLatLng(pasajeroConDestinoReal)
       : null;
 
-    // Limpiar cualquier resto de la ruta de recogida y forzar un trazado real hacia destino.
+    // Mantener la ruta final estable al pasar a curso para evitar parpadeo visual.
     setGeometriaRuta([]);
-    setRutaDestinoFinal(destinoFinal ? [] : []);
+    if (!destinoFinal) {
+      setRutaDestinoFinal([]);
+    }
 
     setPasajeroAsignado((prev: any) => ({
       ...prev,
@@ -700,7 +714,9 @@ socket.on("trip_status_update", (data: any) => {
       destinationAddress: data.destinationAddress || data.pasajeroAsignado?.destinationAddress || prev?.destinationAddress || "Rumbo al destino..."
     }));
 
-    toast.info("¡Viaje iniciado! Rumbo al destino final.");
+    showToastOnce("taxista:trip-started", () => {
+      toast.info("¡Viaje iniciado! Rumbo al destino final.");
+    }, { cooldownMs: 4000 });
   }
 });
 
@@ -730,7 +746,9 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     if (data.success) {
       setEstado(data.estado); 
       setPasajeroAsignado(data.pasajero);
-      toast.success("¡Viaje rehidratado con éxito!");
+      showToastOnce("taxista:rehydrated", () => {
+        toast.success("¡Viaje rehidratado con éxito!");
+      }, { cooldownMs: 4000 });
     }
   });
 
@@ -767,7 +785,9 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   setHistorialRuta([]); 
   setGeometriaRuta([]);
   setRutaDestinoFinal([]);
-  toast.success("¡Viaje finalizado!");
+  showToastOnce("taxista:trip-finished", () => {
+    toast.success("¡Viaje finalizado!");
+  }, { cooldownMs: 4000 });
 
   // 3. 🕒 ESPERA DE CORTESÍA: Dejamos la info en pantalla 5 segundos
   setTimeout(() => {
@@ -937,8 +957,7 @@ const confirmarAbordo = () => {
   setChatAbierto(false);
 
   setGeometriaRuta([]);
-  setRutaDestinoFinal([]);
-  
+
   if (taxiPos?.lat && taxiPos?.lng) {
     setHistorialRuta([[Number(taxiPos.lat), Number(taxiPos.lng)]]);
   }
@@ -976,6 +995,24 @@ const finalizarViaje = () => {
 
   const isCompactTripPanel = ["encamino", "encurso"].includes(estado);
   const hasSystemTripActive = [POSITION_STATES.PREASIGNADO, POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(estado as any);
+
+  const destinoFinalMarkerPosition = useMemo<L.LatLngExpression | null>(() => {
+    if (!hasRealFinalDestination(pasajeroAsignado)) {
+      return null;
+    }
+
+    const destinoExplicito = getDestinoFinalLatLng(pasajeroAsignado);
+    if (destinoExplicito) {
+      return [destinoExplicito.lat, destinoExplicito.lng] as L.LatLngExpression;
+    }
+
+    if (rutaDestinoFinal.length > 0) {
+      const ultimo = rutaDestinoFinal[rutaDestinoFinal.length - 1];
+      return [ultimo.lat, ultimo.lng] as L.LatLngExpression;
+    }
+
+    return null;
+  }, [pasajeroAsignado, rutaDestinoFinal]);
 
   const statusBadgeConfig = useMemo(() => {
     switch (estado) {
@@ -1039,6 +1076,27 @@ const finalizarViaje = () => {
     const initialX = window.innerWidth - CHAT_BUBBLE_SIZE - CHAT_BUBBLE_MARGIN;
     setChatBubbleX(initialX);
   }, [chatBubbleX]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleSessionReplaced = () => {
+      setEstado(POSITION_STATES.ACTIVO);
+      setViajeSolicitado(null);
+      setPasajeroAsignado(null);
+      setHistorialRuta([]);
+      setGeometriaRuta([]);
+      setRutaDestinoFinal([]);
+      setChatAbierto(false);
+      setIsAccepting(false);
+      setIsStatusMenuOpen(false);
+      setRouteRefreshToken((prev) => prev + 1);
+      toast.warn("Se abrió otra sesión para esta cuenta. Se limpió el estado del viaje.", { autoClose: 3500 });
+    };
+
+    window.addEventListener("socket-session-replaced", handleSessionReplaced as EventListener);
+    return () => window.removeEventListener("socket-session-replaced", handleSessionReplaced as EventListener);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1335,12 +1393,9 @@ return (
                 />
               )}
 
-              {estado === "encurso" && hasRealFinalDestination(pasajeroAsignado) && rutaDestinoFinal.length > 0 && (
+              {(estado === "encamino" || estado === "encurso") && destinoFinalMarkerPosition && (
                 <Marker
-                  position={[
-                    rutaDestinoFinal[rutaDestinoFinal.length - 1].lat,
-                    rutaDestinoFinal[rutaDestinoFinal.length - 1].lng,
-                  ]}
+                  position={destinoFinalMarkerPosition}
                   icon={banderaIcon}
                 >
                   <Popup>Meta del destino</Popup>
