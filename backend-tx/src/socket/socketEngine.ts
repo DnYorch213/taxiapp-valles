@@ -289,7 +289,7 @@ export const initSocketEngine = (io: Server) => {
                     ? ([POSITION_STATES.OCUPADO, POSITION_STATES.INACTIVO].includes(miPosicion?.estado as any)
                         ? miPosicion?.estado as PositionState
                         : POSITION_STATES.ACTIVO)
-                    : POSITION_STATES.PENDIENTE; // ← CORREGIDO: era BUSCANDO
+                    : POSITION_STATES.ACTIVO; // ← CORREGIDO: era ACTIVO
             }
 
             // Cancelar timer de microcorte si existe
@@ -729,7 +729,7 @@ export const initSocketEngine = (io: Server) => {
                                     const hasActiveTripRelation = Boolean(stillDisconnected.pasajeroAsignado || stillDisconnected.taxistaAsignado);
                                     const fallbackState = isTaxista
                                         ? (hasActiveTripRelation ? stillDisconnected.estado : POSITION_STATES.ACTIVO)
-                                        : (hasActiveTripRelation ? stillDisconnected.estado : POSITION_STATES.BUSCANDO);
+                                        : (hasActiveTripRelation ? stillDisconnected.estado : POSITION_STATES.ACTIVO);
 
                                     logMotor("socket_microdrop", `Limpiando estado huérfano para ${email} -> ${fallbackState} después de ${MICRODROP_TIMEOUT_MS}ms`, "WARN");
 
