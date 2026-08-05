@@ -243,10 +243,7 @@ const PasajeroView: React.FC = () => {
 
     if (!destinationPosition || !taxiPos?.lat || !taxiPos?.lng) {
       setRutaDestinoEnCurso([]);
-      return;
     }
-
-    setRutaDestinoEnCurso([]);
   }, [estado, destinationPosition?.[0], destinationPosition?.[1], taxiPos?.lat, taxiPos?.lng]);
 
   const limpiarDestino = useCallback(() => {
@@ -853,6 +850,18 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     }
   }, [chatAbierto]);
 
+  const routePositionsEnCurso = useMemo(() => {
+    if (rutaDestinoEnCurso.length > 0) {
+      return rutaDestinoEnCurso;
+    }
+
+    if (estado === "encurso" && taxiPos?.lat && taxiPos?.lng && destinationPosition) {
+      return [[Number(taxiPos.lat), Number(taxiPos.lng)], destinationPosition] as L.LatLngExpression[];
+    }
+
+    return [] as L.LatLngExpression[];
+  }, [estado, rutaDestinoEnCurso, taxiPos?.lat, taxiPos?.lng, destinationPosition?.[0], destinationPosition?.[1]]);
+
   return (
     <div className="h-dvh bg-slate-50 flex flex-col items-center font-sans relative overflow-hidden">
       <ToastContainer theme="light" />
@@ -899,20 +908,24 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 <Marker position={[userPosition.lat, userPosition.lng]} icon={pasajeroIcon} />
               )}
 
-              {estado !== "encurso" && selectorDestinoAbierto && destinationPosition && (
+              {(estado === "encurso" || selectorDestinoAbierto) && destinationPosition && (
                 <Marker
                   position={destinationPosition}
                   icon={destinationMarkerIcon}
-                  draggable={true}
-                  eventHandlers={{
-                    dragend: (event) => {
-                      const marker = event.target as L.Marker;
-                      const next = marker.getLatLng();
-                      void actualizarDestinoDesdeMarker(next.lat, next.lng);
-                    },
-                  }}
+                  draggable={selectorDestinoAbierto}
+                  eventHandlers={
+                    selectorDestinoAbierto
+                      ? {
+                          dragend: (event) => {
+                            const marker = event.target as L.Marker;
+                            const next = marker.getLatLng();
+                            void actualizarDestinoDesdeMarker(next.lat, next.lng);
+                          },
+                        }
+                      : undefined
+                  }
                 >
-                  <Popup>Destino (arrastra el pin)</Popup>
+                  <Popup>Destino</Popup>
                 </Marker>
               )}
 
@@ -1014,9 +1027,9 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               )}
 
               {/* LÍNEA 3: Rumbo al destino */}
-              {estado === "encurso" && rutaDestinoEnCurso.length > 0 && (
+              {estado === "encurso" && routePositionsEnCurso.length > 0 && (
                 <Polyline
-                  positions={rutaDestinoEnCurso}
+                  positions={routePositionsEnCurso}
                   pathOptions={{ color: "#22c55e", weight: 4, lineJoin: "round" }}
                 />
               )}
