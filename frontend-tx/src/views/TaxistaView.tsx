@@ -561,6 +561,7 @@ else {
       });
 
       setRutaDestinoFinal([]);
+      setGeometriaRuta([]);
     };
 
     socket.on("pasajero_asignado", handleAsignacion);
@@ -830,14 +831,20 @@ useEffect(() => {
 }, [chatAbierto]);
 
  // --- ACCIONES DEL TAXISTA ---
-const aceptarViaje = () => {
-  if (isAccepting) return;
-  setIsAccepting(true);
-  
-  if (!pasajeroAsignado?.email) {
-    console.error("❌ Error: No hay email de pasajero para aceptar.");
+const aceptarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.PointerEvent<HTMLButtonElement>) => {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  if (isAccepting || !pasajeroAsignado?.email) {
+    if (!pasajeroAsignado?.email) {
+      console.error("❌ Error: No hay email de pasajero para aceptar.");
+    }
     return;
   }
+
+  setIsAccepting(true);
   detenerSonido();
   
   // Enviamos el email del pasajero tal cual lo recibimos del socket
@@ -846,17 +853,21 @@ const aceptarViaje = () => {
     accepted: true, 
     excludedEmails 
   });
-// 🚩 Segurito: Si en 5 segundos el servidor no confirmó, desbloqueamos
-  setTimeout(() => {
+
+  window.setTimeout(() => {
     setIsAccepting(false);
   }, 5000);
-    
-  // No cambiamos el estado aquí, esperamos la confirmación del servidor
-  // para evitar problemas de sincronización en reconexiones o saltos.
 };
 
-const rechazarViaje = () => {
-  if (!pasajeroAsignado?.email) return;
+const rechazarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.PointerEvent<HTMLButtonElement>) => {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  if (!pasajeroAsignado?.email || isAccepting) return;
+
+  setIsAccepting(true);
   detenerSonido();
   socket.emit("taxi_response", { 
     requestEmail: pasajeroAsignado.email.toLowerCase().trim(), 
@@ -865,6 +876,12 @@ const rechazarViaje = () => {
   });
   setPasajeroAsignado(null);
   setEstado(POSITION_STATES.ACTIVO);
+  setViajeSolicitado(null);
+  setExcludedEmails([]);
+  setGeometriaRuta([]);
+  setRutaDestinoFinal([]);
+
+  window.setTimeout(() => setIsAccepting(false), 250);
 };
 
 const confirmarAbordo = () => {
@@ -1186,7 +1203,9 @@ return (
                 {/* BOTÓN ERGONÓMICO GIGANTE PARA EL PULGAR */}
                 <div className="grid grid-cols-5 gap-3">
                   <button 
-                    onClick={aceptarViaje} 
+                    type="button"
+                    onPointerDown={(event) => aceptarViaje(event)}
+                    onClick={(event) => aceptarViaje(event)}
                     disabled={isAccepting}
                     className={`col-span-3 py-4 rounded-2xl font-black text-xl border-b-4 shadow-lg transition-all active:translate-y-1 ${
                       isAccepting 
@@ -1197,8 +1216,11 @@ return (
                     {isAccepting ? "⏳ ESPERA..." : "ACEPTAR"}
                   </button>
                   <button 
-                    onClick={rechazarViaje} 
-                    className="col-span-2 py-4 bg-slate-800 border-b-4 border-slate-950 text-slate-400 rounded-2xl font-black text-xs uppercase tracking-widest active:translate-y-1"
+                    type="button"
+                    onPointerDown={(event) => rechazarViaje(event)}
+                    onClick={(event) => rechazarViaje(event)}
+                    disabled={isAccepting}
+                    className={`col-span-2 py-4 rounded-2xl font-black text-xs uppercase tracking-widest active:translate-y-1 transition-all ${isAccepting ? "bg-slate-700 text-slate-500 cursor-not-allowed" : "bg-slate-800 border-b-4 border-slate-950 text-slate-400"}`}
                   >
                     Ignorar
                   </button>
@@ -1244,7 +1266,7 @@ return (
                 <Polyline positions={geometriaRuta} pathOptions={{ color: 'rgb(245, 33, 65)', weight: 4, lineJoin: 'round' }} />
               )}
 
-              {estado === "encurso" &&
+              {(estado === "encamino" || estado === "encurso") &&
                 taxiPos?.lat &&
                 taxiPos?.lng &&
                 hasRealFinalDestination(pasajeroAsignado) &&
@@ -1252,6 +1274,7 @@ return (
                 rutaDestinoFinal.length === 0 && (
                   <Suspense fallback={null}>
                     <RoutingMachine
+                      key={`${getDestinoFinalLatLng(pasajeroAsignado)?.lat ?? "na"}-${getDestinoFinalLatLng(pasajeroAsignado)?.lng ?? "na"}-${estado}`}
                       waypoints={[
                         L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
                         getDestinoFinalLatLng(pasajeroAsignado) as L.LatLng,
@@ -1263,7 +1286,7 @@ return (
                   </Suspense>
                 )}
 
-              {estado === "encurso" && hasRealFinalDestination(pasajeroAsignado) && rutaDestinoFinal.length > 0 && (
+              {(estado === "encamino" || estado === "encurso") && hasRealFinalDestination(pasajeroAsignado) && rutaDestinoFinal.length > 0 && (
                 <Polyline
                   positions={rutaDestinoFinal}
                   pathOptions={{
