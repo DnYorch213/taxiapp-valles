@@ -16,6 +16,8 @@ export function buildPayload(user: any, pos: any, estado: string, extra: any = {
         pushSubscription: extra.pushSubscription || pos?.pushSubscription || user?.pushSubscription || null,
         pickupAddress: extra.pickupAddress || pos?.pickupAddress || user?.pickupAddress || "Calculando ubicación...",
         destinationAddress: extra.destinationAddress || pos?.destinationAddress || user?.destinationAddress || "Destino no especificado",
+        destinationLat: extra.destinationLat ?? pos?.destinationLat ?? user?.destinationLat ?? null,
+        destinationLng: extra.destinationLng ?? pos?.destinationLng ?? user?.destinationLng ?? null,
 
         estado: estado ?? pos?.estado ?? POSITION_STATES.ACTIVO,
 

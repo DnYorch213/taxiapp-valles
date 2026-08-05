@@ -1,5 +1,5 @@
 // src/context/TravelContext.tsx
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { jwtDecode, JwtPayload } from "jwt-decode";
 import { Position, Destination, Rol } from "../types/Positions";
 import { socket, connectSocket } from "../lib/socket"; // 🚨 Importación crucial para la persistencia
@@ -72,6 +72,35 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [pasajerosActivos, setPasajerosActivos] = useState<Position[]>([]);
   const [taxiPos, setTaxiPos] = useState<{ lat: number; lng: number; heading?: number; taxiNumber?: string } | null>(null);
 
+  const reconnectIfNeeded = useCallback(() => {
+    const email = userPosition?.email || localStorage.getItem("email");
+    const role = userPosition?.role || (localStorage.getItem("role") as Rol | null);
+    const token = localStorage.getItem("token");
+
+    if (!email || !role) return;
+
+    const activeSession = userPosition || restoreSessionFromStorage();
+    if (!activeSession) return;
+
+    if (token) {
+      socket.auth = { ...socket.auth, token, email, role };
+    }
+
+    if (!socket.connected && !socket.active) {
+      connectSocket(email, role);
+    } else if (socket.connected) {
+      socket.emit("reproducir_estado_viaje", { email, role });
+    }
+
+    if (taxiPos?.lat && taxiPos?.lng && socket.connected) {
+      socket.emit("position", {
+        ...activeSession,
+        lat: taxiPos.lat,
+        lng: taxiPos.lng,
+      });
+    }
+  }, [taxiPos?.lat, taxiPos?.lng, userPosition]);
+
   useEffect(() => {
     const email = userPosition?.email || localStorage.getItem("email");
     const role = userPosition?.role || (localStorage.getItem("role") as Rol | null);
@@ -83,8 +112,8 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // 🛰️ EFECTO "DESPERTADOR": Revive la app cuando el usuario regresa tras mucho tiempo
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState !== "visible") return;
+    const handleResume = () => {
+      if (document.visibilityState !== "visible" && navigator.onLine === false) return;
 
       const restoredSession = restoreSessionFromStorage();
       if (!userPosition && restoredSession) {
@@ -92,33 +121,38 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setUserPosition(restoredSession);
       }
 
-      // Si la app vuelve a primer plano (visible) y tenemos un usuario logueado
       if (userPosition || restoredSession) {
-        const activeSession = userPosition || restoredSession;
         console.log("☀️ Valles Conecta: Validando conexión en primer plano...");
-        
-        // 1. Forzar reconexión si el sistema operativo mató el socket
-        if (!socket.connected) {
-          const token = localStorage.getItem("token");
-          socket.auth = { ...socket.auth, token };
-          connectSocket(activeSession!.email, activeSession!.role);
-        }
-
-    // 2. Reportar posición de inmediato si ya tenemos coordenadas reales (taxiPos)
-    if (taxiPos?.lat && taxiPos?.lng) {
-      socket.emit("position", {
-        ...activeSession, // identidad
-        lat: taxiPos.lat,
-        lng: taxiPos.lng
-      });
-    }
+        reconnectIfNeeded();
       }
-  };
+    };
 
-  document.addEventListener("visibilitychange", handleVisibilityChange);
-  return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-}, 
-[userPosition, taxiPos]);
+    const handleOnline = () => {
+      reconnectIfNeeded();
+    };
+
+    document.addEventListener("visibilitychange", handleResume);
+    window.addEventListener("focus", handleResume);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleResume);
+      window.removeEventListener("focus", handleResume);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [reconnectIfNeeded, userPosition]);
+
+  useEffect(() => {
+    if (!userPosition) return;
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible" && navigator.onLine && !socket.connected) {
+        reconnectIfNeeded();
+      }
+    }, 30000);
+
+    return () => window.clearInterval(intervalId);
+  }, [reconnectIfNeeded, userPosition]);
 
 
   // 🚪 CIERRE DE SESIÓN LIMPIO

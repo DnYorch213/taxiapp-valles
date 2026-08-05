@@ -358,6 +358,77 @@ export const initSocketEngine = (io: Server) => {
         });
 
         // 🆕 Listener de rehidratación manual (solo si el frontend lo solicita)
+        socket.on("reproducir_estado_viaje", async () => {
+            try {
+                const miEstado = await Position.findOne({ email }).lean();
+
+                if (!miEstado) {
+                    socket.emit("trip_status_update", { estado: POSITION_STATES.PENDIENTE });
+                    return;
+                }
+
+                if (role === "pasajero") {
+                    if (miEstado.taxistaAsignado || [POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO, POSITION_STATES.PREASIGNADO].includes(miEstado.estado as any)) {
+                        const taxistaData = miEstado.taxistaAsignado
+                            ? await Position.findOne({ email: miEstado.taxistaAsignado }).lean()
+                            : null;
+
+                        socket.emit("response_from_taxi", {
+                            accepted: true,
+                            tEmail: taxistaData?.email || miEstado.taxistaAsignado || "",
+                            name: taxistaData?.name || "Conductor",
+                            taxiNumber: taxistaData?.taxiNumber || "ECO",
+                            lat: taxistaData?.lat || null,
+                            lng: taxistaData?.lng || null,
+                            estado: miEstado.estado,
+                            rehydrated: true,
+                            taxiData: taxistaData ? buildPayload(taxistaData, taxistaData, miEstado.estado as PositionState) : null
+                        });
+                    } else if (miEstado.estado === POSITION_STATES.BUSCANDO) {
+                        socket.emit("trip_status_update", { estado: POSITION_STATES.BUSCANDO, rehydrated: true });
+                    } else {
+                        socket.emit("trip_status_update", { estado: POSITION_STATES.PENDIENTE, rehydrated: true });
+                    }
+                } else if (role === "taxista") {
+                    const pasajeroData = await Position.findOne({
+                        role: "pasajero",
+                        taxistaAsignado: email,
+                        estado: {
+                            $in: [
+                                POSITION_STATES.ASIGNADO,
+                                POSITION_STATES.PREASIGNADO,
+                                POSITION_STATES.ENCAMINO,
+                                POSITION_STATES.ENCURSO,
+                            ]
+                        }
+                    }).lean();
+
+                    if (pasajeroData) {
+                        socket.emit("pasajero_asignado", {
+                            ...buildPayload(pasajeroData, pasajeroData, pasajeroData.estado as PositionState),
+                            pasajeroEmail: pasajeroData.email,
+                            pasajeroLat: pasajeroData.lat,
+                            pasajeroLng: pasajeroData.lng,
+                            isNewOffer: false,
+                            rehydrated: true
+                        });
+                        socket.emit("trip_status_update", {
+                            estado: pasajeroData.estado,
+                            pasajeroEmail: pasajeroData.email,
+                            rehydrated: true
+                        });
+                    } else {
+                        socket.emit("trip_status_update", {
+                            estado: miEstado.estado || POSITION_STATES.ACTIVO,
+                            rehydrated: true
+                        });
+                    }
+                }
+            } catch (err) {
+                logMotor("socket_rehydrate", `Error en rehidratación explícita para ${email}: ${err}`, "ERROR");
+            }
+        });
+
         socket.on("request_rehydrate", async (payload?: { requestId?: string }) => {
             try {
                 const requestId = payload?.requestId?.toString().trim();
@@ -524,10 +595,16 @@ export const initSocketEngine = (io: Server) => {
                 if (["encamino", "encurso", "asignado", "preasignado"].includes(checkActive.estado)) {
                     logMotor("socket_microdrop", `Conservando estado '${checkActive.estado}' para ${email} (microcorte)`, "INFO");
 
-                    // Solo limpiar socketId, mantener estado
                     await Position.updateOne(
                         { email },
-                        { $set: { socketId: null, updatedAt: new Date() } }
+                        {
+                            $set: {
+                                socketId: null,
+                                updatedAt: new Date(),
+                                estado: checkActive.estado,
+                                lastSeenAt: new Date()
+                            }
+                        }
                     );
 
                     // 🆕 Programar limpieza después de MICRODROP_TIMEOUT_MS
@@ -554,7 +631,8 @@ export const initSocketEngine = (io: Server) => {
                                             $set: {
                                                 estado: fallbackState,
                                                 socketId: null,
-                                                updatedAt: new Date()
+                                                updatedAt: new Date(),
+                                                lastSeenAt: new Date()
                                             }
                                         }
                                     );

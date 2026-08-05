@@ -540,7 +540,26 @@ else {
   useEffect(() => {
     if (!socket) return;
 
+    const handleTripDestinationUpdated = (data: any) => {
+      const passengerEmail = pasajeroAsignadoRef.current?.email?.toLowerCase().trim();
+      const incomingEmail = String(data?.pasajeroEmail || "").toLowerCase().trim();
+      if (incomingEmail && passengerEmail && incomingEmail !== passengerEmail) return;
+
+      setPasajeroAsignado((prev: Payload | null) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          destinationLat: data?.destinationLat ?? prev.destinationLat ?? null,
+          destinationLng: data?.destinationLng ?? prev.destinationLng ?? null,
+          destinationAddress: data?.destinationAddress ?? prev.destinationAddress ?? "Rumbo al destino...",
+        } as Payload;
+      });
+
+      setRutaDestinoFinal([]);
+    };
+
     socket.on("pasajero_asignado", handleAsignacion);
+    socket.on("trip_destination_updated", handleTripDestinationUpdated);
 
    // 1. 🏁 LISTENER DE CONFIRMACIÓN OFICIAL
 socket.on("assignment_confirmed", (data) => {
@@ -728,6 +747,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       socket.off("update_trip_path");
       socket.off("dispatch_timeout");
       socket.off("rehydrate_trip_result");
+      socket.off("trip_destination_updated");
       socket.off("trip_cancelled_by_passenger");
       socket.off("trip_finished");
     };

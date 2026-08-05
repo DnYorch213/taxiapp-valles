@@ -277,8 +277,12 @@ const PasajeroView: React.FC = () => {
 
       setDestinationLat(latNum);
       setDestinationLng(lngNum);
-      setDestinationAddress(match.display_name || cleanQuery);
-      setDestinationQuery(match.display_name || cleanQuery);
+      const nextAddress = match.display_name || cleanQuery;
+      setDestinationAddress(nextAddress);
+      setDestinationQuery(nextAddress);
+      if (estado === "encurso" || estado === "encamino" || estado === "asignado") {
+        actualizarDestinoEnServidor(latNum, lngNum, nextAddress);
+      }
       toast.success("Destino ubicado en el mapa.");
     } catch (error) {
       console.warn("Error buscando destino:", error);
@@ -312,11 +316,17 @@ const PasajeroView: React.FC = () => {
       const label = data.display_name || `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
       setDestinationAddress(label);
       setDestinationQuery(label);
+      if (estado === "encurso" || estado === "encamino" || estado === "asignado") {
+        actualizarDestinoEnServidor(lat, lng, label);
+      }
     } catch (error) {
       console.warn("Error resolviendo destino:", error);
       const label = `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
       setDestinationAddress(label);
       setDestinationQuery(label);
+      if (estado === "encurso" || estado === "encamino" || estado === "asignado") {
+        actualizarDestinoEnServidor(lat, lng, label);
+      }
     }
   }, []);
 
@@ -400,6 +410,23 @@ const PasajeroView: React.FC = () => {
   // ============================================================
   useEffect(() => {
     if (!socket) return;
+
+    const handleTripDestinationUpdated = (data: any) => {
+      const passengerEmail = userPositionRef.current?.email?.toLowerCase().trim();
+      const incomingEmail = String(data?.pasajeroEmail || "").toLowerCase().trim();
+      if (incomingEmail && passengerEmail && incomingEmail !== passengerEmail) return;
+
+      if (data?.destinationLat !== undefined && data?.destinationLat !== null) {
+        setDestinationLat(Number(data.destinationLat));
+      }
+      if (data?.destinationLng !== undefined && data?.destinationLng !== null) {
+        setDestinationLng(Number(data.destinationLng));
+      }
+      if (data?.destinationAddress) {
+        setDestinationAddress(String(data.destinationAddress));
+        setDestinationQuery(String(data.destinationAddress));
+      }
+    };
 
     // ACEPTACIÓN DEL TAXI (sin setTimeout innecesario)
     socket.on("response_from_taxi", (data) => {
@@ -496,6 +523,8 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 });
 
     // ACTUALIZACIÓN DE ESTADO DEL VIAJE
+    socket.on("trip_destination_updated", handleTripDestinationUpdated);
+
     socket.on("trip_status_update", (data: { estado: string; pasajeroEmail?: string }) => {
       const miEmail = userPositionRef.current?.email?.toLowerCase().trim();
       const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
@@ -616,6 +645,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       socket.off("taxi_moved");
       socket.off("update_trip_path");
       socket.off("response_from_taxi");
+      socket.off("trip_destination_updated");
       socket.off("trip_status_update");
       socket.off("trip_finished");
       socket.off("taxi_rejected_request");
@@ -656,6 +686,18 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   // ============================================================
   // SOLICITAR TAXI - CON FEEDBACK INMEDIATO
   // ============================================================
+  const actualizarDestinoEnServidor = useCallback((nextLat: number | null, nextLng: number | null, nextAddress?: string) => {
+    const passengerEmail = userPosition?.email?.toLowerCase().trim();
+    if (!passengerEmail || !socket.connected) return;
+
+    socket.emit("update_trip_destination", {
+      pasajeroEmail: passengerEmail,
+      destinationLat: nextLat,
+      destinationLng: nextLng,
+      destinationAddress: nextAddress ?? (destinationAddress || destinationQuery || "Destino no especificado"),
+    });
+  }, [destinationAddress, destinationQuery, userPosition?.email]);
+
   const solicitarTaxi = useCallback(() => {
     // Escudo anti-disparos
     if (["asignado", "encamino", "encurso", "buscando"].includes(estado)) {

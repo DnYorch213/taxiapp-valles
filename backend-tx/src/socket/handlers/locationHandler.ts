@@ -56,6 +56,54 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
         }
     });
 
+    socket.on("update_trip_destination", async (data: any) => {
+        try {
+            const passengerEmail = String(data?.pasajeroEmail || data?.email || "").toLowerCase().trim();
+            if (!passengerEmail) return;
+
+            const destinationLat = data?.destinationLat;
+            const destinationLng = data?.destinationLng;
+            const destinationAddress = data?.destinationAddress;
+
+            const passengerDoc = await Position.findOne({ email: passengerEmail, role: "pasajero" }).lean();
+            if (!passengerDoc) return;
+
+            const updatePayload: Record<string, any> = {
+                updatedAt: new Date(),
+            };
+
+            if (destinationLat !== undefined && destinationLat !== null) updatePayload.destinationLat = Number(destinationLat);
+            if (destinationLng !== undefined && destinationLng !== null) updatePayload.destinationLng = Number(destinationLng);
+            if (destinationAddress !== undefined) updatePayload.destinationAddress = String(destinationAddress);
+
+            const updatedPassenger = await Position.findOneAndUpdate(
+                { email: passengerEmail, role: "pasajero" },
+                { $set: updatePayload },
+                { upsert: true, returnDocument: "after" }
+            );
+
+            if (!updatedPassenger) return;
+
+            const payload = {
+                pasajeroEmail: passengerEmail,
+                destinationLat: updatedPassenger.destinationLat ?? null,
+                destinationLng: updatedPassenger.destinationLng ?? null,
+                destinationAddress: updatedPassenger.destinationAddress || "Destino no especificado",
+                timestamp: new Date().toISOString(),
+            };
+
+            socket.emit("trip_destination_updated", payload);
+
+            if (updatedPassenger.taxistaAsignado) {
+                io.to(updatedPassenger.taxistaAsignado.toLowerCase().trim()).emit("trip_destination_updated", payload);
+            }
+
+            io.emit("panel_update", buildPayload(updatedPassenger, updatedPassenger, updatedPassenger.estado));
+        } catch (error) {
+            logMotor("trip_destination", `Error al actualizar destino para viaje activo: ${error}`, "ERROR");
+        }
+    });
+
     socket.on("position", async (data: any) => {
         if (!data.email) return;
         try {
