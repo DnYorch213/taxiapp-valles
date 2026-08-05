@@ -253,6 +253,18 @@ const PasajeroView: React.FC = () => {
     setDestinationLng(userPosition?.lng ?? null);
   }, [userPosition?.lat, userPosition?.lng]);
 
+  const actualizarDestinoEnServidor = useCallback((nextLat: number | null, nextLng: number | null, nextAddress?: string) => {
+    const passengerEmail = userPosition?.email?.toLowerCase().trim();
+    if (!passengerEmail || !socket.connected) return;
+
+    socket.emit("update_trip_destination", {
+      pasajeroEmail: passengerEmail,
+      destinationLat: nextLat,
+      destinationLng: nextLng,
+      destinationAddress: nextAddress ?? (destinationAddress || destinationQuery || "Destino no especificado"),
+    });
+  }, [destinationAddress, destinationQuery, userPosition?.email]);
+
   const geocodificarDestino = useCallback(async (query: string) => {
     const cleanQuery = query.trim();
     if (!cleanQuery) {
@@ -302,7 +314,7 @@ const PasajeroView: React.FC = () => {
     } finally {
       setIsSearchingDestination(false);
     }
-  }, []);
+  }, [estado, actualizarDestinoEnServidor]);
 
   const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number) => {
     if (!isValidCoordinatePair(lat, lng)) {
@@ -340,7 +352,7 @@ const PasajeroView: React.FC = () => {
         actualizarDestinoEnServidor(lat, lng, label);
       }
     }
-  }, []);
+  }, [estado, actualizarDestinoEnServidor]);
 
   const clampBubbleX = useCallback((x: number) => {
     if (typeof window === "undefined") return x;
@@ -700,18 +712,6 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   // ============================================================
   // SOLICITAR TAXI - CON FEEDBACK INMEDIATO
   // ============================================================
-  const actualizarDestinoEnServidor = useCallback((nextLat: number | null, nextLng: number | null, nextAddress?: string) => {
-    const passengerEmail = userPosition?.email?.toLowerCase().trim();
-    if (!passengerEmail || !socket.connected) return;
-
-    socket.emit("update_trip_destination", {
-      pasajeroEmail: passengerEmail,
-      destinationLat: nextLat,
-      destinationLng: nextLng,
-      destinationAddress: nextAddress ?? (destinationAddress || destinationQuery || "Destino no especificado"),
-    });
-  }, [destinationAddress, destinationQuery, userPosition?.email]);
-
   const solicitarTaxi = useCallback(() => {
     // Escudo anti-disparos
     if (["asignado", "encamino", "encurso", "buscando"].includes(estado)) {
@@ -912,9 +912,9 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 <Marker
                   position={destinationPosition}
                   icon={destinationMarkerIcon}
-                  draggable={selectorDestinoAbierto}
+                  draggable={estado === "encurso" || selectorDestinoAbierto}
                   eventHandlers={
-                    selectorDestinoAbierto
+                    estado === "encurso" || selectorDestinoAbierto
                       ? {
                           dragend: (event) => {
                             const marker = event.target as L.Marker;
