@@ -82,6 +82,7 @@ const PasajeroView: React.FC = () => {
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
   const [geometriaRuta, setGeometriaRuta] = useState<L.LatLngExpression[]>([]);
   const [rutaDestinoPreview, setRutaDestinoPreview] = useState<L.LatLngExpression[]>([]);
+  const [rutaDestinoEnCurso, setRutaDestinoEnCurso] = useState<L.LatLngExpression[]>([]);
 
   // REFS CENTRALIZADAS - Evitan closures obsoletos en listeners
   const taxistaAsignadoRef = useRef<Payload | null>(null);
@@ -233,6 +234,20 @@ const PasajeroView: React.FC = () => {
     destinationPosition?.[0],
     destinationPosition?.[1],
   ]);
+
+  useEffect(() => {
+    if (estado !== "encurso") {
+      setRutaDestinoEnCurso([]);
+      return;
+    }
+
+    if (!destinationPosition || !taxiPos?.lat || !taxiPos?.lng) {
+      setRutaDestinoEnCurso([]);
+      return;
+    }
+
+    setRutaDestinoEnCurso([]);
+  }, [estado, destinationPosition?.[0], destinationPosition?.[1], taxiPos?.lat, taxiPos?.lng]);
 
   const limpiarDestino = useCallback(() => {
     setDestinationQuery("");
@@ -574,6 +589,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         setTaxiPos(null);
         setChatAbierto(false);
         setGeometriaRuta([]);
+        setRutaDestinoEnCurso([]);
         toast.success("¡Viaje finalizado!");
       }
     });
@@ -594,6 +610,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         setTaxiPos(null);
         setHistorialRuta([]);
         setGeometriaRuta([]);
+        setRutaDestinoEnCurso([]);
         setChatAbierto(false);
         toast.success("¡Viaje finalizado! Gracias por viajar con nosotros.", {
           position: "top-center",
@@ -752,6 +769,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     setTaxiPos(null);
     setHistorialRuta([]);
     setGeometriaRuta([]);
+    setRutaDestinoEnCurso([]);
     toast.info("Solicitud cancelada correctamente.");
   }, [userPosition?.email, taxistaAsignado?.email]);
 
@@ -981,10 +999,24 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 />
               )}
 
+              {estado === "encurso" && taxiPos?.lat && taxiPos?.lng && destinationPosition && rutaDestinoEnCurso.length === 0 && (
+                <Suspense fallback={null}>
+                  <RoutingMachine
+                    waypoints={[
+                      L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
+                      L.latLng(destinationPosition[0], destinationPosition[1]),
+                    ]}
+                    onRouteFound={(coords: L.LatLng[]) => {
+                      setRutaDestinoEnCurso(sanitizeRouteTail(coords));
+                    }}
+                  />
+                </Suspense>
+              )}
+
               {/* LÍNEA 3: Rumbo al destino */}
-              {estado === "encurso" && geometriaRuta.length > 0 && (
+              {estado === "encurso" && rutaDestinoEnCurso.length > 0 && (
                 <Polyline
-                  positions={geometriaRuta}
+                  positions={rutaDestinoEnCurso}
                   pathOptions={{ color: "#22c55e", weight: 4, lineJoin: "round" }}
                 />
               )}
