@@ -59,7 +59,6 @@ const sanitizeRouteTail = (coords: L.LatLng[]) => {
 const hasRealFinalDestination = (payload?: Partial<Payload> | null) => {
   if (!payload) return false;
 
-  const destinationAddress = String(payload.destinationAddress || "").trim().toLowerCase();
   const hasCoords =
     payload.destinationLat !== null &&
     payload.destinationLat !== undefined &&
@@ -70,13 +69,79 @@ const hasRealFinalDestination = (payload?: Partial<Payload> | null) => {
 
   if (!hasCoords) return false;
 
-  return ![
-    "",
-    "destino no especificado",
-    "calculando...",
-    "calculando ubicación...",
-    "rumbo al destino...",
-  ].includes(destinationAddress);
+  return true;
+};
+
+const formatShortAddress = (value?: string | null) => {
+  if (!value) return "Rumbo al destino...";
+
+  const raw = String(value).trim();
+  if (!raw) return "Rumbo al destino...";
+
+  const parts = raw
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) return "Rumbo al destino...";
+
+  const stateNames = new Set([
+    "aguascalientes",
+    "baja california",
+    "baja california sur",
+    "campeche",
+    "chiapas",
+    "chihuahua",
+    "ciudad de méxico",
+    "cdmx",
+    "coahuila",
+    "colima",
+    "durango",
+    "guanajuato",
+    "guerrero",
+    "hidalgo",
+    "jalisco",
+    "méxico",
+    "mexico",
+    "mex",
+    "michoacán",
+    "michoacan",
+    "morelos",
+    "nayarit",
+    "nuevo león",
+    "nuevo leon",
+    "oaxaca",
+    "puebla",
+    "querétaro",
+    "queretaro",
+    "quintana roo",
+    "san luis potosí",
+    "san luis potosi",
+    "slp",
+    "sinaloa",
+    "sonora",
+    "tabasco",
+    "tamaulipas",
+    "tlaxcala",
+    "veracruz",
+    "yucatán",
+    "yucatan",
+    "zacatecas",
+  ]);
+
+  const filtered = parts.filter((part) => {
+    const normalized = part.toLowerCase();
+    if (/^\d{5}(-\d{4})?$/.test(part)) return false;
+    if (stateNames.has(normalized)) return false;
+    if (["mexico", "méxico", "usa", "united states", "estados unidos"].includes(normalized)) return false;
+    return true;
+  });
+
+  if (filtered.length <= 3) {
+    return filtered.join(", ") || raw;
+  }
+
+  return filtered.slice(0, 3).join(", ");
 };
 
 const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ duration, onFinish }) => {
@@ -1014,6 +1079,15 @@ const finalizarViaje = () => {
     return null;
   }, [pasajeroAsignado, rutaDestinoFinal]);
 
+  const destinationRouteKey = useMemo(() => {
+    const destino = getDestinoFinalLatLng(pasajeroAsignado);
+    const origen = pasajeroAsignado?.lat && pasajeroAsignado?.lng
+      ? L.latLng(Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng))
+      : null;
+
+    return `${origen?.lat ?? "na"}-${origen?.lng ?? "na"}-${destino?.lat ?? "na"}-${destino?.lng ?? "na"}-${routeRefreshToken}`;
+  }, [pasajeroAsignado?.lat, pasajeroAsignado?.lng, pasajeroAsignado?.destinationLat, pasajeroAsignado?.destinationLng, routeRefreshToken]);
+
   const statusBadgeConfig = useMemo(() => {
     switch (estado) {
       case POSITION_STATES.ACTIVO:
@@ -1368,14 +1442,14 @@ return (
                 rutaDestinoFinal.length === 0 && (
                   <Suspense fallback={null}>
                     <RoutingMachine
-                      key={`${getDestinoFinalLatLng(pasajeroAsignado)?.lat ?? "na"}-${getDestinoFinalLatLng(pasajeroAsignado)?.lng ?? "na"}-${pasajeroAsignado?.lat ?? "na"}-${pasajeroAsignado?.lng ?? "na"}-${estado}-${routeRefreshToken}`}
+                      key={destinationRouteKey}
                       waypoints={[
                         L.latLng(Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng)),
                         getDestinoFinalLatLng(pasajeroAsignado) as L.LatLng,
                       ]}
-                      onRouteFound={(coords: L.LatLng[]) =>
-                        setRutaDestinoFinal((prev) => (prev.length > 0 ? prev : sanitizeRouteTail(coords)))
-                      }
+                      onRouteFound={(coords: L.LatLng[]) => {
+                        setRutaDestinoFinal((prev) => (prev.length > 0 ? prev : sanitizeRouteTail(coords)));
+                      }}
                     />
                   </Suspense>
                 )}
@@ -1570,10 +1644,10 @@ return (
                     <div className="address-marquee">
                       <div className="address-marquee-track">
                         <span>
-                          {pasajeroAsignado.destinationAddress || "Rumbo al destino..."}
+                          {formatShortAddress(pasajeroAsignado.destinationAddress)}
                         </span>
                         <span aria-hidden="true">
-                          {pasajeroAsignado.destinationAddress || "Rumbo al destino..."}
+                          {formatShortAddress(pasajeroAsignado.destinationAddress)}
                         </span>
                       </div>
                     </div>
