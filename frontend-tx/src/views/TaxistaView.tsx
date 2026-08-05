@@ -187,6 +187,7 @@ const TaxistaView: React.FC = () => {
   const [estado, setEstado] = useState<PositionState>(POSITION_STATES.ACTIVO);
   const [viajeSolicitado, setViajeSolicitado] = useState<Payload | null>(null);
   const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(null);
+  const [canRespondToOffer, setCanRespondToOffer] = useState(true);
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
   const [chatAbierto, setChatAbierto] = useState(false);
   const [unreadChatCount, setUnreadChatCount] = useState(0);
@@ -400,6 +401,7 @@ useEffect(() => {
       acceptanceTimerRef.current = null;
     }
     setIsAccepting(false);
+    setCanRespondToOffer(false);
     setViajeSolicitado(null);
     setPasajeroAsignado(null);
     setExcludedEmails([]);
@@ -409,6 +411,14 @@ useEffect(() => {
     setRutaDestinoFinal([]);
     setEstado(POSITION_STATES.ACTIVO);
   }, [detenerSonido]);
+
+  const expireOfferResponse = useCallback(() => {
+    if ([POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO].includes(estadoRef.current as any)) {
+      return;
+    }
+    setCanRespondToOffer(false);
+    resetSolicitudActiva();
+  }, [resetSolicitudActiva]);
 
   useEffect(() => {
     audioRef.current = new Audio("/sounds/alerta_taxi.mp3");
@@ -591,6 +601,8 @@ const handleAsignacion = useCallback((data: any) => {
     tripSessionActiveRef.current = true;
   }
 
+  setCanRespondToOffer(true);
+
   // Ignorar ofertas tardías cuando el viaje ya está confirmado o en curso.
   if (["encamino", "encurso"].includes(estadoActual)) {
     if (!actualAsignado || actualAsignado === incomingEmail) {
@@ -730,22 +742,21 @@ socket.on("assignment_confirmed", (data) => {
 
     
 // 🚩 AQUÍ PONES EL CANDADO DEL LADO DEL CLIENTE
-    socket.on("trip_already_taken", (data: { message: string }) => {
-        // 1. Avisamos al chofer con un mensaje claro
-        showToastOnce("taxista:trip-already-taken", () => {
-          toast.info(data.message, {
-              position: "top-center",
-              autoClose: 4000,
-              icon: <span>⏳</span>
-          });
-        }, { cooldownMs: 4000 });
+    const handleLateOffer = (data: { message?: string } = {}) => {
+      showToastOnce("taxista:trip-already-taken", () => {
+        toast.info(data.message || "El viaje ya fue tomado por otro conductor.", {
+            position: "top-center",
+            autoClose: 4000,
+            icon: <span>⏳</span>
+        });
+      }, { cooldownMs: 4000 });
 
-        // 2. IMPORTANTE: Limpiamos el estado para que la solicitud desaparezca
-        // y el taxista pueda recibir nuevas alertas de inmediato.
-        resetSolicitudActiva();
-        
-        // Si usas algún contador o sonido de alerta, deténlo aquí
-    });
+      setCanRespondToOffer(false);
+      resetSolicitudActiva();
+    };
+
+    socket.on("trip_already_taken", handleLateOffer);
+    socket.on("push_late", handleLateOffer);
 
 // 2. 🔄 LISTENER DE CAMBIO DE ESTADO (BLINDADO)
 socket.on("trip_status_update", (data: any) => {
@@ -873,6 +884,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     });
     socket.on("dispatch_revoked", (payload: any) => {
       console.warn("🛡️ Asignación revocada por el servidor:", payload);
+      setCanRespondToOffer(false);
       resetSolicitudActiva();
       showToastOnce("taxista:dispatch-revoked", () => {
         toast.info(payload?.message || "La asignación fue revocada.", {
@@ -932,6 +944,8 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       socket.off("update_trip_path");
       socket.off("dispatch_timeout");
       socket.off("dispatch_revoked");
+      socket.off("push_late");
+      socket.off("trip_already_taken");
       socket.off("rehydrate_trip_result");
       socket.off("trip_destination_updated");
       socket.off("trip_cancelled_by_passenger");
@@ -1017,7 +1031,7 @@ const aceptarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.Pointe
     event.stopPropagation();
   }
 
-  if (!tripSessionActiveRef.current || isAccepting || !pasajeroAsignado?.email) {
+  if (!tripSessionActiveRef.current || isAccepting || !canRespondToOffer || !pasajeroAsignado?.email) {
     if (!pasajeroAsignado?.email) {
       console.error("❌ Error: No hay email de pasajero para aceptar.");
     }
@@ -1047,7 +1061,7 @@ const aceptarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.Pointe
       acceptanceTimerRef.current = null;
       return;
     }
-    resetSolicitudActiva();
+    expireOfferResponse();
   }, 5000);
 };
 
@@ -1057,7 +1071,7 @@ const rechazarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.Point
     event.stopPropagation();
   }
 
-  if (!pasajeroAsignado?.email || isAccepting) return;
+  if (!pasajeroAsignado?.email || isAccepting || !canRespondToOffer) return;
 
   setIsAccepting(true);
   detenerSonido();
@@ -1409,8 +1423,8 @@ return (
         taxiPos?.lat ? (
           <div className="relative w-full h-full">
             
-           {/* 🚨 MODAL FLOTANTE DE ACCIÓN MEDIA-ALTA (SOLO CUANDO SE ASIGNA) */}
-{estado === "asignado" && pasajeroAsignado ? (
+           {/* 🚨 MODAL FLOTANTE DE ACCIÓN MEDIA-ALTA (SOLO CUANDO SE ASIGNA Y AÚN PUEDE RESPONDER) */}
+{estado === "asignado" && pasajeroAsignado && canRespondToOffer ? (
   <div className="absolute inset-x-0 top-6 mx-4 z-[4000] bg-slate-900/95 border-2 border-[#22c55e] rounded-[2.5rem] p-5 shadow-[0_15px_40px_rgba(0,0,0,0.6)] backdrop-blur-md animate-pulse-subtle">
         <div className="flex items-center gap-4 mb-3">
             <div className="w-12 h-12 rounded-2xl bg-[#22c55e] flex items-center justify-center text-2xl shadow-lg">⚡</div>
@@ -1433,7 +1447,7 @@ return (
 
                 {/* BARRA DE TIEMPO INCORPORADA */}
                 <div className="mb-4">
-                  <TimerBar duration={15000} onFinish={rechazarViaje} />
+                  <TimerBar duration={15000} onFinish={expireOfferResponse} />
                 </div>
 
                 {/* BOTÓN ERGONÓMICO GIGANTE PARA EL PULGAR */}
@@ -1442,10 +1456,10 @@ return (
                     type="button"
                     onPointerDown={(event) => aceptarViaje(event)}
                     onClick={(event) => aceptarViaje(event)}
-                    disabled={isAccepting}
+                    disabled={isAccepting || !canRespondToOffer}
                     className={`col-span-3 py-4 rounded-2xl font-black text-xl border-b-4 shadow-lg transition-all active:translate-y-1 ${
-                      isAccepting 
-                        ? "bg-gray-500 animate-pulse border-gray-700 text-white" 
+                      isAccepting || !canRespondToOffer
+                        ? "bg-gray-500 animate-pulse border-gray-700 text-white cursor-not-allowed" 
                         : "bg-[#22c55e] border-[#16a34a] text-[#0f172a] active:bg-[#16a34a]"
                     }`}
                   >
@@ -1455,8 +1469,8 @@ return (
                     type="button"
                     onPointerDown={(event) => rechazarViaje(event)}
                     onClick={(event) => rechazarViaje(event)}
-                    disabled={isAccepting}
-                    className={`col-span-2 py-4 rounded-2xl font-black text-xs uppercase tracking-widest active:translate-y-1 transition-all ${isAccepting ? "bg-slate-700 text-slate-500 cursor-not-allowed" : "bg-slate-800 border-b-4 border-slate-950 text-slate-400"}`}
+                    disabled={isAccepting || !canRespondToOffer}
+                    className={`col-span-2 py-4 rounded-2xl font-black text-xs uppercase tracking-widest active:translate-y-1 transition-all ${(isAccepting || !canRespondToOffer) ? "bg-slate-700 text-slate-500 cursor-not-allowed" : "bg-slate-800 border-b-4 border-slate-950 text-slate-400"}`}
                   >
                     Ignorar
                   </button>

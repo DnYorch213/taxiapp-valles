@@ -34,6 +34,9 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
             io.to(tEmail).emit("trip_already_taken", {
                 message: "El viaje ya fue tomado por otro conductor."
             });
+            io.to(tEmail).emit("push_late", {
+                message: "El viaje ya fue tomado por otro conductor."
+            });
             return res.status(200).json({ success: false, late: true, message: "Trip already assigned" });
         }
 
@@ -77,6 +80,9 @@ export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Re
 
         if (!pPosActualizado) {
             console.log(`🚫 PUSH LATE: El taxista ${tEmail} intentó aceptar pero el viaje ya fue tomado o cancelado.`);
+            io.to(tEmail).emit("push_late", {
+                message: "El viaje ya no está disponible o expiró."
+            });
             return res.status(410).json({ error: "El viaje ya no está disponible o expiró." });
         }
 
