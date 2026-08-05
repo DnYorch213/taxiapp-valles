@@ -212,6 +212,14 @@ const runDispatchWithRetry = async (
             return;
         }
 
+        // 🛡️ Si el pasajero ya no está buscando, liberar cualquier taxista que haya quedado retenido por esta solicitud.
+        if ([POSITION_STATES.CANCELADO, POSITION_STATES.FINALIZADO].includes(pStatusCheck.estado as any)) {
+            await Position.updateMany(
+                { role: "taxista", estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail },
+                { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } }
+            );
+        }
+
         if (attempt > MAX_RETRIES) {
             logMotor("dispatch_retry", `Pasajero=${pEmail} -> Límite alcanzado`, "ERROR");
             await Position.updateOne(

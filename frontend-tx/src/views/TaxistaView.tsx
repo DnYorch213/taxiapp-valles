@@ -232,17 +232,17 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
       const timeout = window.setTimeout(() => setGeometriaRuta([]), 300);
       return () => window.clearTimeout(timeout);
     }
-
-    if (estado === "encamino") {
-      return;
-    }
   }, [estado]);
 
   useEffect(() => {
+    if (estado === "encurso" && hasRealFinalDestination(pasajeroAsignado)) {
+      return;
+    }
+
     if (estado !== "encurso") {
       setRutaDestinoFinal([]);
     }
-  }, [estado]);
+  }, [estado, pasajeroAsignado]);
 
 // Sincronizador de referencia mutuable para hooks de hardware
 useEffect(() => {
@@ -821,6 +821,10 @@ socket.on("trip_status_update", (data: any) => {
         : "Pasajero a bordo",
       destinationAddress: data.destinationAddress || data.pasajeroAsignado?.destinationAddress || prev?.destinationAddress || "Rumbo al destino..."
     }));
+
+    if (hasRealFinalDestination(data.pasajeroAsignado || pasajeroAsignadoRef.current)) {
+      setRouteRefreshToken((prev) => prev + 1);
+    }
 
     showToastOnce("taxista:trip-started", () => {
       toast.info("¡Viaje iniciado! Rumbo al destino final.");

@@ -561,6 +561,12 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
                 await Position.updateOne(
                     { email: pEmail },
+                    { $set: { destinationLat: pActual.destinationLat, destinationLng: pActual.destinationLng, destinationAddress: pActual.destinationAddress, updatedAt: new Date() } },
+                    { session }
+                );
+
+                await Position.updateOne(
+                    { email: pEmail },
                     { $set: { estado: POSITION_STATES.ENCURSO, updatedAt: new Date() } },
                     { session }
                 );
