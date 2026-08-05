@@ -735,12 +735,16 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   setChatAbierto(false);
   setHistorialRuta([]); 
   setGeometriaRuta([]);
+  setRutaDestinoFinal([]);
   toast.success("¡Viaje finalizado!");
 
   // 3. 🕒 ESPERA DE CORTESÍA: Dejamos la info en pantalla 5 segundos
   setTimeout(() => {
     setEstado(POSITION_STATES.ACTIVO);
     setPasajeroAsignado(null);
+    setRutaDestinoFinal([]);
+    setGeometriaRuta([]);
+    setHistorialRuta([]);
   }, 5000); 
 });
 
@@ -1253,7 +1257,8 @@ return (
 
               {(estado === "encamino" || estado === "encurso") &&
                 hasRealFinalDestination(pasajeroAsignado) &&
-                getDestinoFinalLatLng(pasajeroAsignado) && (
+                getDestinoFinalLatLng(pasajeroAsignado) &&
+                rutaDestinoFinal.length === 0 && (
                   <Marker
                     position={getDestinoFinalLatLng(pasajeroAsignado)!}
                     icon={banderaIcon}
