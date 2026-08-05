@@ -36,6 +36,89 @@ const shouldPreserveStateOnDisconnect = (state: string | undefined, reason: stri
     return Boolean(state && PRESERVED_ON_DISCONNECT_STATES.has(state));
 };
 
+const ACTIVE_TRIP_STATES = new Set<string>([
+    POSITION_STATES.PREASIGNADO,
+    POSITION_STATES.ASIGNADO,
+    POSITION_STATES.ENCAMINO,
+    POSITION_STATES.ENCURSO
+]);
+
+const repairTripRelationForConnection = async (email: string, role: string) => {
+    const normalizedEmail = email?.toLowerCase().trim();
+    if (!normalizedEmail) return;
+
+    const accountDoc = await Position.findOne({ email: normalizedEmail, role }).lean();
+    if (!accountDoc) return;
+
+    if (role === "pasajero") {
+        const passengerDoc = await Position.findOne({ email: normalizedEmail, role: "pasajero" }).lean();
+        const assignedTaxi = passengerDoc?.taxistaAsignado?.toLowerCase().trim();
+
+        if (!assignedTaxi) return;
+
+        const taxiDoc = await Position.findOne({ email: assignedTaxi, role: "taxista" }).lean();
+        const hasActiveTrip = Boolean(passengerDoc && ACTIVE_TRIP_STATES.has(passengerDoc.estado));
+
+        if (!hasActiveTrip) {
+            await Position.updateOne(
+                { email: normalizedEmail, role: "pasajero" },
+                { $set: { taxistaAsignado: null, updatedAt: new Date() } }
+            );
+            if (taxiDoc) {
+                await Position.updateOne(
+                    { email: assignedTaxi, role: "taxista" },
+                    { $set: { pasajeroAsignado: null, estado: POSITION_STATES.ACTIVO, updatedAt: new Date() } }
+                );
+            }
+            return;
+        }
+
+        if (taxiDoc && taxiDoc.pasajeroAsignado?.toLowerCase().trim() !== normalizedEmail) {
+            const desiredTaxiState = passengerDoc?.estado === POSITION_STATES.ENCURSO
+                ? POSITION_STATES.ENCURSO
+                : POSITION_STATES.ENCAMINO;
+
+            await Position.updateOne(
+                { email: assignedTaxi, role: "taxista" },
+                { $set: { pasajeroAsignado: normalizedEmail, estado: desiredTaxiState, updatedAt: new Date() } }
+            );
+        }
+        return;
+    }
+
+    if (role === "taxista") {
+        const taxiDoc = await Position.findOne({ email: normalizedEmail, role: "taxista" }).lean();
+        const assignedPassenger = taxiDoc?.pasajeroAsignado?.toLowerCase().trim();
+
+        if (!assignedPassenger) return;
+
+        const passengerDoc = await Position.findOne({ email: assignedPassenger, role: "pasajero" }).lean();
+        const hasActiveTrip = Boolean(passengerDoc && ACTIVE_TRIP_STATES.has(passengerDoc.estado));
+        const passengerMatchesTaxi = passengerDoc?.taxistaAsignado?.toLowerCase().trim() === normalizedEmail;
+
+        if (!hasActiveTrip || !passengerMatchesTaxi) {
+            await Position.updateOne(
+                { email: normalizedEmail, role: "taxista" },
+                { $set: { pasajeroAsignado: null, estado: POSITION_STATES.ACTIVO, updatedAt: new Date() } }
+            );
+            if (passengerDoc) {
+                await Position.updateOne(
+                    { email: assignedPassenger, role: "pasajero" },
+                    { $set: { taxistaAsignado: null, updatedAt: new Date() } }
+                );
+            }
+            return;
+        }
+
+        if (taxiDoc?.pasajeroAsignado?.toLowerCase().trim() !== assignedPassenger) {
+            await Position.updateOne(
+                { email: normalizedEmail, role: "taxista" },
+                { $set: { pasajeroAsignado: assignedPassenger, updatedAt: new Date() } }
+            );
+        }
+    }
+};
+
 // 🆕 Mapa de conexiones activas por email (para rate limiting)
 const activeConnections = new Map<string, Set<string>>();
 
@@ -147,6 +230,8 @@ export const initSocketEngine = (io: Server) => {
             // ============================================================
             // 🎯 4. CALCULAR ESTADO INICIAL CORRECTO
             // ============================================================
+
+            await repairTripRelationForConnection(email, role);
 
             // 🆕 Buscar viaje activo filtrando por rol y relación real
             const activeStates = {

@@ -213,6 +213,8 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   const estadoRef = useRef(estado);
   const pasajeroAsignadoRef = useRef<Payload | null>(null);
   const taxiPosRef = useRef(taxiPos);
+  const tripSessionActiveRef = useRef(false);
+  const acceptanceTimerRef = useRef<number | null>(null);
   const answeredOfferRequestIdsRef = useRef(new Set<string>());
   const pushRehydrateRef = useRef<{ pasajero: string | null; taxista: string | null; requestId: string | null; autoAccept: boolean }>({
     pasajero: null,
@@ -392,11 +394,17 @@ useEffect(() => {
 
   const resetSolicitudActiva = useCallback(() => {
     detenerSonido();
+    tripSessionActiveRef.current = false;
+    if (acceptanceTimerRef.current) {
+      window.clearTimeout(acceptanceTimerRef.current);
+      acceptanceTimerRef.current = null;
+    }
     setIsAccepting(false);
     setViajeSolicitado(null);
     setPasajeroAsignado(null);
     setExcludedEmails([]);
     setChatAbierto(false);
+    setHistorialRuta([]);
     setGeometriaRuta([]);
     setRutaDestinoFinal([]);
     setEstado(POSITION_STATES.ACTIVO);
@@ -408,7 +416,13 @@ useEffect(() => {
       audioRef.current.loop = true;
       audioRef.current.load();
     }
-    return () => detenerSonido();
+    return () => {
+      if (acceptanceTimerRef.current) {
+        window.clearTimeout(acceptanceTimerRef.current);
+        acceptanceTimerRef.current = null;
+      }
+      detenerSonido();
+    };
   }, [detenerSonido]);
 
 // --- 🛰️ GEOLOCALIZACIÓN OPTIMIZADA Y BLINDADA CON HEADING REAL (TAXISTA) ---
@@ -575,6 +589,10 @@ const handleAsignacion = useCallback((data: any) => {
     return;
   }
 
+  if (!tripSessionActiveRef.current && !["encamino", "encurso"].includes(estadoActual)) {
+    tripSessionActiveRef.current = true;
+  }
+
   // Ignorar ofertas tardías cuando el viaje ya está confirmado o en curso.
   if (["encamino", "encurso"].includes(estadoActual)) {
     if (!actualAsignado || actualAsignado === incomingEmail) {
@@ -674,6 +692,11 @@ else {
 
    // 1. 🏁 LISTENER DE CONFIRMACIÓN OFICIAL
 socket.on("assignment_confirmed", (data) => {
+  if (!tripSessionActiveRef.current) {
+    console.warn("🛡️ assignment_confirmed ignorado: la sesión local ya fue cerrada.");
+    return;
+  }
+
   if (data.success) {
     console.log("✅ Confirmación recibida del servidor:", data);
     setEstado(POSITION_STATES.ENCAMINO); 
@@ -731,6 +754,11 @@ socket.on("trip_status_update", (data: any) => {
   console.log("🔄 [Socket Test] Cambio de estado recibido:", data);
 
   const nextEstado = String(data.estado || "").toLowerCase().trim();
+  if (!tripSessionActiveRef.current && ["encamino", "encurso", "asignado"].includes(nextEstado)) {
+    console.warn("🛡️ trip_status_update ignorado: la sesión local ya fue cerrada.", { nextEstado });
+    return;
+  }
+
   if (!shouldAcceptStateTransition(estadoRef.current, nextEstado)) {
     console.warn("🛡️ Estado del taxista ignorado por guard de sincronización:", { current: estadoRef.current, next: nextEstado });
     return;
@@ -832,17 +860,16 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       resetSolicitudActiva();
     });
     socket.on("trip_cancelled_by_passenger", () => {
-      detenerSonido();
-      setPasajeroAsignado(null);
-      setEstado(POSITION_STATES.ACTIVO);
-      setChatAbierto(false);
-      setIsAccepting(false);
-      setHistorialRuta([]); // Limpiar rastro
-      setGeometriaRuta([]); // Limpiar polyline
+      resetSolicitudActiva();
     });
 
    socket.on("trip_finished", (payload) => {
    detenerSonido();  
+   tripSessionActiveRef.current = false;
+   if (acceptanceTimerRef.current) {
+     window.clearTimeout(acceptanceTimerRef.current);
+     acceptanceTimerRef.current = null;
+   }
   // 1. Actualizamos los datos del pasajero con la dirección que viene del server
   if (payload?.destinationAddress) {
     setPasajeroAsignado((prev: any) => ({
@@ -964,7 +991,7 @@ const aceptarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.Pointe
     event.stopPropagation();
   }
 
-  if (isAccepting || !pasajeroAsignado?.email) {
+  if (!tripSessionActiveRef.current || isAccepting || !pasajeroAsignado?.email) {
     if (!pasajeroAsignado?.email) {
       console.error("❌ Error: No hay email de pasajero para aceptar.");
     }
@@ -972,6 +999,7 @@ const aceptarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.Pointe
   }
 
   setIsAccepting(true);
+  tripSessionActiveRef.current = true;
   detenerSonido();
 
   if (pasajeroAsignado?.requestId) {
@@ -985,8 +1013,15 @@ const aceptarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.Pointe
     excludedEmails 
   });
 
-  window.setTimeout(() => {
-    setIsAccepting(false);
+  if (acceptanceTimerRef.current) {
+    window.clearTimeout(acceptanceTimerRef.current);
+  }
+  acceptanceTimerRef.current = window.setTimeout(() => {
+    if ([POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO].includes(estadoRef.current as any)) {
+      acceptanceTimerRef.current = null;
+      return;
+    }
+    resetSolicitudActiva();
   }, 5000);
 };
 
@@ -1008,12 +1043,7 @@ const rechazarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.Point
     accepted: false, 
     excludedEmails 
   });
-  setPasajeroAsignado(null);
-  setEstado(POSITION_STATES.ACTIVO);
-  setViajeSolicitado(null);
-  setExcludedEmails([]);
-  setGeometriaRuta([]);
-  setRutaDestinoFinal([]);
+  resetSolicitudActiva();
 
   window.setTimeout(() => setIsAccepting(false), 250);
 };
@@ -1022,8 +1052,8 @@ const confirmarAbordo = () => {
   const tEmail = userPosition?.email || localStorage.getItem("email");
   const pEmail = pasajeroAsignado?.email;
 
-  if (!tEmail || !pEmail) {
-    toast.error("Datos de viaje incompletos");
+  if (!tripSessionActiveRef.current || !tEmail || !pEmail) {
+    toast.error("No hay un viaje activo para confirmar.");
     return;
   }
 
@@ -1046,9 +1076,8 @@ const finalizarViaje = () => {
   const tEmail = userPosition?.email || localStorage.getItem("email");
   const pEmail = pasajeroAsignado?.email;
 
-  if (!tEmail || !pEmail) {
-    setEstado(POSITION_STATES.ACTIVO);
-    setPasajeroAsignado(null);
+  if (!tripSessionActiveRef.current || !tEmail || !pEmail) {
+    resetSolicitudActiva();
     return;
   }
 
