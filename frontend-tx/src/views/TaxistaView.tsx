@@ -871,6 +871,16 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       }
       resetSolicitudActiva();
     });
+    socket.on("dispatch_revoked", (payload: any) => {
+      console.warn("🛡️ Asignación revocada por el servidor:", payload);
+      resetSolicitudActiva();
+      showToastOnce("taxista:dispatch-revoked", () => {
+        toast.info(payload?.message || "La asignación fue revocada.", {
+          position: "top-center",
+          autoClose: 4000,
+        });
+      }, { cooldownMs: 4000 });
+    });
     socket.on("trip_cancelled_by_passenger", () => {
       resetSolicitudActiva();
       showToastOnce("taxista:trip-cancelled", () => {
@@ -921,6 +931,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       socket.off("trip_status_update");
       socket.off("update_trip_path");
       socket.off("dispatch_timeout");
+      socket.off("dispatch_revoked");
       socket.off("rehydrate_trip_result");
       socket.off("trip_destination_updated");
       socket.off("trip_cancelled_by_passenger");
