@@ -521,8 +521,6 @@ useGeolocation(
     if (!miEmail || !miRole) return;
 
     if ([POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO].includes(estadoRef.current as any)) {
-      setGeometriaRuta([]);
-      setRutaDestinoFinal([]);
       setRouteRefreshToken((prev) => prev + 1);
     }
 
@@ -800,10 +798,9 @@ socket.on("trip_status_update", (data: any) => {
       ? getDestinoFinalLatLng(pasajeroConDestinoReal)
       : null;
 
-    // Mantener la ruta final estable al pasar a curso para evitar parpadeo visual.
-    setGeometriaRuta([]);
+    // Mantener la ruta previa visible mientras llega la nueva ruta al destino.
     if (!destinoFinal) {
-      setRutaDestinoFinal([]);
+      setRouteRefreshToken((prev) => prev + 1);
     }
 
     setPasajeroAsignado((prev: any) => ({
@@ -843,13 +840,28 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
     // 🚩 Listener de rehidratación
   socket.on("rehydrate_trip_result", (data) => {
-    if (data.success) {
-      setEstado(data.estado); 
-      setPasajeroAsignado(data.pasajero);
-      showToastOnce("taxista:rehydrated", () => {
-        toast.success("¡Viaje rehidratado con éxito!");
-      }, { cooldownMs: 4000 });
+    if (!data?.success) {
+      resetSolicitudActiva();
+      return;
     }
+
+    const nextState = String(data?.estado || "").toLowerCase().trim();
+    const isInactiveTrip = ["activo", "pendiente", "buscando", "cancelado", "finalizado"].includes(nextState);
+
+    if (isInactiveTrip || !data?.pasajero) {
+      resetSolicitudActiva();
+      showToastOnce("taxista:rehydrated-cancelled", () => {
+        toast.info("La solicitud ya no está activa. Quedaste disponible.");
+      }, { cooldownMs: 4000 });
+      return;
+    }
+
+    setEstado(nextState as any);
+    setPasajeroAsignado(data.pasajero);
+    tripSessionActiveRef.current = true;
+    showToastOnce("taxista:rehydrated", () => {
+      toast.success("¡Viaje rehidratado con éxito!");
+    }, { cooldownMs: 4000 });
   });
 
     socket.on("dispatch_timeout", () => {
@@ -861,6 +873,9 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     });
     socket.on("trip_cancelled_by_passenger", () => {
       resetSolicitudActiva();
+      showToastOnce("taxista:trip-cancelled", () => {
+        toast.info("El pasajero canceló la solicitud.");
+      }, { cooldownMs: 4000 });
     });
 
    socket.on("trip_finished", (payload) => {
@@ -1454,9 +1469,9 @@ return (
                       L.latLng(taxiPos.lat, taxiPos.lng),
                       L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng)
                     ]}
-                    onRouteFound={(coords: L.LatLng[]) =>
-                      setGeometriaRuta((prev) => (prev.length > 0 ? prev : sanitizeRouteTail(coords)))
-                    }
+                    onRouteFound={(coords: L.LatLng[]) => {
+                      setGeometriaRuta(sanitizeRouteTail(coords));
+                    }}
                   />
                 </Suspense>
               )}
@@ -1491,7 +1506,7 @@ return (
                         getDestinoFinalLatLng(pasajeroAsignado) as L.LatLng,
                       ]}
                       onRouteFound={(coords: L.LatLng[]) => {
-                        setRutaDestinoFinal((prev) => (prev.length > 0 ? prev : sanitizeRouteTail(coords)));
+                        setRutaDestinoFinal(sanitizeRouteTail(coords));
                       }}
                     />
                   </Suspense>
