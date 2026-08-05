@@ -489,15 +489,20 @@ const handleAsignacion = useCallback((data: any) => {
     // 2. ACTUALIZACIÓN DE ESTADOS
     // Limpiamos el email por si trae la "k" extra o espacios
     const pEmail = incomingEmail;
-setPasajeroAsignado({ 
-  ...rawData, 
-  email: pEmail, 
-  attempt: data.attempt,
-  pasajeroEmail: rawData.pasajeroEmail || pEmail,
-  pasajeroLat: rawData.pasajeroLat || rawData.lat,
-  pasajeroLng: rawData.pasajeroLng || rawData.lng,
-  distancia: rawData.distancia || null
- });
+    setPasajeroAsignado((prev: any) => ({ 
+      ...prev,
+      ...rawData, 
+      email: pEmail, 
+      attempt: data.attempt,
+      pasajeroEmail: rawData.pasajeroEmail || pEmail,
+      pasajeroLat: rawData.pasajeroLat || rawData.lat,
+      pasajeroLng: rawData.pasajeroLng || rawData.lng,
+      distancia: rawData.distancia || null,
+      destinationLat: rawData.destinationLat ?? prev?.destinationLat ?? null,
+      destinationLng: rawData.destinationLng ?? prev?.destinationLng ?? null,
+      destinationAddress: rawData.destinationAddress ?? prev?.destinationAddress ?? "Rumbo al destino...",
+      pickupAddress: rawData.pickupAddress || prev?.pickupAddress || "Calculando ubicación..."
+    }));
     setExcludedEmails(data.excludedEmails || []);
     
     const estadoServidor = rawData.estado?.toLowerCase().trim();
@@ -1224,6 +1229,17 @@ return (
                 </Suspense>
               )}
 
+              {(estado === "encamino" || estado === "encurso") &&
+                hasRealFinalDestination(pasajeroAsignado) &&
+                getDestinoFinalLatLng(pasajeroAsignado) && (
+                  <Marker
+                    position={getDestinoFinalLatLng(pasajeroAsignado)!}
+                    icon={banderaIcon}
+                  >
+                    <Popup>Destino del pasajero</Popup>
+                  </Marker>
+                )}
+
               {estado === "encamino" && geometriaRuta.length > 0 && (
                 <Polyline positions={geometriaRuta} pathOptions={{ color: 'rgb(245, 33, 65)', weight: 4, lineJoin: 'round' }} />
               )}
@@ -1431,23 +1447,19 @@ return (
               </div>
 
               <div className={isCompactTripPanel ? "p-2 rounded-xl flex items-start gap-2 bg-white/5" : "p-3 rounded-2xl flex items-start gap-3 bg-white/5"}>
-                <span className={isCompactTripPanel ? "text-base" : "text-xl"}>{estado === "encurso" ? "🚖" : "📍"}</span>
+                <span className={isCompactTripPanel ? "text-base" : "text-xl"}>{estado === "encurso" || (estado === "encamino" && hasRealFinalDestination(pasajeroAsignado)) ? "🚖" : "📍"}</span>
                 <div className="flex flex-col min-w-0 flex-1">
                   <span className={isCompactTripPanel ? "text-[8px] font-black uppercase tracking-widest text-slate-400" : "text-[9px] font-black uppercase tracking-widest text-slate-400"}>
-                    {estado === "encurso" ? "Destino:" : "Punto de recogida:"}
+                    {estado === "encurso" || (estado === "encamino" && hasRealFinalDestination(pasajeroAsignado)) ? "Destino:" : "Punto de recogida:"}
                   </span>
-                  {estado === "encurso" || estado === "encamino" ? (
+                  {estado === "encurso" || (estado === "encamino" && hasRealFinalDestination(pasajeroAsignado)) ? (
                     <div className="address-marquee">
                       <div className="address-marquee-track">
                         <span>
-                          {estado === "encurso"
-                            ? (pasajeroAsignado.destinationAddress || "Rumbo al destino...")
-                            : (pasajeroAsignado.pickupAddress || "Calculando ubicación...")}
+                          {pasajeroAsignado.destinationAddress || "Rumbo al destino..."}
                         </span>
                         <span aria-hidden="true">
-                          {estado === "encurso"
-                            ? (pasajeroAsignado.destinationAddress || "Rumbo al destino...")
-                            : (pasajeroAsignado.pickupAddress || "Calculando ubicación...")}
+                          {pasajeroAsignado.destinationAddress || "Rumbo al destino..."}
                         </span>
                       </div>
                     </div>
