@@ -149,7 +149,7 @@ export const unlockDispatchCycle = (requestId: string) => {
 export const clearDispatchCycle = (requestId: string, reason: string) => {
     clearRequestTimeouts(requestId, reason);
     requestAttemptTokens.delete(requestId);
-    unlockDispatchCycle(requestId); // 🔓 Aquí es donde se debe liberar el candado de forma segura
+    unlockDispatchCycle(requestId); // 🔓 Liberación segura del candado
 };
 
 // 🆕 Calcular timeout dinámico basado en distancia
@@ -157,10 +157,6 @@ const calculateDynamicTimeout = (distanciaKm: number): number => {
     const timeout = BASE_TIMEOUT_MS + (distanciaKm * TIMEOUT_PER_KM_MS);
     return Math.min(timeout, MAX_TIMEOUT_MS);
 };
-
-// ... (Tus imports y variables superiores se mantienen igual)
-
-// Al inicio de tu archivo, añadimos un mapa de tokens por request para validar hilos legítimos
 
 const runDispatchWithRetry = async (
     io: Server,
@@ -182,7 +178,7 @@ const runDispatchWithRetry = async (
         return;
     }
 
-    // Generamos un token único para ESTA iteración/intento específico
+    // Token único para ESTA iteración específica
     const currentAttemptToken = `${reqId}_v${attempt}_${Date.now()}`;
     requestAttemptTokens.set(reqId, currentAttemptToken);
 
@@ -212,7 +208,7 @@ const runDispatchWithRetry = async (
             return;
         }
 
-        // 🛡️ Si el pasajero ya no está buscando, liberar cualquier taxista que haya quedado retenido por esta solicitud.
+        // 🛡️ Si el pasajero ya no está buscando, liberar cualquier taxista que haya quedado retenido
         if ([POSITION_STATES.CANCELADO, POSITION_STATES.FINALIZADO].includes(pStatusCheck.estado as any)) {
             await Position.updateMany(
                 { role: "taxista", estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail },
@@ -316,7 +312,6 @@ const runDispatchWithRetry = async (
                 session.endSession();
                 logMotor("dispatch_retry", `Pasajero=${pEmail} Taxista=${tEmail} -> Ya no está activo, reintentando de inmediato...`, "WARN");
 
-                // Si el token cambió en estos milisegundos, abortamos recursión
                 if (requestAttemptTokens.get(reqId) !== currentAttemptToken) return;
 
                 await runDispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt);
@@ -334,7 +329,6 @@ const runDispatchWithRetry = async (
             );
 
             if (!pasajeroPreasignado.modifiedCount) {
-                // Rollback manual del taxista si el pasajero cambió de estado en el inter
                 await Position.updateOne(
                     { email: tEmail, estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail },
                     { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } },
@@ -390,8 +384,6 @@ const runDispatchWithRetry = async (
 
         const timeout = setTimeout(async () => {
             try {
-                // 🛡️ SEGURIDAD ULTRA: Si este timeout despertó, pero el token del request ya es otro,
-                // significa que este intento fue cancelado o superado por un rechazo manual. ¡Autodestruirse!
                 if (requestAttemptTokens.get(reqId) !== currentAttemptToken) {
                     logMotor("dispatch_timeout", `Fuga evitada: Ignorando timeout antiguo para ${tEmail}. Hilo obsoleto.`, "INFO");
                     return;
@@ -423,22 +415,29 @@ const runDispatchWithRetry = async (
 
                 logMotor("dispatch_timeout", `Pasajero=${pEmail} Taxista=${tEmail} Intento=${attempt} -> No respondió, aplicando fallback...`, "INFO");
 
-                // Liberar unidad inactiva
+                // 🚨 1. LIBERAR ESTADO DE TAXISTA INACTIVO EN BASE DE DATOS
                 await Position.updateOne(
                     { email: tEmail, estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail },
                     { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } }
                 );
 
-                io.to(tEmail).emit("dispatch_timeout");
+                // 🚨 2. EMITIR EVENTO CON STRUCT DE DATOS COMPLETO AL TAXISTA
+                io.to(tEmail).emit("dispatch_timeout", {
+                    message: "El tiempo para responder la solicitud ha expirado",
+                    requestId: reqId,
+                    estado: POSITION_STATES.ACTIVO
+                });
 
+                // RESTAURAR ESTADO DEL PASAJERO A BUSCANDO EN BD
                 await Position.updateOne(
                     { email: pEmail, estado: POSITION_STATES.PREASIGNADO, taxistaAsignado: tEmail },
                     { $set: { estado: POSITION_STATES.BUSCANDO, taxistaAsignado: null, updatedAt: new Date() } }
                 );
 
-                io.emit("panel_update", { email: tEmail, estado: POSITION_STATES.ACTIVO });
+                // 🚨 3. EMITIR ACTUALIZACIÓN GLOBAL AL PANEL LIMPIANDO AL TAXISTA
+                io.emit("panel_update", { email: tEmail, estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null });
 
-                // Rompemos el ciclo viejo y damos paso al siguiente intento
+                // Romper el ciclo viejo y dar paso al siguiente intento
                 clearDispatchCycle(reqId, "Relanzando siguiente conductor por inactividad");
                 await runDispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt + 1);
 

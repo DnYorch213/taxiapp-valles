@@ -233,40 +233,62 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
     });
 
     // ============================================================
-    // 🎯 RESPUESTA DEL TAXI - CON VALIDACIÓN DE AUTORIZACIÓN
+    // 🎯 RESPUESTA DEL TAXI - CON MANEJO DE DESFASE Y RECHAZOS TARDIOS
     // ============================================================
     socket.on("taxi_response", async ({ requestEmail, accepted, excludedEmails = [] }) => {
-        const tEmail = email; // Email del taxista dueño de este socket
+        const tEmail = email; // Email del taxista asignado a este socket
         const pEmail = requestEmail?.toLowerCase().trim();
 
         if (!tEmail || !pEmail) return;
 
-        // 🛡️ VALIDACIÓN: El socket debe ser del taxista que responde
+        // 🛡️ 1. CONSULTAR ESTADOS EN BASE DE DATOS
         const pasajero = await Position.findOne({ email: pEmail });
+        const miPosicionTaxista = await Position.findOne({ email: tEmail });
+
+        // 🚨 2. MANEJO DE RESPUESTA TARDÍA O DESFASE (Cuando ya no está asignado)
         if (pasajero?.taxistaAsignado !== tEmail) {
-            logMotor("taxi_response", `⚠️ Taxista ${tEmail} intentó responder sin estar asignado al pasajero ${pEmail}`, "WARN");
+            logMotor("taxi_response", `⚠️ Taxista ${tEmail} respondió para ${pEmail}, pero ya no está asignado`, "WARN");
+
+            // A) Asegurar que el taxista quede liberado en la BD si estaba atrapado
+            await Position.updateOne(
+                { email: tEmail },
+                { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } }
+            );
+
+            // B) Notificar a la app del taxista para que cierre inmediatamente la alerta/modal
+            io.to(tEmail).emit("reset_estado_taxista", {
+                message: "La solicitud expiró o fue asignada a otro conductor.",
+                estado: POSITION_STATES.ACTIVO
+            });
+
+            // C) Actualizar el panel administrativo
+            if (miPosicionTaxista) {
+                io.emit("panel_update", buildPayload(miPosicionTaxista, miPosicionTaxista, POSITION_STATES.ACTIVO, {
+                    pasajeroAsignado: null
+                }));
+            }
             return;
         }
-
 
         // 🎯 LIMPIEZA PREVENTIVA: Cancelar timeout del pasajero
         if (getActiveRequestIdForPassenger(pEmail)) {
             clearPendingTimeouts(pEmail, "respuesta del taxi");
-            logMotor("taxi_response", `Pasajero=${pEmail} -> Timeout cancelado`, "INFO");
+            logMotor("taxi_response", `Pasajero=${pEmail} -> Timeout cancelado por respuesta`, "INFO");
         }
 
-        // 🚨 CASO: TAXISTA RECHAZA
+        // 🚨 3. CASO: TAXISTA RECHAZA / IGNORA
         if (!accepted) {
-            const passengerDoc = await Position.findOne({ email: pEmail }).lean();
-            if (passengerDoc?.requestId) {
-                registerTaxiResponseForRequest(passengerDoc.requestId, tEmail);
+            if (pasajero?.requestId) {
+                registerTaxiResponseForRequest(pasajero.requestId, tEmail);
             }
 
+            // Liberar al taxista
             await Position.updateOne(
                 { email: tEmail },
-                { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null } }
+                { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } }
             );
 
+            // Volver a poner al pasajero en estado BUSCANDO
             await Position.updateOne(
                 {
                     email: pEmail,
@@ -281,10 +303,17 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 }
             );
 
+            // 🟢 CONFIRMAR LIMPIEZA A LA APP DEL TAXISTA
+            io.to(tEmail).emit("reset_estado_taxista", {
+                message: "Solicitud rechazada/ignorada correctamente.",
+                estado: POSITION_STATES.ACTIVO
+            });
+
             const tPos = await Position.findOne({ email: tEmail });
-            io.emit("panel_update", buildPayload(tPos, tPos, POSITION_STATES.ACTIVO));
+            io.emit("panel_update", buildPayload(tPos, tPos, POSITION_STATES.ACTIVO, { pasajeroAsignado: null }));
             io.to(pEmail).emit("taxi_rejected_request");
 
+            // Relanzar el motor de búsqueda para el siguiente taxista
             const pData = await Position.findOne({ email: pEmail });
             if (pData) {
                 dispatchWithRetry(io, pData, [...excludedEmails, tEmail], 1);
@@ -292,27 +321,29 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             return;
         }
 
-        // 🚖 CASO: TAXISTA ACEPTA
+        // 🚖 4. CASO: TAXISTA ACEPTA
         try {
+            // Validar que el pasajero siga disponible
+            if (!pasajero || pasajero.estado === POSITION_STATES.CANCELADO) {
+                // Liberar al taxista si el pasajero canceló
+                await Position.updateOne(
+                    { email: tEmail },
+                    { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } }
+                );
 
-            // 🛡️ VALIDAR QUE EL PASAJERO NO ESTÉ CANCELADO
-            const pPos = await Position.findOne({ email: pEmail });
-            if (!pPos || pPos.estado === POSITION_STATES.CANCELADO) {
-                return io.to(tEmail).emit("trip_already_taken", {
+                io.to(tEmail).emit("trip_already_taken", {
                     message: "El pasajero canceló la solicitud."
                 });
+
+                io.to(tEmail).emit("reset_estado_taxista", { estado: POSITION_STATES.ACTIVO });
+                return;
             }
 
-            if (pPos.requestId) {
-                registerTaxiResponseForRequest(pPos.requestId, tEmail);
+            if (pasajero.requestId) {
+                registerTaxiResponseForRequest(pasajero.requestId, tEmail);
             }
 
-            if (!pPos || pPos.estado === POSITION_STATES.CANCELADO) {
-                return io.to(tEmail).emit("trip_already_taken", {
-                    message: "El pasajero canceló la solicitud."
-                });
-            }
-            // 🎯 TRANSACCIÓN ATÓMICA para asignar viaje
+            // 🎯 TRANSACCIÓN ATÓMICA
             const session = await Position.startSession();
             session.startTransaction();
 
@@ -342,9 +373,19 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 if (!pPosActualizado) {
                     await session.abortTransaction();
                     session.endSession();
-                    return io.to(tEmail).emit("trip_already_taken", {
+
+                    // Liberar al taxista
+                    await Position.updateOne(
+                        { email: tEmail },
+                        { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } }
+                    );
+
+                    io.to(tEmail).emit("trip_already_taken", {
                         message: "¡Lo sentimos! Solicitud expirada o tomada por otro compañero."
                     });
+
+                    io.to(tEmail).emit("reset_estado_taxista", { estado: POSITION_STATES.ACTIVO });
+                    return;
                 }
 
                 // Actualizar taxista a ENCAMINO
@@ -363,21 +404,18 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 await session.commitTransaction();
                 session.endSession();
 
-                // 🛡️ Candado: cerrar la solicitud para evitar más reintentos
+                // 🛡️ Candados y limpiezas finales
                 if (pPosActualizado?.requestId) {
                     clearDispatchCycle(pPosActualizado.requestId, "viaje aceptado");
                     clearTaxiResponseRegistry(pPosActualizado.requestId);
                     clearPassengerRequestBinding(pEmail);
                 }
 
+                clearPendingTimeouts(pEmail, "aceptación exitosa");
 
-                // 🎯 LIMPIEZA EXTREMA: Matar cualquier timeout residual
-                clearPendingTimeouts(pEmail, "aceptación push");
-
-                // Obtener datos frescos
                 const tPos = await Position.findOne({ email: tEmail });
 
-                // 🚀 EMITIR EVENTOS
+                // 🚀 EMITIR EVENTOS DE ÉXITO
                 io.to(pEmail).emit("response_from_taxi", {
                     accepted: true,
                     tEmail,
@@ -405,7 +443,6 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                     pasajero: buildPayload(pPosActualizado, pPosActualizado, POSITION_STATES.ENCAMINO)
                 });
 
-                // 🎯 EMITIR ESTADO CORRECTO (asignado primero, luego encamino)
                 io.to(pEmail).emit("trip_status_update", {
                     estado: POSITION_STATES.ASIGNADO,
                     pasajeroEmail: pEmail
@@ -415,7 +452,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                     estado: POSITION_STATES.ENCAMINO
                 });
 
-                // Actualizar paneles
+                // Actualizar paneles administrativos
                 io.emit("panel_update", buildPayload(tPos, tPos, POSITION_STATES.ENCAMINO, {
                     pasajeroAsignado: pEmail
                 }));
@@ -430,33 +467,12 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             }
 
         } catch (error) {
-            logMotor("taxi_response",
-                `Error al asignar viaje a ${pEmail}: ${error}`,
-                "ERROR"
-            );
+            logMotor("taxi_response", `Error al asignar viaje a ${pEmail}: ${error}`, "ERROR");
             io.to(tEmail).emit("assignment_confirmed", {
                 success: false,
                 message: "Error al asignar el viaje. Intenta nuevamente."
             });
         }
-    });
-
-    // ============================================================
-    // 🎯 MENSAJERÍA - CON VALIDACIÓN
-    // ============================================================
-    socket.on("send_message", ({ toEmail, message, fromName }) => {
-        const destinatario = toEmail?.toLowerCase().trim();
-        if (!destinatario) return;
-
-        // 🛡️ Validación básica
-        if (!message || message.trim().length === 0) return;
-
-        io.to(destinatario).emit("receive_message", {
-            fromEmail: email,
-            fromName: fromName || "Sistema",
-            message: message.trim(),
-            timestamp: new Date().toISOString()
-        });
     });
 
     // ============================================================
