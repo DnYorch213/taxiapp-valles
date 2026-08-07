@@ -700,17 +700,33 @@ else {
 
       setPasajeroAsignado((prev: Payload | null) => {
         if (!prev) return prev;
+
+        const nextLat = data?.destinationLat ?? prev.destinationLat ?? null;
+        const nextLng = data?.destinationLng ?? prev.destinationLng ?? null;
+        const nextAddress = data?.destinationAddress ?? prev.destinationAddress ?? "Rumbo al destino...";
+        const sameDestination = prev.destinationLat === nextLat && prev.destinationLng === nextLng;
+
+        if (sameDestination) {
+          return prev;
+        }
+
         return {
           ...prev,
-          destinationLat: data?.destinationLat ?? prev.destinationLat ?? null,
-          destinationLng: data?.destinationLng ?? prev.destinationLng ?? null,
-          destinationAddress: data?.destinationAddress ?? prev.destinationAddress ?? "Rumbo al destino...",
+          destinationLat: nextLat,
+          destinationLng: nextLng,
+          destinationAddress: nextAddress,
         } as Payload;
       });
 
-      setRutaDestinoFinal([]);
-      setGeometriaRuta([]);
-      setRouteRefreshToken((prev) => prev + 1);
+      const nextLat = data?.destinationLat ?? pasajeroAsignadoRef.current?.destinationLat ?? null;
+      const nextLng = data?.destinationLng ?? pasajeroAsignadoRef.current?.destinationLng ?? null;
+      const sameDestination = pasajeroAsignadoRef.current?.destinationLat === nextLat && pasajeroAsignadoRef.current?.destinationLng === nextLng;
+
+      if (!sameDestination && nextLat !== null && nextLng !== null) {
+        setRutaDestinoFinal([]);
+        setGeometriaRuta([]);
+        setRouteRefreshToken((prev) => prev + 1);
+      }
     };
 
     socket.on("pasajero_asignado", handleAsignacion);

@@ -260,6 +260,13 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 message: "La solicitud expiró o fue asignada a otro conductor.",
                 estado: POSITION_STATES.ACTIVO
             });
+            io.to(tEmail).emit("dispatch_timeout", {
+                message: "Solicitud no disponible",
+                estado: POSITION_STATES.ACTIVO
+            });
+            io.to(tEmail).emit("trip_status_update", {
+                estado: POSITION_STATES.ACTIVO
+            });
 
             // C) Actualizar el panel administrativo
             if (miPosicionTaxista) {
