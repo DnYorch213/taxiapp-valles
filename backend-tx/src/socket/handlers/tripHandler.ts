@@ -315,6 +315,9 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 message: "Solicitud rechazada/ignorada correctamente.",
                 estado: POSITION_STATES.ACTIVO
             });
+            io.to(tEmail).emit("trip_status_update", {
+                estado: POSITION_STATES.ACTIVO
+            });
 
             const tPos = await Position.findOne({ email: tEmail });
             io.emit("panel_update", buildPayload(tPos, tPos, POSITION_STATES.ACTIVO, { pasajeroAsignado: null }));

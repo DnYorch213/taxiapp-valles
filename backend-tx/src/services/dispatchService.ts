@@ -213,7 +213,8 @@ const runDispatchWithRetry = async (
     io: Server,
     pasajeroData: any,
     excludedEmails: string[] = [],
-    attempt: number = 1
+    attempt: number = 1,
+    transactionAttempt: number = 1
 ) => {
     if (!isAutoMode || !pasajeroData || !pasajeroData.email) {
         unlockDispatchCycle(pasajeroData?.requestId);
@@ -362,7 +363,7 @@ const runDispatchWithRetry = async (
 
                 if (requestAttemptTokens.get(reqId) !== currentAttemptToken) return;
 
-                await runDispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt);
+                await runDispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt, transactionAttempt + 1);
                 return;
             }
 
@@ -394,6 +395,16 @@ const runDispatchWithRetry = async (
         } catch (txError) {
             await session.abortTransaction();
             session.endSession();
+
+            const isRetryableConflict = String((txError as any)?.message || "").toLowerCase().includes("write conflict") ||
+                String((txError as any)?.message || "").toLowerCase().includes("yielding is disabled");
+
+            if (isRetryableConflict && transactionAttempt <= 3) {
+                logMotor("dispatch_retry", `Pasajero=${pEmail} -> Reintentando asignación por conflicto de escritura (${transactionAttempt}/3)`, "WARN");
+                await new Promise((resolve) => setTimeout(resolve, 250));
+                return runDispatchWithRetry(io, pasajeroData, currentExcluidos, attempt, transactionAttempt + 1);
+            }
+
             throw txError;
         }
 

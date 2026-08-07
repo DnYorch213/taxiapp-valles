@@ -218,6 +218,9 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   const tripSessionActiveRef = useRef(false);
   const acceptanceTimerRef = useRef<number | null>(null);
   const answeredOfferRequestIdsRef = useRef(new Set<string>());
+  const activeOfferRequestIdRef = useRef<string | null>(null);
+  const lastClosedOfferRequestIdRef = useRef<string | null>(null);
+  const ignoreOffersUntilRef = useRef(0);
   const pushRehydrateRef = useRef<{ pasajero: string | null; taxista: string | null; requestId: string | null; autoAccept: boolean }>({
     pasajero: null,
     taxista: null,
@@ -236,14 +239,14 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   }, [estado]);
 
   useEffect(() => {
-    if (estado === "encurso" && hasRealFinalDestination(pasajeroAsignado)) {
+    if (estado === POSITION_STATES.ENCURSO) {
       return;
     }
 
-    if (estado !== "encurso") {
+    if ([POSITION_STATES.ACTIVO, POSITION_STATES.FINALIZADO, POSITION_STATES.CANCELADO].includes(estado as any)) {
       setRutaDestinoFinal([]);
     }
-  }, [estado, pasajeroAsignado]);
+  }, [estado]);
 
 // Sincronizador de referencia mutuable para hooks de hardware
 useEffect(() => {
@@ -410,6 +413,9 @@ useEffect(() => {
     setHistorialRuta([]);
     setGeometriaRuta([]);
     setRutaDestinoFinal([]);
+    lastClosedOfferRequestIdRef.current = activeOfferRequestIdRef.current;
+    activeOfferRequestIdRef.current = null;
+    ignoreOffersUntilRef.current = Date.now() + 3000;
     setEstado(POSITION_STATES.ACTIVO);
   }, [detenerSonido]);
 
@@ -429,6 +435,9 @@ useEffect(() => {
     setHistorialRuta([]);
     setGeometriaRuta([]);
     setRutaDestinoFinal([]);
+    lastClosedOfferRequestIdRef.current = activeOfferRequestIdRef.current;
+    activeOfferRequestIdRef.current = null;
+    ignoreOffersUntilRef.current = Date.now() + 3000;
     tripSessionActiveRef.current = false;
     setRouteRefreshToken((prev) => prev + 1);
   }, []);
@@ -633,6 +642,16 @@ const handleAsignacion = useCallback((data: any) => {
     return;
   }
 
+  if (requestId && !tripSessionActiveRef.current && lastClosedOfferRequestIdRef.current === requestId) {
+    console.warn("🛡️ Oferta vieja ignorada tras el reset local de esta solicitud.", requestId);
+    return;
+  }
+
+  if (ignoreOffersUntilRef.current > Date.now()) {
+    console.warn("🛡️ Oferta ignorada por cooldown post-rechazo/reset.", requestId || incomingEmail);
+    return;
+  }
+
   if (!tripSessionActiveRef.current && !["encamino", "encurso"].includes(estadoActual)) {
     tripSessionActiveRef.current = true;
   }
@@ -654,6 +673,11 @@ const handleAsignacion = useCallback((data: any) => {
   }
 
   setTimeout(() => {
+    if (requestId) {
+      lastClosedOfferRequestIdRef.current = null;
+      activeOfferRequestIdRef.current = requestId;
+    }
+
     // 2. ACTUALIZACIÓN DE ESTADOS
     // Limpiamos el email por si trae la "k" extra o espacios
     const pEmail = incomingEmail;
@@ -744,8 +768,6 @@ else {
       const isInProgressTrip = estadoRef.current === POSITION_STATES.ENCURSO;
 
       if (!sameDestination && nextLat !== null && nextLng !== null && !isInProgressTrip) {
-        setRutaDestinoFinal([]);
-        setGeometriaRuta([]);
         setRouteRefreshToken((prev) => prev + 1);
       }
     };
@@ -1033,11 +1055,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       console.log("✅ Avance detectado, borrando puntos hasta índice:", indiceMasCercano);
       setGeometriaRuta(prev => prev.slice(indiceMasCercano));
     } 
-    // 🎯 CONDICIÓN 2: Recalcular solo ante desvíos claros, no por jitter normal del GPS.
-    // vaciamos la geometría para forzar a la RoutingMachine del JSX a trazar el nuevo camino por la otra calle
+    // 🎯 CONDICIÓN 2: Mantener la ruta visible durante pequeños desvíos del GPS.
+    // Solo se recalcúla cuando hay un cambio real de destino o reset completo.
     else if (distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS) {
-      console.log("🔄 [Ruta Taxista] Cambio de calle detectado. Vaciando polilínea para recalcular...");
-      setGeometriaRuta([]); // Al quedar en cero, se activa automáticamente la RoutingMachine en el mapa
+      console.log("🔄 [Ruta Taxista] Desviación marcada, conservando la ruta actual hasta un nuevo destino.");
     } else {
       console.log("⚠️ Jitter de GPS dentro del rango tolerado. Conservando ruta actual.");
     }
@@ -1092,6 +1113,7 @@ const aceptarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.Pointe
 
   setIsAccepting(true);
   tripSessionActiveRef.current = true;
+  ignoreOffersUntilRef.current = Date.now() + 1500;
   detenerSonido();
 
   if (pasajeroAsignado?.requestId) {
@@ -1126,6 +1148,7 @@ const rechazarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.Point
   if (!pasajeroAsignado?.email || isAccepting || !canRespondToOffer) return;
 
   setIsAccepting(true);
+  ignoreOffersUntilRef.current = Date.now() + 3000;
   detenerSonido();
   if (pasajeroAsignado?.requestId) {
     answeredOfferRequestIdsRef.current.add(String(pasajeroAsignado.requestId));
@@ -1573,8 +1596,7 @@ return (
                 pasajeroAsignado?.lat &&
                 pasajeroAsignado?.lng &&
                 hasRealFinalDestination(pasajeroAsignado) &&
-                getDestinoFinalLatLng(pasajeroAsignado) &&
-                rutaDestinoFinal.length === 0 && (
+                getDestinoFinalLatLng(pasajeroAsignado) && (
                   <Suspense fallback={null}>
                     <RoutingMachine
                       key={destinationRouteKey}
