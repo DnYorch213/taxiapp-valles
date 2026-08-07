@@ -39,6 +39,7 @@ function urlBase64ToUint8Array(base64String: string) {
 const VAPID_PUBLIC_KEY = "BHtVjCOYiH1nbyPq-mPS_ZqA0oHjGcONq5r5PV-sTC1jXzAvgGuFFwL5iv0ymk725NUX4_obl82JLilVs9W49-A";
 const ROUTE_RECALC_THRESHOLD_METERS = 45;
 const OFFROAD_TAIL_THRESHOLD_METERS = 22;
+const OFFER_RESPONSE_TIMEOUT_MS = 15000;
 
 
 const sanitizeRouteTail = (coords: L.LatLng[]) => {
@@ -416,9 +417,24 @@ useEffect(() => {
     if ([POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO].includes(estadoRef.current as any)) {
       return;
     }
+
+    const passengerEmail = pasajeroAsignadoRef.current?.email?.toLowerCase().trim();
+    const requestId = pasajeroAsignadoRef.current?.requestId;
+
+    if (passengerEmail && tripSessionActiveRef.current && canRespondToOffer) {
+      if (requestId) {
+        answeredOfferRequestIdsRef.current.add(String(requestId));
+      }
+      socket.emit("taxi_response", {
+        requestEmail: passengerEmail,
+        accepted: false,
+        excludedEmails,
+      });
+    }
+
     setCanRespondToOffer(false);
     resetSolicitudActiva();
-  }, [resetSolicitudActiva]);
+  }, [canRespondToOffer, excludedEmails, resetSolicitudActiva]);
 
   useEffect(() => {
     audioRef.current = new Audio("/sounds/alerta_taxi.mp3");
@@ -1066,7 +1082,7 @@ const aceptarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.Pointe
       return;
     }
     expireOfferResponse();
-  }, 5000);
+  }, OFFER_RESPONSE_TIMEOUT_MS);
 };
 
 const rechazarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.PointerEvent<HTMLButtonElement>) => {
@@ -1451,7 +1467,7 @@ return (
 
                 {/* BARRA DE TIEMPO INCORPORADA */}
                 <div className="mb-4">
-                  <TimerBar duration={15000} onFinish={expireOfferResponse} />
+                  <TimerBar duration={OFFER_RESPONSE_TIMEOUT_MS} onFinish={expireOfferResponse} />
                 </div>
 
                 {/* BOTÓN ERGONÓMICO GIGANTE PARA EL PULGAR */}

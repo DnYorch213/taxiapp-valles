@@ -158,6 +158,57 @@ const calculateDynamicTimeout = (distanciaKm: number): number => {
     return Math.min(timeout, MAX_TIMEOUT_MS);
 };
 
+const getDispatchCandidates = async (
+    io: Server,
+    pasajeroData: any,
+    currentExcluidos: string[]
+): Promise<{ candidates: IPosition[]; source: "db" | "socket-fallback" | "none" }> => {
+    const excluded = new Set(currentExcluidos.map(normalizeEmail));
+    const baseQuery = {
+        role: "taxista",
+        estado: POSITION_STATES.ACTIVO,
+        email: { $nin: Array.from(excluded) }
+    } as const;
+
+    const dbCandidates = await Position.find({
+        ...baseQuery,
+        lat: { $exists: true, $ne: null, $gt: 0 },
+        lng: { $exists: true, $ne: null, $nin: [null, 0] },
+    }).lean() as IPosition[];
+
+    if (dbCandidates.length > 0) {
+        return { candidates: dbCandidates, source: "db" };
+    }
+
+    const fallbackCandidates: IPosition[] = [];
+    for (const socket of io.sockets.sockets.values()) {
+        const rawEmail = socket.handshake?.auth?.email || socket.handshake?.query?.email;
+        const rawRole = socket.handshake?.auth?.role || socket.handshake?.query?.role;
+        const candidateEmail = normalizeEmail(String(rawEmail || ""));
+
+        if (!candidateEmail || excluded.has(candidateEmail) || rawRole !== "taxista") continue;
+
+        const taxistaDoc = await Position.findOne({
+            email: candidateEmail,
+            role: "taxista",
+            estado: POSITION_STATES.ACTIVO
+        }).lean() as IPosition | null;
+
+        if (!taxistaDoc) continue;
+        if (taxistaDoc.pasajeroAsignado && taxistaDoc.pasajeroAsignado !== normalizeEmail(String(pasajeroData?.email || ""))) {
+            continue;
+        }
+
+        fallbackCandidates.push(taxistaDoc);
+    }
+
+    if (fallbackCandidates.length > 0) {
+        return { candidates: fallbackCandidates, source: "socket-fallback" };
+    }
+
+    return { candidates: [], source: "none" };
+};
+
 const runDispatchWithRetry = async (
     io: Server,
     pasajeroData: any,
@@ -228,13 +279,7 @@ const runDispatchWithRetry = async (
         }
 
         // 🎯 2. BÚSQUEDA DE TAXISTAS
-        const taxistasCandidatos = await Position.find({
-            role: "taxista",
-            estado: POSITION_STATES.ACTIVO,
-            lat: { $exists: true, $ne: null, $gt: 0 },
-            lng: { $exists: true, $ne: null, $nin: [null, 0] },
-            email: { $nin: currentExcluidos }
-        }).lean() as IPosition[];
+        const { candidates: taxistasCandidatos, source } = await getDispatchCandidates(io, pasajeroData, currentExcluidos);
 
         if (taxistasCandidatos.length === 0) {
             logMotor("dispatch_retry", `Pasajero=${pEmail} Intento=${attempt} -> No hay taxistas activos disponibles`, "WARN");
@@ -261,9 +306,12 @@ const runDispatchWithRetry = async (
                 taxista,
                 distancia: (taxista.lat && taxista.lng && pasajeroData.lat && pasajeroData.lng)
                     ? calculateDistance(pasajeroData.lat, pasajeroData.lng, taxista.lat, taxista.lng)
-                    : Infinity
+                    : (source === "socket-fallback" ? 0 : Infinity)
             }))
-            .filter(({ distancia }) => distancia <= MAX_DISPATCH_DISTANCE_KM && distancia !== Infinity)
+            .filter(({ distancia }) => {
+                if (distancia === Infinity) return false;
+                return distancia <= MAX_DISPATCH_DISTANCE_KM;
+            })
             .sort((a, b) => a.distancia - b.distancia);
 
         if (taxistasConDistancia.length === 0) {
