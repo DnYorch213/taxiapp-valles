@@ -1180,8 +1180,6 @@ const confirmarAbordo = () => {
   setEstado(POSITION_STATES.ENCURSO);
   setChatAbierto(false);
 
-  setGeometriaRuta([]);
-
   if (taxiPos?.lat && taxiPos?.lng) {
     setHistorialRuta([[Number(taxiPos.lat), Number(taxiPos.lng)]]);
   }
@@ -1588,7 +1586,7 @@ return (
                   </Marker>
                 )}
 
-              {estado === "encamino" && geometriaRuta.length > 0 && (
+              {(estado === "encamino" || estado === "encurso") && geometriaRuta.length > 0 && (
                 <Polyline positions={geometriaRuta} pathOptions={{ color: 'rgb(245, 33, 65)', weight: 4, lineJoin: 'round' }} />
               )}
 
@@ -1641,7 +1639,7 @@ return (
                 <Popup>Unidad {taxiPos.taxiNumber}</Popup>
               </RotatedMarker>
               
-             {pasajeroAsignado?.lat && estado !== "encurso" && (
+             {pasajeroAsignado?.lat && estado !== "finalizado" && estado !== "activo" && estado !== "cancelado" && (
                 <Marker 
                   position={
                     estado === "encamino" && geometriaRuta.length > 0
