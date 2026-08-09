@@ -1028,13 +1028,12 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }, [handleAsignacion, checkStatus, detenerSonido, getDestinoFinalLatLng, handleResetTaxistaState, resetSolicitudActiva]);
 
  useEffect(() => {
-  console.log("🔄 useEffect de rastreo disparado");
-  console.log("👉 Estado actual:", estado);
-  console.log("👉 Longitud geometriaRuta:", geometriaRuta.length);
-  console.log("👉 taxiPos:", taxiPos?.lat, taxiPos?.lng);
+  if (!taxiPos) {
+    return;
+  }
 
-  if (taxiPos && estado === "encamino" && geometriaRuta.length > 0) {
-    const posTaxi = L.latLng(taxiPos.lat!, taxiPos.lng!);
+  if (estado === POSITION_STATES.ENCAMINO && geometriaRuta.length > 2) {
+    const posTaxi = L.latLng(Number(taxiPos.lat), Number(taxiPos.lng));
 
     let indiceMasCercano = 0;
     let distanciaMinima = Infinity;
@@ -1047,49 +1046,38 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       }
     });
 
-    console.log("👉 índice más cercano:", indiceMasCercano);
-    console.log("👉 distancia mínima a la ruta actual:", distanciaMinima);
-
-    // 🎯 CONDICIÓN 1: El taxista sigue la ruta -> Vamos borrando el camino recorrido
     if (distanciaMinima < 45 && indiceMasCercano > 0) {
-      console.log("✅ Avance detectado, borrando puntos hasta índice:", indiceMasCercano);
-      setGeometriaRuta(prev => prev.slice(indiceMasCercano));
-    } 
-    // 🎯 CONDICIÓN 2: Mantener la ruta visible durante pequeños desvíos del GPS.
-    // Solo se recalcúla cuando hay un cambio real de destino o reset completo.
-    else if (distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS) {
-      console.log("🔄 [Ruta Taxista] Desviación marcada, conservando la ruta actual hasta un nuevo destino.");
-    } else {
-      console.log("⚠️ Jitter de GPS dentro del rango tolerado. Conservando ruta actual.");
+      setGeometriaRuta((prev) => prev.slice(indiceMasCercano));
+    } else if (distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS) {
+      setGeometriaRuta([]);
+      setRouteRefreshToken((prev) => prev + 1);
     }
-  } else {
-    console.log("⚠️ Condiciones no cumplidas: estado !== 'encamino' o geometriaRuta vacía");
-  }
-}, [taxiPos, estado]); // 🚩 dependemos de taxiPos y estado
 
-useEffect(() => {
-  if (!taxiPos || estado !== "encurso" || rutaDestinoFinal.length === 0) {
     return;
   }
 
-  const posTaxi = L.latLng(Number(taxiPos.lat), Number(taxiPos.lng));
-  let indiceMasCercano = 0;
-  let distanciaMinima = Infinity;
+  if (estado === POSITION_STATES.ENCURSO && rutaDestinoFinal.length > 2) {
+    const posTaxi = L.latLng(Number(taxiPos.lat), Number(taxiPos.lng));
 
-  rutaDestinoFinal.forEach((punto, index) => {
-    const d = posTaxi.distanceTo(punto);
-    if (d < distanciaMinima) {
-      distanciaMinima = d;
-      indiceMasCercano = index;
+    let indiceMasCercano = 0;
+    let distanciaMinima = Infinity;
+
+    rutaDestinoFinal.forEach((punto, index) => {
+      const d = posTaxi.distanceTo(punto);
+      if (d < distanciaMinima) {
+        distanciaMinima = d;
+        indiceMasCercano = index;
+      }
+    });
+
+    if (distanciaMinima < 45 && indiceMasCercano > 0) {
+      setRutaDestinoFinal((prev) => prev.slice(indiceMasCercano));
+    } else if (distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS) {
+      setRutaDestinoFinal([]);
+      setRouteRefreshToken((prev) => prev + 1);
     }
-  });
-
-  if (distanciaMinima < 45 && indiceMasCercano > 0) {
-    setRutaDestinoFinal((prev) => prev.slice(indiceMasCercano));
-  } else if (distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS) {
-    setRutaDestinoFinal([]);
   }
-}, [taxiPos, estado, rutaDestinoFinal.length]);
+}, [taxiPos, estado, geometriaRuta.length, rutaDestinoFinal.length]);
 
 useEffect(() => {
   if (chatAbierto) {
@@ -1234,6 +1222,18 @@ const finalizarViaje = () => {
 
     return null;
   }, [pasajeroAsignado, rutaDestinoFinal]);
+
+  const routeOriginForDestination = useMemo<L.LatLng | null>(() => {
+    if (estado === POSITION_STATES.ENCURSO && taxiPos?.lat && taxiPos?.lng) {
+      return L.latLng(Number(taxiPos.lat), Number(taxiPos.lng));
+    }
+
+    if (pasajeroAsignado?.lat && pasajeroAsignado?.lng) {
+      return L.latLng(Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng));
+    }
+
+    return null;
+  }, [estado, taxiPos?.lat, taxiPos?.lng, pasajeroAsignado?.lat, pasajeroAsignado?.lng]);
 
   const destinationRouteKey = useMemo(() => {
     const destino = getDestinoFinalLatLng(pasajeroAsignado);
@@ -1599,7 +1599,7 @@ return (
                     <RoutingMachine
                       key={destinationRouteKey}
                       waypoints={[
-                        L.latLng(Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng)),
+                        routeOriginForDestination as L.LatLng,
                         getDestinoFinalLatLng(pasajeroAsignado) as L.LatLng,
                       ]}
                       onRouteFound={(coords: L.LatLng[]) => {

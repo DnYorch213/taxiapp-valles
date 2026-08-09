@@ -798,8 +798,10 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 return;
             }
 
-            const passengerMatchesTaxi = pPos.taxistaAsignado === tEmail;
-            const taxiMatchesPassenger = tPos.pasajeroAsignado === pEmail;
+            let passengerMatchesTaxi = pPos.taxistaAsignado === tEmail;
+            let taxiMatchesPassenger = tPos.pasajeroAsignado === pEmail;
+            const tripStillActive = [POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(pPos.estado as any) ||
+                [POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(tPos.estado as any);
 
             // Auto-repair seguro: solo cuando uno de los lados está null y el otro ya coincide.
             if (!passengerMatchesTaxi && !pPos.taxistaAsignado && taxiMatchesPassenger) {
@@ -817,6 +819,41 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 );
                 tPos = await Position.findOne({ email: tEmail });
             }
+
+            if (!pPos || !tPos) {
+                logMotor("end_trip",
+                    `Documentos no encontrados tras reparación: Pasajero=${pEmail} Taxista=${tEmail}`,
+                    "WARN"
+                );
+                return;
+            }
+
+            passengerMatchesTaxi = pPos.taxistaAsignado === tEmail;
+            taxiMatchesPassenger = tPos.pasajeroAsignado === pEmail;
+
+            if ((!passengerMatchesTaxi || !taxiMatchesPassenger) && tripStillActive) {
+                await Position.updateOne(
+                    { email: pEmail },
+                    { $set: { taxistaAsignado: tEmail, updatedAt: new Date() } }
+                );
+                await Position.updateOne(
+                    { email: tEmail },
+                    { $set: { pasajeroAsignado: pEmail, updatedAt: new Date() } }
+                );
+                pPos = await Position.findOne({ email: pEmail });
+                tPos = await Position.findOne({ email: tEmail });
+            }
+
+            if (!pPos || !tPos) {
+                logMotor("end_trip",
+                    `Documentos no encontrados tras segundo intento de reparación: Pasajero=${pEmail} Taxista=${tEmail}`,
+                    "WARN"
+                );
+                return;
+            }
+
+            passengerMatchesTaxi = pPos.taxistaAsignado === tEmail;
+            taxiMatchesPassenger = tPos.pasajeroAsignado === pEmail;
 
             if (!pPos || !tPos || pPos.taxistaAsignado !== tEmail || tPos.pasajeroAsignado !== pEmail) {
                 logMotor("end_trip",
