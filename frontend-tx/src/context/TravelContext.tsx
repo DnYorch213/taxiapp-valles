@@ -1,8 +1,10 @@
 // src/context/TravelContext.tsx
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { jwtDecode, JwtPayload } from "jwt-decode";
 import { Position, Destination, Rol } from "../types/Positions";
 import { socket, connectSocket } from "../lib/socket"; // 🚨 Importación crucial para la persistencia
+
+interface ScreenWakeLock { release: () => Promise<void>; }
 
 interface TravelContextType {
   userPosition: Position | null;
@@ -71,6 +73,37 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [taxistasActivos, setTaxistasActivos] = useState<Position[]>([]);
   const [pasajerosActivos, setPasajerosActivos] = useState<Position[]>([]);
   const [taxiPos, setTaxiPos] = useState<{ lat: number; lng: number; heading?: number; taxiNumber?: string } | null>(null);
+  const wakeLockRef = useRef<ScreenWakeLock | null>(null);
+
+  const tryRequestWakeLock = useCallback(async () => {
+    const wakeLockNavigator = navigator as Navigator & {
+      wakeLock?: { request: (type: "screen") => Promise<ScreenWakeLock> };
+    };
+
+    if (!wakeLockNavigator.wakeLock || !userPosition?.email) {
+      return;
+    }
+
+    try {
+      if (!document.hidden && !wakeLockRef.current) {
+        wakeLockRef.current = await wakeLockNavigator.wakeLock.request("screen");
+      }
+    } catch (error) {
+      console.debug("⚠️ Wake Lock no disponible en esta vista:", error);
+    }
+  }, [userPosition?.email]);
+
+  const releaseWakeLock = useCallback(async () => {
+    if (!wakeLockRef.current) return;
+
+    try {
+      await wakeLockRef.current.release();
+    } catch (error) {
+      console.debug("⚠️ No se pudo liberar Wake Lock:", error);
+    } finally {
+      wakeLockRef.current = null;
+    }
+  }, []);
 
   const reconnectIfNeeded = useCallback(() => {
     const email = userPosition?.email || localStorage.getItem("email");
@@ -112,7 +145,7 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // 🛰️ EFECTO "DESPERTADOR": Revive la app cuando el usuario regresa tras mucho tiempo
   useEffect(() => {
-    const handleResume = () => {
+    const handleResume = async () => {
       if (document.visibilityState !== "visible" && navigator.onLine === false) return;
 
       const restoredSession = restoreSessionFromStorage();
@@ -123,24 +156,36 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       if (userPosition || restoredSession) {
         console.log("☀️ Valles Conecta: Validando conexión en primer plano...");
+        await tryRequestWakeLock();
         reconnectIfNeeded();
       }
     };
 
     const handleOnline = () => {
+      void tryRequestWakeLock();
       reconnectIfNeeded();
     };
 
-    document.addEventListener("visibilitychange", handleResume);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void tryRequestWakeLock();
+        reconnectIfNeeded();
+      } else {
+        void releaseWakeLock();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("focus", handleResume);
     window.addEventListener("online", handleOnline);
 
     return () => {
-      document.removeEventListener("visibilitychange", handleResume);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", handleResume);
       window.removeEventListener("online", handleOnline);
+      void releaseWakeLock();
     };
-  }, [reconnectIfNeeded, userPosition]);
+  }, [reconnectIfNeeded, releaseWakeLock, tryRequestWakeLock, userPosition]);
 
   useEffect(() => {
     if (!userPosition) return;
