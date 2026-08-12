@@ -255,6 +255,19 @@ const PasajeroView: React.FC = () => {
     setDestinationLng(userPosition?.lng ?? null);
   }, [userPosition?.lat, userPosition?.lng]);
 
+  const limpiarMapaDestino = useCallback(() => {
+    setRutaDestinoPreview([]);
+    setRutaDestinoEnCurso([]);
+    setGeometriaRuta([]);
+    setHistorialRuta([]);
+    setDestinationAddress("");
+    setDestinationQuery("");
+    setDestinationLat(null);
+    setDestinationLng(null);
+    setSelectorDestinoAbierto(false);
+    setDestinoColapsado(false);
+  }, []);
+
   const actualizarDestinoEnServidor = useCallback((nextLat: number | null, nextLng: number | null, nextAddress?: string) => {
     const passengerEmail = userPosition?.email?.toLowerCase().trim();
     if (!passengerEmail || !socket.connected) return;
@@ -603,6 +616,21 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         }, { cooldownMs: 4000 });
       }
 
+      if (nextEstado === "finalizado") {
+        if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
+          return;
+        }
+        setSearchFlowActivo(false);
+        setEstado(TRIP_STATES.PENDIENTE);
+        setTaxistaAsignado(null);
+        setTaxiPos(null);
+        setChatAbierto(false);
+        limpiarMapaDestino();
+        showToastOnce("pasajero:trip-finished", () => {
+          toast.success("¡Viaje finalizado!");
+        }, { cooldownMs: 4000 });
+      }
+
       // Escudo contra saltos accidentales
       if (["encurso", "finalizado"].includes(estadoRef.current) && nextEstado === "buscando") {
         console.warn("Ignorado salto a 'buscando' porque el viaje ya está cerrado o en curso.");
@@ -623,22 +651,6 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         return;
       }
 
-      if (nextEstado === "finalizado") {
-        if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
-          return;
-        }
-        setSearchFlowActivo(false);
-        setEstado(TRIP_STATES.PENDIENTE);
-        setHistorialRuta([]);
-        setTaxistaAsignado(null);
-        setTaxiPos(null);
-        setChatAbierto(false);
-        setGeometriaRuta([]);
-        setRutaDestinoEnCurso([]);
-        showToastOnce("pasajero:trip-finished", () => {
-          toast.success("¡Viaje finalizado!");
-        }, { cooldownMs: 4000 });
-      }
     });
 
     // VIAJE TERMINADO
@@ -655,10 +667,8 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         setEstado(TRIP_STATES.PENDIENTE);
         setTaxistaAsignado(null);
         setTaxiPos(null);
-        setHistorialRuta([]);
-        setGeometriaRuta([]);
-        setRutaDestinoEnCurso([]);
         setChatAbierto(false);
+        limpiarMapaDestino();
         showToastOnce("pasajero:trip-finished-extended", () => {
           toast.success("¡Viaje finalizado! Gracias por viajar con nosotros.", {
             position: "top-center",
@@ -819,13 +829,11 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     setEstado(TRIP_STATES.PENDIENTE);
     setTaxistaAsignado(null);
     setTaxiPos(null);
-    setHistorialRuta([]);
-    setGeometriaRuta([]);
     setChatAbierto(false);
     setSelectorDestinoAbierto(false);
     setDestinoColapsado(false);
-    limpiarDestino();
-  }, [limpiarDestino]);
+    limpiarMapaDestino();
+  }, [limpiarMapaDestino]);
 
   // ============================================================
   // RECORTE DE RUTA DINÁMICA (optimizado)
@@ -949,13 +957,18 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
               {estado !== "encurso" && (
-                <Marker position={[userPosition.lat, userPosition.lng]} icon={pasajeroIcon} />
+                <Marker
+                  position={[userPosition.lat, userPosition.lng]}
+                  icon={pasajeroIcon}
+                  zIndexOffset={100}
+                />
               )}
 
               {(estado === "encurso" || selectorDestinoAbierto) && destinationPosition && (
                 <Marker
                   position={destinationPosition}
                   icon={destinationMarkerIcon}
+                  zIndexOffset={500}
                   draggable={estado === "encurso" || selectorDestinoAbierto}
                   eventHandlers={
                     estado === "encurso" || selectorDestinoAbierto

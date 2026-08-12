@@ -1005,6 +1005,29 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
 
     // ============================================================
+    // 🎯 CHAT EN TIEMPO REAL - ENTRE TAXISTA Y PASAJERO
+    // ============================================================
+    socket.on("send_message", async ({ toEmail, message, fromName }) => {
+        const recipientEmail = String(toEmail || "").toLowerCase().trim();
+        const text = String(message || "").trim();
+        const senderName = String(fromName || email || "Usuario").trim();
+
+        if (!recipientEmail || !text) {
+            return;
+        }
+
+        const payload = {
+            fromEmail: email,
+            fromName: senderName,
+            message: text,
+            timestamp: new Date().toISOString(),
+        };
+
+        io.to(recipientEmail).emit("receive_message", payload);
+        logMotor("chat_message", `Mensaje de ${email} para ${recipientEmail}`, "INFO");
+    });
+
+    // ============================================================
     // 🎯 LIMPIEZA AL DESCONECTAR - MANEJO DE RECONEXIÓN
     // ============================================================
     socket.on("disconnect", async (reason) => {
