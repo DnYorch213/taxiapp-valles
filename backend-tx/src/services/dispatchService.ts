@@ -272,9 +272,11 @@ const runDispatchWithRetry = async (
             logMotor("dispatch_retry", `Pasajero=${pEmail} -> Límite alcanzado`, "ERROR");
             await Position.updateOne(
                 { email: pEmail },
-                { $set: { estado: POSITION_STATES.CANCELADO, pasajeroAsignado: null, updatedAt: new Date() } }
+                { $set: { estado: POSITION_STATES.CANCELADO, taxistaAsignado: null, pasajeroAsignado: null, requestId: null, updatedAt: new Date() } }
             );
             io.to(pEmail).emit("no_taxis_available", { message: "Sin unidades disponibles." });
+            clearPassengerRequestBinding(pEmail);
+            clearTaxiResponseRegistry(reqId);
             clearDispatchCycle(reqId, "límite de reintentos");
             return;
         }
@@ -289,9 +291,11 @@ const runDispatchWithRetry = async (
             if (attempt >= MAX_RETRIES) {
                 await Position.updateOne(
                     { email: pEmail },
-                    { $set: { estado: POSITION_STATES.CANCELADO, pasajeroAsignado: null, updatedAt: new Date() } }
+                    { $set: { estado: POSITION_STATES.CANCELADO, taxistaAsignado: null, pasajeroAsignado: null, requestId: null, updatedAt: new Date() } }
                 );
                 io.to(pEmail).emit("no_taxis_available", { message: "Sin unidades disponibles." });
+                clearPassengerRequestBinding(pEmail);
+                clearTaxiResponseRegistry(reqId);
                 return;
             }
 
@@ -322,9 +326,11 @@ const runDispatchWithRetry = async (
             if (attempt >= MAX_RETRIES) {
                 await Position.updateOne(
                     { email: pEmail },
-                    { $set: { estado: POSITION_STATES.CANCELADO, pasajeroAsignado: null, updatedAt: new Date() } }
+                    { $set: { estado: POSITION_STATES.CANCELADO, taxistaAsignado: null, pasajeroAsignado: null, requestId: null, updatedAt: new Date() } }
                 );
                 io.to(pEmail).emit("no_taxis_available", { message: "Sin unidades disponibles." });
+                clearPassengerRequestBinding(pEmail);
+                clearTaxiResponseRegistry(reqId);
                 return;
             }
 
