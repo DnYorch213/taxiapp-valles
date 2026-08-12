@@ -2,7 +2,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { jwtDecode, JwtPayload } from "jwt-decode";
 import { Position, Destination, Rol } from "../types/Positions";
-import { socket, connectSocket } from "../lib/socket"; // 🚨 Importación crucial para la persistencia
+import { socket, connectSocket } from "../lib/socket";
+import axiosInstance from "../lib/axiosConfig";
 
 interface ScreenWakeLock { release: () => Promise<void>; }
 
@@ -64,6 +65,58 @@ const restoreSessionFromStorage = (): Position | null => {
   }
 };
 
+const keepSessionAlive = async () => {
+  const token = localStorage.getItem("token");
+  const email = localStorage.getItem("email");
+  const role = localStorage.getItem("role") as Rol | null;
+
+  if (!token || !email || !role) {
+    return;
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+
+  socket.auth = {
+    ...(typeof socket.auth === "object" && socket.auth ? socket.auth : {}),
+    token,
+    email: normalizedEmail,
+    role,
+  };
+
+  if (!navigator.onLine) {
+    return;
+  }
+
+  try {
+    await axiosInstance.get("/api/auth/heartbeat");
+  } catch (error: any) {
+    const status = error?.response?.status;
+    const message = String(error?.response?.data?.message || "").toLowerCase();
+    const isTokenIssue = status === 401 || (status === 403 && (
+      message.includes("token expirado") ||
+      message.includes("token inválido") ||
+      message.includes("token no proporcionado")
+    ));
+
+    if (!isTokenIssue) {
+      return;
+    }
+
+    localStorage.removeItem("token");
+    localStorage.removeItem("email");
+    localStorage.removeItem("role");
+    localStorage.removeItem("userName");
+    localStorage.removeItem("phone");
+    localStorage.removeItem("taxiNumber");
+    window.location.href = "/login";
+    return;
+  }
+
+  if (!socket.connected && !socket.active) {
+    connectSocket(normalizedEmail, role);
+  }
+};
+
 export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // 🚀 INICIALIZACIÓN SÍNCRONA: Recupera sesión y conecta Socket antes del primer render
   const [userPosition, setUserPosition] = useState<Position | null>(() => restoreSessionFromStorage());
@@ -116,13 +169,18 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!activeSession) return;
 
     if (token) {
-      socket.auth = { ...socket.auth, token, email, role };
+      socket.auth = {
+        ...(typeof socket.auth === "object" && socket.auth ? socket.auth : {}),
+        token,
+        email: email.toLowerCase().trim(),
+        role,
+      };
     }
 
     if (!socket.connected && !socket.active) {
-      connectSocket(email, role);
+      connectSocket(email.toLowerCase().trim(), role);
     } else if (socket.connected) {
-      socket.emit("reproducir_estado_viaje", { email, role });
+      socket.emit("reproducir_estado_viaje", { email: email.toLowerCase().trim(), role });
     }
 
     if (taxiPos?.lat && taxiPos?.lng && socket.connected) {
@@ -156,6 +214,7 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       if (userPosition || restoredSession) {
         console.log("☀️ Valles Conecta: Validando conexión en primer plano...");
+        await keepSessionAlive();
         await tryRequestWakeLock();
         reconnectIfNeeded();
       }
@@ -168,6 +227,7 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
+        void keepSessionAlive();
         void tryRequestWakeLock();
         reconnectIfNeeded();
       } else {
@@ -185,31 +245,53 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       window.removeEventListener("online", handleOnline);
       void releaseWakeLock();
     };
-  }, [reconnectIfNeeded, releaseWakeLock, tryRequestWakeLock, userPosition]);
+  }, [keepSessionAlive, reconnectIfNeeded, releaseWakeLock, tryRequestWakeLock, userPosition]);
 
   useEffect(() => {
     if (!userPosition) return;
 
     const intervalId = window.setInterval(() => {
+      const token = localStorage.getItem("token");
+      const email = localStorage.getItem("email");
+      const role = localStorage.getItem("role") as Rol | null;
+
+      if (!token || !email || !role) {
+        return;
+      }
+
+      void keepSessionAlive();
+
       if (document.visibilityState === "visible" && navigator.onLine && !socket.connected) {
         reconnectIfNeeded();
       }
-    }, 30000);
+
+      if (socket.connected) {
+        socket.emit("reproducir_estado_viaje", {
+          email: email.toLowerCase().trim(),
+          role,
+        });
+      }
+    }, 60000);
 
     return () => window.clearInterval(intervalId);
-  }, [reconnectIfNeeded, userPosition]);
+  }, [keepSessionAlive, reconnectIfNeeded, userPosition]);
 
 
   // 🚪 CIERRE DE SESIÓN LIMPIO
   const logout = () => {
-    socket.disconnect(); // 🚨 Cortamos el flujo de datos primero
-    localStorage.clear();
+    socket.disconnect();
+    localStorage.removeItem("token");
+    localStorage.removeItem("email");
+    localStorage.removeItem("role");
+    localStorage.removeItem("userName");
+    localStorage.removeItem("phone");
+    localStorage.removeItem("taxiNumber");
     setUserPosition(null);
     setDestination(null);
     setIsTripActive(false);
     setTaxistasActivos([]);
     setPasajerosActivos([]);
-    window.location.href = "/login"; // Limpieza total de estados de navegación
+    window.location.href = "/login";
   };
 
 

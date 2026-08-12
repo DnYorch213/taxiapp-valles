@@ -180,6 +180,22 @@ export const handleRejectTripPush = (io: Server) => async (req: Request, res: Re
         const tEmail = String(taxistaEmail).toLowerCase().trim();
         const pEmail = String(pasajeroEmail).toLowerCase().trim();
 
+        const currentPassenger = await Position.findOne({ email: pEmail }).lean();
+        const currentRequestId = currentPassenger?.requestId ? String(currentPassenger.requestId) : null;
+
+        const isStaleReject = !currentPassenger ||
+            currentPassenger.estado === POSITION_STATES.FINALIZADO ||
+            currentPassenger.estado === POSITION_STATES.CANCELADO ||
+            currentPassenger.estado === POSITION_STATES.ENCURSO ||
+            currentPassenger.estado === POSITION_STATES.ENCAMINO ||
+            (currentRequestId && currentRequestId !== String(requestId));
+
+        if (isStaleReject) {
+            console.warn(`[Push Reject] Ignorando rechazo obsoleto para ${pEmail} / request ${requestId}. Estado actual=${currentPassenger?.estado || "missing"}, request=${currentRequestId || "none"}`);
+            clearDispatchCycle(requestId, "rechazo push obsoleto");
+            return res.status(200).json({ success: true, ignored: true, stale: true });
+        }
+
         // Limpieza por ID de ciclo directo
         clearDispatchCycle(requestId, "rechazo push manual");
 

@@ -266,6 +266,11 @@ const PasajeroView: React.FC = () => {
     setDestinationLng(null);
     setSelectorDestinoAbierto(false);
     setDestinoColapsado(false);
+    localStorage.removeItem("taxi_destination_query");
+    localStorage.removeItem("taxi_destination_address");
+    localStorage.removeItem("taxi_destination_lat");
+    localStorage.removeItem("taxi_destination_lng");
+    localStorage.removeItem("taxi_destination_updated_at");
   }, []);
 
   const actualizarDestinoEnServidor = useCallback((nextLat: number | null, nextLng: number | null, nextAddress?: string) => {
@@ -680,8 +685,8 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
     // TAXI RECHAZÓ LA SOLICITUD
     socket.on("taxi_rejected_request", () => {
-      if (["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
-        console.warn("🛡️ taxi_rejected_request tardío ignorado: viaje ya confirmado.");
+      if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
+        console.warn("🛡️ taxi_rejected_request ignorado: la solicitud ya no está activa o el viaje terminó.");
         return;
       }
       setSearchFlowActivo(true);
@@ -692,8 +697,8 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     });
 
     socket.on("no_taxis_available", (payload?: { message?: string }) => {
-      if (["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
-        console.warn("🛡️ no_taxis_available tardío ignorado: viaje ya confirmado.");
+      if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
+        console.warn("🛡️ no_taxis_available ignorado: la solicitud ya no está activa.");
         return;
       }
       setSearchFlowActivo(true);
@@ -708,8 +713,8 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     });
 
     socket.on("dispatch_error", (payload?: { message?: string }) => {
-      if (["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
-        console.warn("🛡️ dispatch_error tardío ignorado: viaje ya confirmado.");
+      if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
+        console.warn("🛡️ dispatch_error ignorado: la solicitud ya no está activa.");
         return;
       }
       setSearchFlowActivo(true);

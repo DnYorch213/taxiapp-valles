@@ -74,7 +74,10 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
 
             if (destinationLat !== undefined && destinationLat !== null) updatePayload.destinationLat = Number(destinationLat);
             if (destinationLng !== undefined && destinationLng !== null) updatePayload.destinationLng = Number(destinationLng);
-            if (destinationAddress !== undefined) updatePayload.destinationAddress = String(destinationAddress);
+            if (destinationAddress !== undefined) {
+                const nextAddress = String(destinationAddress).trim();
+                updatePayload.destinationAddress = nextAddress.length > 0 ? nextAddress : null;
+            }
 
             const updatedPassenger = await Position.findOneAndUpdate(
                 { email: passengerEmail, role: "pasajero" },

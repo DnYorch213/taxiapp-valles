@@ -135,7 +135,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                                 taxistaAsignado: null,
                                 pasajeroAsignado: currentRequestId,
                                 requestId: currentRequestId,
-                                destinationAddress: data.destinationAddress || null,
+                                destinationAddress: data.destinationAddress && data.destinationAddress.trim().length > 0 ? data.destinationAddress : null,
                                 updatedAt: new Date()
                             }
                         },
@@ -687,6 +687,9 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                             pickupAddress: null,
                             pasajeroAsignado: null,
                             requestId: null,
+                            destinationLat: null,
+                            destinationLng: null,
+                            destinationAddress: null,
                             updatedAt: new Date()
                         }
                     },
@@ -906,6 +909,9 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                             pickupAddress: null,
                             pasajeroAsignado: null,
                             requestId: null,
+                            destinationLat: null,
+                            destinationLng: null,
+                            destinationAddress: null,
                             updatedAt: new Date()
                         }
                     },

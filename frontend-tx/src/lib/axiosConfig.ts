@@ -10,12 +10,23 @@ const shouldResetSession = (error: any) => {
     if (status === 401) return true;
     if (status !== 403) return false;
 
-    return message.includes("token expirado") ||
+    const isTokenExpired = message.includes("token expirado") ||
         message.includes("token inválido") ||
         message.includes("token no proporcionado");
+
+    if (document.visibilityState !== "visible" && !isTokenExpired) {
+        return false;
+    }
+
+    return isTokenExpired;
 };
 
 const clearSessionAndRedirect = () => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+        return;
+    }
+
     localStorage.removeItem("token");
     localStorage.removeItem("email");
     localStorage.removeItem("role");

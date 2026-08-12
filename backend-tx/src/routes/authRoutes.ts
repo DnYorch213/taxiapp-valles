@@ -81,6 +81,27 @@ router.post("/login", async (req: Request, res: Response) => {
     }
 });
 
+// --- RUTA: HEARTBEAT DE SESIÓN ---
+router.get("/heartbeat", verifyToken, async (req: any, res: Response) => {
+    try {
+        const user = req.user;
+
+        return res.status(200).json({
+            success: true,
+            valid: true,
+            user: {
+                email: user?.email,
+                role: user?.role,
+                name: user?.name,
+                phone: user?.phone,
+                taxiNumber: user?.taxiNumber,
+            }
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "Error al validar sesión" });
+    }
+});
+
 // ==================== 🔐 RUTA PROTEGIDA: ACTUALIZAR GPS ====================
 // 🛡️ Requiere token JWT válido para evitar actualizaciones no autorizadas
 router.post("/positions/update-gps", verifyToken, async (req: Request, res: Response) => {
