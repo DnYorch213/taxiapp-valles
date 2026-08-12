@@ -1,3 +1,4 @@
+// src/server.ts
 import React, { useState } from "react";
 import axiosInstance from "../lib/axiosConfig";
 import { useNavigate } from "react-router-dom";
@@ -24,19 +25,16 @@ const LoginView: React.FC = () => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
- const establishSession = (data: LoginResponse) => {
-   const { token, role, name, taxiNumber, email, phone, lastCoords } = data;
+  const establishSession = (data: LoginResponse) => {
+    const { role, name, taxiNumber, email, phone, lastCoords } = data;
     const cleanEmail = email.toLowerCase().trim();
 
-    // 1. Almacenamiento local
-    localStorage.setItem("token", token);
     localStorage.setItem("email", cleanEmail);
     localStorage.setItem("role", role);
     localStorage.setItem("userName", name);
     if (phone) localStorage.setItem("phone", phone);
     if (taxiNumber) localStorage.setItem("taxiNumber", taxiNumber);
 
-    // 2. Estado global de posición
     setUserPosition({
       email: cleanEmail,
       id: cleanEmail,
@@ -60,30 +58,27 @@ const LoginView: React.FC = () => {
         email: form.email.toLowerCase().trim(),
       });
 
-       // 🚩 Forzamos que sea string para evitar que el undefined rompa el .trim()
-       const status = String(data.adminApproval || "").toLowerCase().trim();
+      const status = String(data.adminApproval || "").toLowerCase().trim();
 
-      // 🛡️ REGLA DE NEGOCIO: Solo el taxista requiere aprobación previa
       if (data.role === "taxista" && status !== "aprobado") {
         const messages = {
-          rechazado: "❌ Acceso denegado por la administración.",
-          pendiente: "⏳ Tu cuenta de taxista está en revisión.",
-          default: "⏳ Esperando autorización de VallesControl."
+          rechazado: "? Acceso denegado por la administraci?n.",
+          pendiente: "? Tu cuenta de taxista est? en revisi?n.",
+          default: "? Esperando autorizaci?n de VallesControl."
         };
         alert(messages[status as keyof typeof messages] || messages.default);
         setLoading(false);
         return;
       }
 
-      // Si es pasajero o taxista aprobado, establecemos sesión
       establishSession(data);
 
       const routes = { pasajero: "/pasajero", taxista: "/taxista", admin: "/panel" };
       navigate(routes[data.role]);
 
     } catch (error: any) {
-      console.error("❌ Login Error:", error);
-      alert(error.response?.data?.message || "Error de conexión con Valles");
+      console.error("? Login Error:", error);
+      alert(error.response?.data?.message || "Error de conexi?n con Valles");
     } finally {
       setLoading(false);
     }
@@ -91,27 +86,24 @@ const LoginView: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-white flex flex-col justify-center p-8 relative overflow-hidden font-sans">
-      {/* Línea decorativa superior */}
       <div className="absolute top-0 left-0 w-full h-3 bg-[#22c55e]"></div>
 
       <div className="max-w-md w-full mx-auto z-10">
-        {/* Header de la App */}
         <header className="mb-12">
           <div className="inline-block p-3 bg-white border-2 border-[#22c55e] rounded-2xl mb-4 shadow-sm">
-            <span className="text-2xl">🚕</span>
+            <span className="text-2xl">??</span>
           </div>
           <h1 className="text-4xl font-black text-slate-900 mb-1 tracking-tighter uppercase">
             TAXI<span className="text-[#22c55e]">VALLES</span>
           </h1>
           <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest leading-relaxed">
-            Plataforma de Transporte Público<br />Cd. Valles, S.L.P.
+            Plataforma de Transporte P?blico<br />Cd. Valles, S.L.P.
           </p>
         </header>
 
-        {/* Formulario */}
         <form onSubmit={handleSubmit} className="space-y-6">
           <InputGroup
-            label="Correo electrónico"
+            label="Correo electr?nico"
             type="email"
             name="email"
             value={form.email}
@@ -120,12 +112,12 @@ const LoginView: React.FC = () => {
           />
 
           <InputGroup
-            label="Contraseña"
+            label="Contrase?a"
             type="password"
             name="password"
             value={form.password}
             onChange={handleChange}
-            placeholder="••••••••"
+            placeholder="????????"
           />
 
           <button
@@ -143,24 +135,22 @@ const LoginView: React.FC = () => {
 
         <footer className="mt-10 text-center">
           <p className="text-sm font-bold text-slate-400">
-            ¿No tienes cuenta?{" "}
+            ?No tienes cuenta?{" "}
             <span
               onClick={() => navigate("/register")}
               className="text-[#22c55e] cursor-pointer hover:underline decoration-2 underline-offset-4"
             >
-              Crea una aquí
+              Crea una aqu?
             </span>
           </p>
         </footer>
       </div>
 
-      {/* Decoración inferior */}
       <div className="absolute bottom-0 left-0 w-full h-1 bg-[#22c55e]/20"></div>
     </div>
   );
 };
 
-// 🧩 Sub-componente para inputs (limpieza visual)
 const InputGroup: React.FC<{
   label: string;
   type: string;

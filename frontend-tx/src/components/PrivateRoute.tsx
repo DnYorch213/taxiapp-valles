@@ -5,23 +5,21 @@ import { useTravel } from "../context/TravelContext";
 
 interface PrivateRouteProps {
   children: React.ReactNode;
-  role?: "pasajero" | "taxista" | "admin"; // 👈 tipado fuerte
+  role?: "pasajero" | "taxista" | "admin";
 }
 
-// Tu componente con el toque final:
 export const PrivateRoute: React.FC<PrivateRouteProps> = ({ children, role }) => {
   const { userPosition } = useTravel();
 
-  const storedToken = localStorage.getItem("token");
   const storedRole = localStorage.getItem("role") as "pasajero" | "taxista" | "admin" | null;
   const resolvedRole = userPosition?.role || storedRole;
+  const hasSession = Boolean(userPosition || (localStorage.getItem("email") && storedRole));
 
-  if (!userPosition && !storedToken) {
-    return <Navigate to="/login" replace />; // 👈 replace es clave aquí
+  if (!hasSession) {
+    return <Navigate to="/login" replace />;
   }
 
   if (role && resolvedRole !== role) {
-    // Si es taxista y quiere entrar a admin, mejor mándalo a su vista de /taxista
     const defaultRoute = resolvedRole === "taxista" ? "/taxista" : "/pasajero";
     return <Navigate to={defaultRoute} replace />;
   }

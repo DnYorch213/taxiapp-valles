@@ -11,12 +11,11 @@ const shouldResetSession = (error: any) => {
     if (status !== 403) return false;
 
     return message.includes("token expirado") ||
-        message.includes("token inválido") ||
+        message.includes("token inv?lido") ||
         message.includes("token no proporcionado");
 };
 
 const clearSessionAndRedirect = () => {
-    localStorage.removeItem("token");
     localStorage.removeItem("email");
     localStorage.removeItem("role");
     localStorage.removeItem("userName");
@@ -29,23 +28,17 @@ const clearSessionAndRedirect = () => {
     }
 };
 
-// Crear instancia de axios con URL base
 export const axiosInstance = axios.create({
     baseURL: API_URL,
     timeout: 10000,
+    withCredentials: true,
     headers: {
         'Content-Type': 'application/json',
     },
 });
 
-// 🔐 Interceptor: Agregar token JWT automáticamente a cada petición
 axiosInstance.interceptors.request.use(
     (config) => {
-        const token = localStorage.getItem("token");
-        if (token) {
-            config.headers = config.headers || {};
-            (config.headers as Record<string, string>).Authorization = `Bearer ${token}`;
-        }
         return config;
     },
     (error) => {
@@ -53,12 +46,11 @@ axiosInstance.interceptors.request.use(
     }
 );
 
-// 🔐 Interceptor: Manejar errores de autenticación
 axiosInstance.interceptors.response.use(
     (response) => response,
     (error) => {
         if (shouldResetSession(error)) {
-            console.error("❌ Token inválido o expirado");
+            console.error("? Token inv?lido o expirado");
             clearSessionAndRedirect();
         }
         return Promise.reject(error);

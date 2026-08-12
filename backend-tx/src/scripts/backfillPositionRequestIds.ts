@@ -3,7 +3,11 @@ import mongoose from "mongoose";
 import { Position } from "../models/Position";
 
 async function main() {
-    const mongoUri = process.env.MONGO_URI || "mongodb://localhost:27017/taxiapp";
+    const mongoUri = process.env.MONGO_URI;
+    if (!mongoUri) {
+        throw new Error("MONGO_URI no está definido. Configúralo antes de ejecutar este script.");
+    }
+
     await mongoose.connect(mongoUri);
 
     const legacyPositions = await Position.find({

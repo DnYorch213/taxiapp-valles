@@ -1,8 +1,7 @@
 // src/context/TravelContext.tsx
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { jwtDecode, JwtPayload } from "jwt-decode";
 import { Position, Destination, Rol } from "../types/Positions";
-import { socket, connectSocket } from "../lib/socket"; // 🚨 Importación crucial para la persistencia
+import { socket, connectSocket } from "../lib/socket";
 
 interface TravelContextType {
   userPosition: Position | null;
@@ -16,34 +15,24 @@ interface TravelContextType {
   pasajerosActivos: Position[];
   setPasajerosActivos: (pasajeros: Position[]) => void;
   taxiPos: { lat: number; lng: number; heading?: number; taxiNumber?: string } | null;
-  setTaxiPos: React.Dispatch<React.SetStateAction<{ lat: number; lng: number; heading?: number; taxiNumber?: string } | null>>;  logout: () => void;
-}
-
-interface DecodedToken extends JwtPayload {
-  email: string;
-  role: Rol;
-  name?: string;
-  phone?: string;
-  taxiNumber?: string;
+  setTaxiPos: React.Dispatch<React.SetStateAction<{ lat: number; lng: number; heading?: number; taxiNumber?: string } | null>>;
+  logout: () => void;
 }
 
 const TravelContext = createContext<TravelContextType | undefined>(undefined);
 
 const restoreSessionFromStorage = (): Position | null => {
-  const token = localStorage.getItem("token");
-  if (!token) return null;
+  const storedEmail = localStorage.getItem("email");
+  const storedRole = localStorage.getItem("role") as Rol | null;
+  if (!storedEmail || !storedRole) return null;
 
   try {
-    const decoded = jwtDecode<DecodedToken>(token);
-    const storedRole = (localStorage.getItem("role") as Rol | null) || decoded.role;
-    const storedEmail = localStorage.getItem("email") || decoded.email;
-    const storedName = localStorage.getItem("userName") || decoded.name || "Usuario";
-    const storedPhone = localStorage.getItem("phone") || decoded.phone;
-    const storedTaxiNumber = localStorage.getItem("taxiNumber") || decoded.taxiNumber;
+    const storedName = localStorage.getItem("userName") || "Usuario";
+    const storedPhone = localStorage.getItem("phone") || undefined;
+    const storedTaxiNumber = localStorage.getItem("taxiNumber") || undefined;
 
     socket.auth = {
       email: storedEmail,
-      token,
       role: storedRole,
     };
 
@@ -57,13 +46,12 @@ const restoreSessionFromStorage = (): Position | null => {
       taxiNumber: storedRole === "taxista" ? storedTaxiNumber || undefined : undefined,
     };
   } catch (err) {
-    console.error("❌ Error restaurando sesión desde storage:", err);
+    console.error("? Error restaurando sesi?n desde storage:", err);
     return null;
   }
 };
 
 export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // 🚀 INICIALIZACIÓN SÍNCRONA: Recupera sesión y conecta Socket antes del primer render
   const [userPosition, setUserPosition] = useState<Position | null>(() => restoreSessionFromStorage());
 
   const [destination, setDestination] = useState<Destination | null>(null);
@@ -75,16 +63,13 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const reconnectIfNeeded = useCallback(() => {
     const email = userPosition?.email || localStorage.getItem("email");
     const role = userPosition?.role || (localStorage.getItem("role") as Rol | null);
-    const token = localStorage.getItem("token");
 
     if (!email || !role) return;
 
     const activeSession = userPosition || restoreSessionFromStorage();
     if (!activeSession) return;
 
-    if (token) {
-      socket.auth = { ...socket.auth, token, email, role };
-    }
+    socket.auth = { email, role };
 
     if (!socket.connected && !socket.active) {
       connectSocket(email, role);
@@ -110,19 +95,18 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     connectSocket(email, role);
   }, [userPosition?.email, userPosition?.role]);
 
-  // 🛰️ EFECTO "DESPERTADOR": Revive la app cuando el usuario regresa tras mucho tiempo
   useEffect(() => {
     const handleResume = () => {
       if (document.visibilityState !== "visible" && navigator.onLine === false) return;
 
       const restoredSession = restoreSessionFromStorage();
       if (!userPosition && restoredSession) {
-        console.log("🔄 Restaurando sesión local tras volver del segundo plano...");
+        console.log("?? Restaurando sesi?n local tras volver del segundo plano...");
         setUserPosition(restoredSession);
       }
 
       if (userPosition || restoredSession) {
-        console.log("☀️ Valles Conecta: Validando conexión en primer plano...");
+        console.log("?? Valles Conecta: Validando conexi?n en primer plano...");
         reconnectIfNeeded();
       }
     };
@@ -154,19 +138,16 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => window.clearInterval(intervalId);
   }, [reconnectIfNeeded, userPosition]);
 
-
-  // 🚪 CIERRE DE SESIÓN LIMPIO
   const logout = () => {
-    socket.disconnect(); // 🚨 Cortamos el flujo de datos primero
+    socket.disconnect();
     localStorage.clear();
     setUserPosition(null);
     setDestination(null);
     setIsTripActive(false);
     setTaxistasActivos([]);
     setPasajerosActivos([]);
-    window.location.href = "/login"; // Limpieza total de estados de navegación
+    window.location.href = "/login";
   };
-
 
   return (
     <TravelContext.Provider
@@ -191,7 +172,6 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 };
 
-
 export const useTravel = (): TravelContextType => {
   const context = useContext(TravelContext);
   if (!context) {
@@ -199,4 +179,3 @@ export const useTravel = (): TravelContextType => {
   }
   return context;
 };
-

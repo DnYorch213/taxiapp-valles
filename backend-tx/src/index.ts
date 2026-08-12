@@ -60,8 +60,8 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/auth", authRoutes);
 
 // 🔐 Endpoints delegados a controladores inyectando dependencias (PROTEGIDOS)
-app.post("/api/accept-trip-push", handleAcceptTripPush(io));
-app.post("/api/reject-trip-push", handleRejectTripPush(io));
+app.post("/api/accept-trip-push", verifyToken, handleAcceptTripPush(io));
+app.post("/api/reject-trip-push", verifyToken, handleRejectTripPush(io));
 app.post("/api/save-subscription", verifyToken, handleSaveSubscription);
 
 // 🔐 Historial de viajes (PROTEGIDO - verificar autorización del usuario)

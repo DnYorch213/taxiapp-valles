@@ -4,6 +4,7 @@ import { io } from "socket.io-client";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
 export const socket = io(API_URL, {
+  withCredentials: true,
   auth: {
     email: typeof window !== "undefined" ? localStorage.getItem("email") : undefined,
     role: typeof window !== "undefined" ? localStorage.getItem("role") : undefined,
@@ -21,17 +22,16 @@ export const socket = io(API_URL, {
 });
 
 socket.on("connect_error", () => {
-  console.warn("⚠️ Socket connect_error: la sesión puede estar siendo reemplazada o la red está inestable.");
+  console.warn("?? Socket connect_error: la sesi?n puede estar siendo reemplazada o la red est? inestable.");
 });
 
 socket.on("session_replaced", () => {
-  console.warn("⚠️ Se recibió un reemplazo de sesión desde el servidor. Se limpiará el estado local.");
+  console.warn("?? Se recibi? un reemplazo de sesi?n desde el servidor. Se limpiar? el estado local.");
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("socket-session-replaced"));
   }
 });
 
-// 🚀 FUNCIÓN CORREGIDA:
 export const connectSocket = (email: string, role: string) => {
   if (!email || !role) return;
 
@@ -57,5 +57,5 @@ export const connectSocket = (email: string, role: string) => {
     socket.connect();
   }
 
-  console.log(`✅ Socket conectado: ${normalizedEmail} como ${role}`);
+  console.log(`? Socket conectado: ${normalizedEmail} como ${role}`);
 };

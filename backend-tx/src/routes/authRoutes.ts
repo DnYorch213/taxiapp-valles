@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { Request, Response } from "express";
 import { User } from "../models/User";
-import { Position } from "../models/Position"; // Asegúrate de que la ruta sea correcta
+import { Position } from "../models/Position"; // Aseg?rate de que la ruta sea correcta
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { verifyToken } from "../middleware/authMiddleware";
@@ -21,12 +21,9 @@ router.post("/register", async (req: Request, res: Response) => {
 
         if (normalizedPhone.length !== 10) {
             return res.status(400).json({
-                message: "El celular debe tener 10 dígitos (puedes incluir +52).",
+                message: "El celular debe tener 10 d?gitos (puedes incluir +52).",
             });
         }
-
-        // Aquí pegas todas tus validaciones (role === "admin", emailRegex, etc.)
-        // ... (Tu lógica de validación de Valles)
 
         const existingUser = await User.findOne({ email: normalizedEmail });
         if (existingUser) return res.status(400).json({ message: "El correo ya existe" });
@@ -43,7 +40,7 @@ router.post("/register", async (req: Request, res: Response) => {
         });
 
         await user.save();
-        res.status(201).json({ message: "Usuario registrado con éxito" });
+        res.status(201).json({ message: "Usuario registrado con ?xito" });
     } catch (err) {
         res.status(500).json({ message: "Error en el servidor al registrar" });
     }
@@ -56,7 +53,7 @@ router.post("/login", async (req: Request, res: Response) => {
         const user = await User.findOne({ email: email.toLowerCase().trim() });
 
         if (!user || !(await bcrypt.compare(password, user.password))) {
-            return res.status(400).json({ message: "Credenciales inválidas" });
+            return res.status(400).json({ message: "Credenciales inv?lidas" });
         }
 
         const lastPos = await Position.findOne({ email: user.email });
@@ -66,8 +63,16 @@ router.post("/login", async (req: Request, res: Response) => {
             { expiresIn: '30d' }
         );
 
+        const isProduction = process.env.NODE_ENV === "production";
+        res.cookie("token", token, {
+            httpOnly: true,
+            secure: isProduction,
+            sameSite: isProduction ? "none" : "lax",
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+            path: "/"
+        });
+
         res.json({
-            token,
             role: user.role,
             name: user.name,
             phone: user.phone,
@@ -81,18 +86,28 @@ router.post("/login", async (req: Request, res: Response) => {
     }
 });
 
-// ==================== 🔐 RUTA PROTEGIDA: ACTUALIZAR GPS ====================
-// 🛡️ Requiere token JWT válido para evitar actualizaciones no autorizadas
+router.post("/logout", (req: Request, res: Response) => {
+    const isProduction = process.env.NODE_ENV === "production";
+    res.clearCookie("token", {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? "none" : "lax",
+        path: "/"
+    });
+    return res.json({ success: true, message: "Sesi?n cerrada" });
+});
+
+// ==================== ?? RUTA PROTEGIDA: ACTUALIZAR GPS ====================
+// ??? Requiere token JWT v?lido para evitar actualizaciones no autorizadas
 router.post("/positions/update-gps", verifyToken, async (req: Request, res: Response) => {
     try {
         const { email, lat, lng } = req.body;
         const authenticatedEmail = (req as any).user?.email;
 
-        // 🛡️ Valida que el usuario solo actualice su propia posición
         if (authenticatedEmail?.toLowerCase().trim() !== email?.toLowerCase().trim()) {
             return res.status(403).json({
                 success: false,
-                message: "❌ No puedes actualizar la posición de otro usuario"
+                message: "? No puedes actualizar la posici?n de otro usuario"
             });
         }
 
@@ -100,9 +115,6 @@ router.post("/positions/update-gps", verifyToken, async (req: Request, res: Resp
             return res.status(400).json({ success: false, message: "Datos de GPS incompletos" });
         }
 
-        // 🚀 RESPALDO DIRECTO EN MONGO ATLAS:
-        // Buscamos el correo de la unidad y actualizamos solo coordenadas.
-        // El estado del viaje NO debe venir del cliente para evitar estados fantasma.
         const posicionActualizada = await Position.findOneAndUpdate(
             { email: email.toLowerCase().trim() },
             {
@@ -112,12 +124,12 @@ router.post("/positions/update-gps", verifyToken, async (req: Request, res: Resp
                     updatedAt: new Date()
                 }
             },
-            { upsert: true, returnDocument: "after" } // Devuelve el documento actualizado
+            { upsert: true, returnDocument: "after" }
         );
 
         return res.status(200).json({
             success: true,
-            message: "Telemetría guardada en Atlas correctamente",
+            message: "Telemetr?a guardada en Atlas correctamente",
             data: {
                 lat: posicionActualizada.lat,
                 lng: posicionActualizada.lng
@@ -125,8 +137,8 @@ router.post("/positions/update-gps", verifyToken, async (req: Request, res: Resp
         });
 
     } catch (error) {
-        console.error("❌ Error HTTP en update-gps:", error);
-        return res.status(500).json({ success: false, message: "Error interno del servidor en la telemetría" });
+        console.error("? Error HTTP en update-gps:", error);
+        return res.status(500).json({ success: false, message: "Error interno del servidor en la telemetr?a" });
     }
 });
 

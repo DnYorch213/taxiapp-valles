@@ -11,9 +11,22 @@ import { enviarNotificacionPush } from "../services/pushService";
 // 🚖 1. CONTROLADOR PARA ACEPTAR EL VIAJE VIA PUSH
 export const handleAcceptTripPush = (io: Server) => async (req: Request, res: Response) => {
     const { taxistaEmail, pasajeroEmail, requestId } = req.body;
+    const authenticatedEmail = String((req as any)?.user?.email || "").toLowerCase().trim();
 
     if (!taxistaEmail || !pasajeroEmail || !requestId) {
         return res.status(400).json({ error: "Faltan taxistaEmail, pasajeroEmail o requestId" });
+    }
+
+    if (!authenticatedEmail) {
+        return res.status(401).json({ error: "Token inválido o no autenticado." });
+    }
+
+    if ((req as any)?.user?.role !== "taxista") {
+        return res.status(403).json({ error: "Solo un taxista puede aceptar un viaje." });
+    }
+
+    if (authenticatedEmail !== String(taxistaEmail).toLowerCase().trim()) {
+        return res.status(403).json({ error: "No puedes aceptar viajes en nombre de otro conductor." });
     }
 
     try {
@@ -171,9 +184,22 @@ export const handleSaveSubscription = async (req: Request, res: Response) => {
 // 🚖 3. CONTROLADOR PARA IGNORAR VIAJE VIA PUSH
 export const handleRejectTripPush = (io: Server) => async (req: Request, res: Response) => {
     const { taxistaEmail, pasajeroEmail, requestId } = req.body;
+    const authenticatedEmail = String((req as any)?.user?.email || "").toLowerCase().trim();
 
     if (!taxistaEmail || !pasajeroEmail || !requestId) {
         return res.status(400).json({ error: "Faltan taxistaEmail, pasajeroEmail o requestId" });
+    }
+
+    if (!authenticatedEmail) {
+        return res.status(401).json({ error: "Token inválido o no autenticado." });
+    }
+
+    if ((req as any)?.user?.role !== "taxista") {
+        return res.status(403).json({ error: "Solo un taxista puede rechazar un viaje." });
+    }
+
+    if (authenticatedEmail !== String(taxistaEmail).toLowerCase().trim()) {
+        return res.status(403).json({ error: "No puedes rechazar viajes en nombre de otro conductor." });
     }
 
     try {

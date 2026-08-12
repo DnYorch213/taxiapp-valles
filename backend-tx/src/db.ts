@@ -2,7 +2,11 @@ import mongoose from "mongoose";
 
 export const connectDB = async () => {
   try {
-    const mongoURI = process.env.MONGO_URI || "mongodb://localhost:27017/taxiapp";
+    const mongoURI = process.env.MONGO_URI;
+
+    if (!mongoURI) {
+      throw new Error("MONGO_URI no está definido. Configúralo antes de iniciar la API.");
+    }
 
     const conn = await mongoose.connect(mongoURI);
 
