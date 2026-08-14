@@ -13,54 +13,72 @@ webpush.setVapidDetails(
     process.env.VAPID_PRIVATE_KEY!
 );
 
-export const enviarNotificacionPush = async (subscription: any, pasajeroData: any, taxistaEmail: string) => {
+export const enviarNotificacionPush = async (subscription: any, pasajeroData: any, targetEmail: string) => {
     if (!subscription || !subscription.endpoint) return;
 
     try {
-        const taxistaPos = await Position.findOne({ email: taxistaEmail });
-        let distanciaMetros = 0;
+        let payload: string;
 
-        if (taxistaPos && taxistaPos.lat && pasajeroData.lat) {
-            const distKM = calculateDistance(
-                Number(pasajeroData.lat),
-                Number(pasajeroData.lng),
-                Number(taxistaPos.lat),
-                Number(taxistaPos.lng)
-            );
-            distanciaMetros = Math.round(distKM * 1000);
+        if (pasajeroData.type === "TRIP_ACCEPTED") {
+            // Notificación para el pasajero informándole que su viaje fue aceptado
+            payload = JSON.stringify({
+                title: "¡VIAJE CONFIRMADO! 🚕",
+                body: `El conductor ${pasajeroData.name || "S/N"} (Eco: ${pasajeroData.taxiNumber || "S/N"}) ha aceptado tu viaje y va en camino.`,
+                icon: `${process.env.FRONTEND_URL}/icon-192x192.png`,
+                vibrate: [200, 100, 200],
+                actions: [], // Sin acciones adicionales de aceptación/rechazo para el pasajero
+                data: {
+                    requestId: pasajeroData.requestId,
+                    taxistaEmail: pasajeroData.taxistaEmail,
+                    action: "TRIP_ACCEPTED",
+                    url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/pasajero`
+                }
+            });
+        } else {
+            // Notificación estándar para el taxista sobre un nuevo viaje disponible
+            const taxistaPos = await Position.findOne({ email: targetEmail });
+            let distanciaMetros = 0;
+
+            if (taxistaPos && taxistaPos.lat && pasajeroData.lat) {
+                const distKM = calculateDistance(
+                    Number(pasajeroData.lat),
+                    Number(pasajeroData.lng),
+                    Number(taxistaPos.lat),
+                    Number(taxistaPos.lng)
+                );
+                distanciaMetros = Math.round(distKM * 1000);
+            }
+
+            payload = JSON.stringify({
+                title: "¡NUEVO VIAJE DISPONIBLE! 🚕",
+                body: `Pasajero: ${pasajeroData.name || pasajeroData.pasajeroEmail || pasajeroData.email}\nDistancia: ${distanciaMetros}m`,
+                icon: `${process.env.FRONTEND_URL}/icon-192x192.png`,
+                vibrate: [200, 100, 200, 100, 200],
+                actions: [
+                    { action: "accept_action", title: "✅ ACEPTAR VIAJE" },
+                    { action: "reject_action", title: "❌ IGNORAR" }
+                ],
+                data: {
+                    requestId: pasajeroData.requestId,
+                    pickupAddress: pasajeroData.pickupAddress,
+                    emailPasajero: pasajeroData.pasajeroEmail || pasajeroData.email,
+                    emailTaxista: targetEmail,
+                    pasajeroLat: pasajeroData.pasajeroLat || pasajeroData.lat,
+                    pasajeroLng: pasajeroData.pasajeroLng || pasajeroData.lng,
+                    distancia: distanciaMetros,
+                    action: "OPEN_TRIP_REQUEST",
+                    url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/taxista`
+                }
+            });
         }
 
-        const payload = JSON.stringify({
-            title: "¡NUEVO VIAJE DISPONIBLE! 🚕",
-            body: `Pasajero: ${pasajeroData.name || pasajeroData.pasajeroEmail || pasajeroData.email}\nDistancia: ${distanciaMetros}m`,
-            icon: `${process.env.FRONTEND_URL}/icon-192x192.png`,
-            vibrate: [200, 100, 200, 100, 200],
-            // 🚨 CORRECCIÓN: IDs alineados perfectamente con el public/sw.js del frontend
-            actions: [
-                { action: "accept_action", title: "✅ ACEPTAR VIAJE" },
-                { action: "reject_action", title: "❌ IGNORAR" }
-            ],
-            data: {
-                requestId: pasajeroData.requestId,
-                pickupAddress: pasajeroData.pickupAddress,
-                // 🚨 CORRECCIÓN: Claves idénticas a las que consume tu Service Worker (emailPasajero y emailTaxista)
-                emailPasajero: pasajeroData.pasajeroEmail || pasajeroData.email,
-                emailTaxista: taxistaEmail,
-                pasajeroLat: pasajeroData.pasajeroLat || pasajeroData.lat,
-                pasajeroLng: pasajeroData.pasajeroLng || pasajeroData.lng,
-                distancia: distanciaMetros,
-                action: "OPEN_TRIP_REQUEST",
-                url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/taxista`
-            }
-        });
-
         await webpush.sendNotification(subscription, payload, { TTL: 60, urgency: 'high' });
-        console.log(`🔔 Push enviado con éxito a: ${taxistaEmail}`);
+        console.log(`🔔 Push enviado con éxito a: ${targetEmail}`);
     } catch (error: any) {
         if (error.statusCode === 410 || error.statusCode === 404) {
-            console.log(`⚠️ La suscripción de ${taxistaEmail} ha expirado. Limpiando BD...`);
-            await Position.updateOne({ email: taxistaEmail }, { $set: { pushSubscription: null } });
-            await User.updateOne({ email: taxistaEmail }, { $set: { pushSubscription: null } });
+            console.log(`⚠️ La suscripción de ${targetEmail} ha expirado. Limpiando BD...`);
+            await Position.updateOne({ email: targetEmail }, { $set: { pushSubscription: null } });
+            await User.updateOne({ email: targetEmail }, { $set: { pushSubscription: null } });
         }
         console.error(`❌ Error en web-push:`, error);
     }

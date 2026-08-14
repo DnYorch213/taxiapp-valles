@@ -24,10 +24,13 @@ self.addEventListener("push", function (event) {
       body: rawData.body || `Nuevo servicio solicitado.`,
       icon: rawData.icon || "/icon-192x192.png",
       vibrate: rawData.vibrate || [200, 100, 200],
-      actions: [
-        { action: "accept_action", title: "✅ ACEPTAR VIAJE" },
-        { action: "reject_action", title: "❌ IGNORAR" },
-      ],
+      actions:
+        rawData.actions !== undefined
+          ? rawData.actions
+          : [
+              { action: "accept_action", title: "✅ ACEPTAR VIAJE" },
+              { action: "reject_action", title: "❌ IGNORAR" },
+            ],
       requireInteraction: true,
       data: rawData.data, // Contiene requestId, emailPasajero, emailTaxista, etc.
     };

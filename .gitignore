@@ -53,3 +53,6 @@ pnpm-debug.log*
 # ==========================================
 # Evita subir el build info de TS
 *.tsbuildinfo
+
+# Extensión Continue / VS Code configs
+.continue/
