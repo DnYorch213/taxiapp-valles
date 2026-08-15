@@ -1,4 +1,3 @@
-// public/sw.js
 const API_BASE_URL =
   self.location.hostname === "localhost"
     ? "http://localhost:3001"
@@ -19,40 +18,34 @@ self.addEventListener("push", function (event) {
   try {
     const rawData = event.data.json();
     const title = rawData.title || "¡NUEVO VIAJE DISPONIBLE! 🚕";
+    const requestId = rawData.data?.requestId || "unknown";
 
     const options = {
-      body: rawData.body || `Nuevo servicio solicitado.`,
+      body: rawData.body || "Nuevo servicio solicitado cerca de ti.",
       icon: rawData.icon || "/icon-192x192.png",
       vibrate: rawData.vibrate || [200, 100, 200],
-      actions:
-        rawData.actions !== undefined
-          ? rawData.actions
-          : [
-              { action: "accept_action", title: "✅ ACEPTAR VIAJE" },
-              { action: "reject_action", title: "❌ IGNORAR" },
-            ],
-      requireInteraction: true,
-      data: rawData.data, // Contiene requestId, emailPasajero, emailTaxista, etc.
+      // 🎯 OPTIMIZACIÓN: Usar 'tag' evita que se acumulen notificaciones duplicadas si el backend reenvía
+      tag: `taxi-request-${requestId}`,
+      renotify: true,
+      actions: rawData.actions || [
+        { action: "accept_action", title: "✅ ACEPTAR" },
+        { action: "reject_action", title: "❌ IGNORAR" },
+      ],
+      requireInteraction: true, // Mantiene la notificación hasta que el usuario interactúa
+      data: rawData.data,
     };
 
     event.waitUntil(self.registration.showNotification(title, options));
   } catch (err) {
-    console.error("Error procesando notificación push en background:", err);
+    console.error("❌ [SW] Error procesando push:", err);
   }
 });
 
 // 2. GESTIONAR EL CLICK Y LAS ACCIONES
 self.addEventListener("notificationclick", (event) => {
   const notification = event.notification;
-  const action = event.action; // 'accept_action', 'reject_action' o '' (clic normal)
+  const action = event.action;
   const notificationData = notification.data || {};
-
-  console.info("[SW] notificationclick", {
-    action,
-    pasajero: notificationData.emailPasajero || null,
-    taxista: notificationData.emailTaxista || null,
-    requestId: notificationData.requestId || null,
-  });
 
   notification.close();
 
@@ -60,85 +53,88 @@ self.addEventListener("notificationclick", (event) => {
   const tEmail = encodeURIComponent(notificationData.emailTaxista || "");
   const requestId = encodeURIComponent(notificationData.requestId || "");
 
-  // URL objetivo para abrir la app
   const targetUrl = `${self.location.origin}/taxista?pasajero=${pEmail}&taxista=${tEmail}&requestId=${requestId}`;
 
-  // --- CASO 1: EL TAXISTA RECHAZA EL VIAJE (BOTÓN "❌ IGNORAR") ---
+  // 🎯 OPTIMIZACIÓN: Función asíncrona para manejar la apertura de la app de forma limpia
+  const abrirApp = async () => {
+    try {
+      const windowClients = await clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+
+      // Buscar si ya existe una ventana de la app
+      const client = windowClients.find((c) =>
+        c.url.startsWith(self.location.origin),
+      );
+
+      if (client && "focus" in client) {
+        if ("navigate" in client) {
+          await client.navigate(targetUrl);
+        }
+        return client.focus();
+      }
+
+      // Si no existe, abrir una nueva
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    } catch (err) {
+      console.error("❌ [SW] Error al abrir/enfocar app:", err);
+    }
+  };
+
+  // --- CASO 1: RECHAZAR ---
   if (action === "reject_action") {
     event.waitUntil(
-      fetch(`${API_BASE_URL}/api/reject-trip-push`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taxistaEmail: notificationData.emailTaxista,
-          pasajeroEmail: notificationData.emailPasajero,
-          requestId: notificationData.requestId,
-        }),
-      }).catch((err) => console.error("❌ Error al rechazar vía Push:", err)),
+      Promise.all([
+        abrirApp(), // Siempre abrimos la app para dar feedback visual
+        fetch(`${API_BASE_URL}/api/reject-trip-push`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            taxistaEmail: notificationData.emailTaxista,
+            pasajeroEmail: notificationData.emailPasajero,
+            requestId: notificationData.requestId,
+          }),
+        }).catch((err) =>
+          console.error("❌ [SW] Error al rechazar vía Push:", err),
+        ),
+      ]),
     );
     return;
   }
 
-  // --- CASO 2: EL TAXISTA ACEPTA EL VIAJE (BOTÓN "✅ ACEPTAR VIAJE") ---
+  // --- CASO 2: ACEPTAR ---
   if (action === "accept_action") {
     const autoAcceptUrl = `${targetUrl}&autoAccept=true`;
 
-    console.info("[SW] accept_action -> abriendo app", { autoAcceptUrl });
-
-    const abrirVentanaPromesa = abrirOEnfocarApp(autoAcceptUrl);
-
-    const aceptarApiPromesa = fetch(`${API_BASE_URL}/api/accept-trip-push`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        taxistaEmail: notificationData.emailTaxista,
-        pasajeroEmail: notificationData.emailPasajero,
-        requestId: notificationData.requestId,
-      }),
-    })
-      .then(() => console.info("[SW] accept_action -> backend OK"))
-      .catch((err) => console.error("❌ Error al aceptar HTTP:", err));
-
-    event.waitUntil(Promise.all([abrirVentanaPromesa, aceptarApiPromesa]));
+    event.waitUntil(
+      Promise.all([
+        abrirApp()
+          .then(() => clients.matchAll({ type: "window" }))
+          .then((clientsList) => {
+            // Forzamos la navegación a la URL con autoAccept después de abrir
+            const client = clientsList.find((c) =>
+              c.url.startsWith(self.location.origin),
+            );
+            if (client && "navigate" in client)
+              return client.navigate(autoAcceptUrl);
+          }),
+        fetch(`${API_BASE_URL}/api/accept-trip-push`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            taxistaEmail: notificationData.emailTaxista,
+            pasajeroEmail: notificationData.emailPasajero,
+            requestId: notificationData.requestId,
+          }),
+        }).catch((err) => console.error("❌ [SW] Error HTTP al aceptar:", err)),
+      ]),
+    );
     return;
   }
 
   // --- CASO 3: CLIC EN EL CUERPO DE LA NOTIFICACIÓN ---
-  // Solo abre o enfoca la app para que decida dentro de la pantalla sin pre-aceptar
-  event.waitUntil(abrirOEnfocarApp(notificationData.url || targetUrl));
+  event.waitUntil(abrirApp());
 });
-
-// --- FUNCIÓN AUXILIAR DE FOCO AGRESIVO ---
-function abrirOEnfocarApp(targetUrl) {
-  const urlToOpen = new URL(targetUrl, self.location.origin).href;
-
-  console.info("[SW] abrirOEnfocarApp", { urlToOpen });
-
-  return clients
-    .matchAll({ type: "window", includeUncontrolled: true })
-    .then((windowClients) => {
-      console.info("[SW] ventanas detectadas", { total: windowClients.length });
-
-      // 1. Si hay ventanas abiertas del mismo origen
-      for (const client of windowClients) {
-        if ("focus" in client) {
-          console.info("[SW] enfocando cliente existente", {
-            clientUrl: client.url,
-            nextUrl: urlToOpen,
-          });
-          if ("navigate" in client) {
-            client.navigate(urlToOpen);
-          }
-          return client.focus();
-        }
-      }
-
-      // 2. Si la app estaba en segundo plano profundo o cerrada, abrir ventana nueva
-      if (clients.openWindow) {
-        console.info("[SW] abriendo ventana nueva", { urlToOpen });
-        return clients.openWindow(urlToOpen);
-      }
-
-      console.warn("[SW] no se pudo enfocar ni abrir ventana", { urlToOpen });
-    });
-}

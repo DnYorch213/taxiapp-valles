@@ -260,6 +260,11 @@ export const initSocketEngine = (io: Server) => {
                     estado: activeStates
                 }).lean();
 
+            // 🛡️ TYPE GUARD: Valida que el string de la BD sea un PositionState legítimo
+            const esEstadoValido = (estado: any): estado is PositionState => {
+                return Object.values(POSITION_STATES).includes(estado);
+            };
+
             // 🆕 Estado por defecto CORRECTO
             let nuevoEstado: PositionState;
 
@@ -267,29 +272,50 @@ export const initSocketEngine = (io: Server) => {
                 // Si hay viaje activo, preservar estado
                 if (role === "pasajero") {
                     const estadoPersistido = viajeActivo.estado;
-                    nuevoEstado = isValidPositionState(estadoPersistido)
-                        ? (estadoPersistido as PositionState)
-                        : POSITION_STATES.PENDIENTE;
+                    nuevoEstado = esEstadoValido(estadoPersistido)
+                        ? estadoPersistido
+                        : "pendiente" as PositionState; // Fallback seguro
+
                     logMotor("socket_connect", `Pasajero ${email} recuperado en estado: ${nuevoEstado}`, "INFO");
                 } else if (role === "taxista") {
                     const estadoBaseTaxista = miPosicion?.estado;
-                    const estadoTaxistaValido = [POSITION_STATES.ENCURSO, POSITION_STATES.ENCAMINO, POSITION_STATES.ASIGNADO].includes(estadoBaseTaxista as any);
-                    nuevoEstado = estadoTaxistaValido
-                        ? estadoBaseTaxista as PositionState
-                        : ([POSITION_STATES.ENCURSO, POSITION_STATES.ENCAMINO].includes(viajeActivo.estado as any)
-                            ? viajeActivo.estado as PositionState
+
+                    // 🛡️ CORRECCIÓN TS: Arrays tipados explícitamente para que .includes() acepte PositionState
+                    const estadosDeViajeActivo: PositionState[] = [
+                        POSITION_STATES.ENCURSO,
+                        POSITION_STATES.ENCAMINO,
+                        POSITION_STATES.ASIGNADO
+                    ];
+
+                    const estadosEnRuta: PositionState[] = [
+                        POSITION_STATES.ENCURSO,
+                        POSITION_STATES.ENCAMINO
+                    ];
+
+                    // Ahora TypeScript sabe que .includes() puede recibir un PositionState sin quejarse
+                    const esTaxistaEnViaje = esEstadoValido(estadoBaseTaxista) && estadosDeViajeActivo.includes(estadoBaseTaxista);
+
+                    nuevoEstado = esTaxistaEnViaje
+                        ? estadoBaseTaxista
+                        : (esEstadoValido(viajeActivo.estado) && estadosEnRuta.includes(viajeActivo.estado)
+                            ? viajeActivo.estado
                             : POSITION_STATES.ENCAMINO);
+
                     logMotor("socket_connect", `Taxista ${email} recuperado en estado: ${nuevoEstado}`, "INFO");
                 } else {
                     nuevoEstado = POSITION_STATES.ACTIVO;
                 }
             } else {
                 // 🆕 Sin viaje activo: estado correcto por rol
-                nuevoEstado = role === "taxista"
-                    ? ([POSITION_STATES.OCUPADO, POSITION_STATES.INACTIVO].includes(miPosicion?.estado as any)
-                        ? miPosicion?.estado as PositionState
-                        : POSITION_STATES.ACTIVO)
-                    : POSITION_STATES.ACTIVO; // ← CORREGIDO: era ACTIVO
+                if (role === "taxista") {
+                    const estadosOcupados: PositionState[] = [POSITION_STATES.OCUPADO, POSITION_STATES.INACTIVO];
+                    nuevoEstado = esEstadoValido(miPosicion?.estado) && estadosOcupados.includes(miPosicion.estado)
+                        ? miPosicion.estado
+                        : POSITION_STATES.ACTIVO;
+                } else {
+                    // Pasajero sin viaje activo
+                    nuevoEstado = "pendiente" as PositionState;
+                }
             }
 
             // Cancelar timer de microcorte si existe

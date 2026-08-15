@@ -5,6 +5,7 @@ export const POSITION_STATES = {
     ACTIVO: "activo",
     OCUPADO: "ocupado",
     INACTIVO: "inactivo",
+    PENDIENTE: "pendiente",
     BUSCANDO: "buscando",
     PREASIGNADO: "preasignado",
     ASIGNADO: "asignado",

@@ -5,7 +5,8 @@ export type Rol = "pasajero" | "taxista" | "admin";
 export type EstadoUsuario =
   | "buscando"      // pasajero solicitando
   | "preasignado"   // pasajero con oferta enviada
-  | "asignado"      // taxista con oferta enviada
+  | "asignado"
+  | "pendiente"     // taxista con oferta enviada
   | "encamino"      // ambos en camino
   | "encurso"       // viaje en curso
   | "finalizado"    // viaje terminado

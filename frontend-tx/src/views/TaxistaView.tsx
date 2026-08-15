@@ -243,9 +243,10 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
       return;
     }
 
-    if ([POSITION_STATES.ACTIVO, POSITION_STATES.FINALIZADO, POSITION_STATES.CANCELADO].includes(estado as any)) {
-      setRutaDestinoFinal([]);
-    }
+    const estadosLimpios: PositionState[] = [POSITION_STATES.ACTIVO, POSITION_STATES.FINALIZADO, POSITION_STATES.CANCELADO];
+if (estadosLimpios.includes(estado)) {
+  setRutaDestinoFinal([]);
+}
   }, [estado]);
 
 // Sincronizador de referencia mutuable para hooks de hardware
@@ -287,14 +288,14 @@ const getDestinoFinalLatLng = useCallback((payload?: Partial<Payload> | null) =>
 
 
 
- // 🚩 REHIDRATACIÓN DESDE QUERY PARAMS O ACCIONES PUSH
+// 🚩 REHIDRATACIÓN DESDE QUERY PARAMS O ACCIONES PUSH
 useEffect(() => {
   const params = new URLSearchParams(window.location.search);
   const pasajero = params.get("pasajero");
   const taxista = params.get("taxista");
   const requestId = params.get("requestId");
   const autoAccept = params.get("autoAccept");
-  const isPushFlow = Boolean(pasajero && taxista);
+  const isPushFlow = Boolean(pasajero && taxista && requestId);
 
   pushRehydrateRef.current = {
     pasajero,
@@ -304,83 +305,83 @@ useEffect(() => {
   };
 
   if (isPushFlow) {
-    console.log("🔄 Rehidratando viaje desde notificación:", pasajero, taxista);
+    console.log("🔄 Rehidratando viaje desde notificación:", { pasajero, requestId, autoAccept });
     
-    // Si viene del botón aceptar del Push, forzamos un estado de carga inmediato
+    // Limpiar la URL inmediatamente para evitar reintentos si el usuario recarga
+    window.history.replaceState({}, document.title, window.location.pathname);
+
     if (autoAccept === "true") {
       setIsAccepting(true);
-      setEstado(POSITION_STATES.ENCAMINO); // Lo movemos visualmente a ruta mientras responde el socket
-    }
+      setEstado(POSITION_STATES.ENCAMINO); // Feedback visual inmediato
 
-    // Si ya hay conexión, disparamos de inmediato. Si no, se reintentará en el listener de connect.
-    if (socket.connected) {
-      socket.emit("request_rehydrate", { requestId });
-    }
-  }
-}, []);
-
-
-  // --- 🔔 FUNCIÓN DE SUSCRIPCIÓN BLINDADA Y RE-SUSCRIPCIÓN AUTOMÁTICA ---
-const gestionarSuscripcion = async () => {
-  // Intentamos obtener el email de donde sea que esté disponible
-  const userEmail = userPosition?.email || localStorage.getItem("email");
-
-  if (!userEmail) {
-    console.log("ℹ️ Esperando email del taxista para verificar suscripción Push...");
-    return;
-  }
-
-  // 1. Validaciones del entorno del navegador
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    console.warn("❌ Este dispositivo o navegador no soporta Notificaciones Push.");
-    return;
-  }
-
-  try {
-    const registration = await navigator.serviceWorker.ready;
-    
-    // 2. Revisamos si ya existe una suscripción en el Service Worker
-    let subscription = await registration.pushManager.getSubscription();
-    
-    // Si la suscripción no existe (debido a limpieza de cookies/datos), forzamos una nueva
-    if (!subscription) {
-      console.log("⚠️ No se encontró suscripción activa (posible borrado de datos). Re-suscribiendo...");
-      
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-      });
-    }
-
-    // 3. Sincronización proactiva con el Backend
-    if (subscription) {
-      console.log(`🔄 Sincronizando token push en servidor para: ${userEmail}`);
-      
-      await axiosInstance.post(`/api/save-subscription`, {
-        email: userEmail.toLowerCase().trim(),
-        subscription: subscription
-      });
-      
-      console.log("✅ Suscripción Push validada y sincronizada correctamente.");
-    }
-  } catch (err: any) {
-    // Si el usuario denegó los permisos explícitamente en el navegador
-    if (Notification.permission === 'denied') {
-      console.warn("🚫 El taxista bloqueó los permisos de notificación en su navegador.");
+      // 🎯 NUEVO: Si el socket ya está conectado, aceptamos proactivamente 
+      // en lugar de solo pedir rehidratación.
+      if (socket.connected) {
+        console.log("🚀 Auto-aceptando proactivamente vía Socket...");
+        socket.emit("taxi_response", {
+          requestEmail: pasajero,
+          accepted: true,
+          requestId: requestId,
+        });
+      } else {
+        // Si no está conectado, emitimos para cuando se conecte
+        socket.emit("request_rehydrate", { requestId, forceAccept: true });
+      }
     } else {
-      console.error("❌ Error crítico en el ciclo de re-suscripción:", err);
+      // Si es solo un clic en la notificación (sin auto-aceptar), solo pedimos datos
+      if (socket.connected) {
+        socket.emit("request_rehydrate", { requestId });
+      }
     }
   }
-};
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []); // Se ejecuta solo una vez al montar
 
-// --- EFFECT CORREGIDO ---
-// Escuchamos de forma segura tanto el estado del GPS como el inicio de sesión manual
+
+ // --- EFFECT DE SUSCRIPCIÓN PUSH OPTIMIZADO ---
 useEffect(() => {
   const miEmail = userPosition?.email || localStorage.getItem("email");
-  if (miEmail) {
-    gestionarSuscripcion();
-  }
-}, [userPosition?.email]);
+  if (!miEmail) return;
+
+  const gestionarSuscripcion = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      console.warn("❌ Este dispositivo no soporta Notificaciones Push.");
+      return;
+    }
+
+    // Verificar permiso del navegador antes de intentar suscribir
+    if (Notification.permission === 'denied') {
+      console.warn("🚫 Permisos de notificación denegados por el usuario.");
+      return;
+    }
+
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      let subscription = await registration.pushManager.getSubscription();
+      
+      if (!subscription) {
+        console.log("⚠️ Re-suscribiendo al Push Manager...");
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+        });
+      }
+
+      if (subscription) {
+        console.log(`🔄 Sincronizando token push para: ${miEmail}`);
+        await axiosInstance.post(`/api/save-subscription`, {
+          email: miEmail.toLowerCase().trim(),
+          subscription: subscription
+        });
+        console.log("✅ Suscripción Push sincronizada.");
+      }
+    } catch (err: any) {
+      console.error("❌ Error en el ciclo de suscripción Push:", err);
+    }
+  };
+
+  gestionarSuscripcion();
+}, [userPosition?.email]); // Dependencia clara y segura
 
   // --- AUDIO & NOTIFICACIONES ---
   const detenerSonido = useCallback(() => {
@@ -487,7 +488,8 @@ useGeolocation(
     name: localStorage.getItem("userName") || userPosition?.name || "Taxista",
     role: "taxista",
     taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "",
-    estado: estado, 
+ // 🎯 CAST SEGURO: Le decimos a TS que confiamos en que el string es válido para el frontend
+    estado: estado as import("../types/Positions").EstadoUsuario, 
   },
   (pos) => {
     if (pos.lat === null || pos.lng === null) return;
@@ -681,7 +683,7 @@ const handleAsignacion = useCallback((data: any) => {
     // 2. ACTUALIZACIÓN DE ESTADOS
     // Limpiamos el email por si trae la "k" extra o espacios
     const pEmail = incomingEmail;
-    setPasajeroAsignado((prev: any) => ({ 
+    setPasajeroAsignado((prev:  Payload | null) => ({ 
       ...prev,
       ...rawData, 
       email: pEmail, 
@@ -799,7 +801,7 @@ socket.on("assignment_confirmed", (data) => {
       // asegurándonos de que la dirección quede firmada en el hilo principal
       const direccionDetectada = data.pasajero.pickupAddress || data.pasajero.direccionOrigen;
       
-      setPasajeroAsignado((prev: any) => ({
+      setPasajeroAsignado((prev:  Payload | null) => ({
         ...prev,
         ...data.pasajero,
         pickupAddress: direccionDetectada && direccionDetectada !== "Calculando ubicación..." 
@@ -901,22 +903,33 @@ socket.on("trip_status_update", (data: any) => {
   }
 });
 
+// Reemplaza el listener update_trip_path con este:
 socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
-  setHistorialRuta((prev) => [...prev, [data.lat, data.lng]]);
-  setTaxiPos({ lat: data.lat, lng: data.lng, heading: 0 });
+  // 🎯 CORRECCIÓN TIPO: Usar L.latLng para evitar el error de TypeScript
+  const nuevaCoord = L.latLng(data.lat, data.lng);
+  setHistorialRuta((prev) => [...prev, nuevaCoord]);
 
-  if (estadoRef.current === "encurso") {
+  // 🎯 CORRECCIÓN LÓGICA: Preservar el heading calculado por useGeolocation
+  // No lo sobrescribas con 0, o el ícono del taxi perderá su orientación real
+  setTaxiPos((prev) => ({
+    lat: data.lat,
+    lng: data.lng,
+    heading: prev?.heading || 0, 
+  }));
+
+  if (estadoRef.current === POSITION_STATES.ENCURSO) {
     const destinoFinal = hasRealFinalDestination(pasajeroAsignadoRef.current)
       ? getDestinoFinalLatLng(pasajeroAsignadoRef.current)
       : null;
+      
     if (!destinoFinal) {
       setRutaDestinoFinal([]);
       return;
     }
 
-    // Si la ruta ya no coincide con la calle actual, forzamos recálculo.
+    // 🎯 CORRECCIÓN CRÍTICA: Si la ruta está vacía, hay que forzar el recálculo
     if (rutaDestinoFinal.length === 0) {
-      return;
+      setRouteRefreshToken((prev) => prev + 1); // Esto activa el RoutingMachine
     }
   }
 });
@@ -940,7 +953,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       return;
     }
 
-    setEstado(nextState as any);
+    setEstado(nextState as PositionState);
     setPasajeroAsignado(data.pasajero);
     tripSessionActiveRef.current = true;
     showToastOnce("taxista:rehydrated", () => {
@@ -1027,57 +1040,56 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     };
   }, [handleAsignacion, checkStatus, detenerSonido, getDestinoFinalLatLng, handleResetTaxistaState, resetSolicitudActiva]);
 
- useEffect(() => {
-  if (!taxiPos) {
-    return;
-  }
-
-  if (estado === POSITION_STATES.ENCAMINO && geometriaRuta.length > 2) {
-    const posTaxi = L.latLng(Number(taxiPos.lat), Number(taxiPos.lng));
-
-    let indiceMasCercano = 0;
-    let distanciaMinima = Infinity;
-
-    geometriaRuta.forEach((punto, index) => {
-      const d = posTaxi.distanceTo(punto);
-      if (d < distanciaMinima) {
-        distanciaMinima = d;
-        indiceMasCercano = index;
-      }
-    });
-
-    if (distanciaMinima < 45 && indiceMasCercano > 0) {
-      setGeometriaRuta((prev) => prev.slice(indiceMasCercano));
-    } else if (distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS) {
-      setGeometriaRuta([]);
-      setRouteRefreshToken((prev) => prev + 1);
+  useEffect(() => {
+    if (!taxiPos) {
+      return;
     }
 
-    return;
-  }
+    // 🚩 CASO 1: Taxista en camino al pasajero (Recortar ruta de aproximación)
+    if (estado === POSITION_STATES.ENCAMINO && geometriaRuta.length > 2) {
+      const posTaxi = L.latLng(Number(taxiPos.lat), Number(taxiPos.lng));
+      let indiceMasCercano = 0;
+      let distanciaMinima = Infinity;
 
-  if (estado === POSITION_STATES.ENCURSO && rutaDestinoFinal.length > 2) {
-    const posTaxi = L.latLng(Number(taxiPos.lat), Number(taxiPos.lng));
+      geometriaRuta.forEach((punto, index) => {
+        const d = posTaxi.distanceTo(punto);
+        if (d < distanciaMinima) {
+          distanciaMinima = d;
+          indiceMasCercano = index;
+        }
+      });
 
-    let indiceMasCercano = 0;
-    let distanciaMinima = Infinity;
-
-    rutaDestinoFinal.forEach((punto, index) => {
-      const d = posTaxi.distanceTo(punto);
-      if (d < distanciaMinima) {
-        distanciaMinima = d;
-        indiceMasCercano = index;
+      if (distanciaMinima < 45 && indiceMasCercano > 0) {
+        setGeometriaRuta((prev) => prev.slice(indiceMasCercano));
+      } else if (distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS) {
+        setGeometriaRuta([]);
+        setRouteRefreshToken((prev) => prev + 1);
       }
-    });
-
-    if (distanciaMinima < 45 && indiceMasCercano > 0) {
-      setRutaDestinoFinal((prev) => prev.slice(indiceMasCercano));
-    } else if (distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS) {
-      setRutaDestinoFinal([]);
-      setRouteRefreshToken((prev) => prev + 1);
+      return;
     }
-  }
-}, [taxiPos, estado, geometriaRuta.length, rutaDestinoFinal.length]);
+
+    // 🚩 CASO 2: Viaje en curso (Recortar ruta hacia el destino final)
+    if (estado === POSITION_STATES.ENCURSO && rutaDestinoFinal.length > 2) {
+      const posTaxi = L.latLng(Number(taxiPos.lat), Number(taxiPos.lng));
+      let indiceMasCercano = 0;
+      let distanciaMinima = Infinity;
+
+      rutaDestinoFinal.forEach((punto, index) => {
+        const d = posTaxi.distanceTo(punto);
+        if (d < distanciaMinima) {
+          distanciaMinima = d;
+          indiceMasCercano = index;
+        }
+      });
+
+      if (distanciaMinima < 45 && indiceMasCercano > 0) {
+        setRutaDestinoFinal((prev) => prev.slice(indiceMasCercano));
+      } else if (distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS) {
+        setRutaDestinoFinal([]);
+        setRouteRefreshToken((prev) => prev + 1);
+      }
+    }
+  }, [taxiPos, estado, geometriaRuta, rutaDestinoFinal]); // 🎯 CORRECCIÓN: Quitamos .length
 
 useEffect(() => {
   if (chatAbierto) {
@@ -1118,11 +1130,22 @@ const aceptarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.Pointe
   if (acceptanceTimerRef.current) {
     window.clearTimeout(acceptanceTimerRef.current);
   }
-  acceptanceTimerRef.current = window.setTimeout(() => {
-    if ([POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO].includes(estadoRef.current as any)) {
+    acceptanceTimerRef.current = window.setTimeout(() => {
+    // 🎯 CORRECCIÓN TS: Tipamos el array explícitamente para que .includes() acepte PositionState sin quejas
+    const estadosActivos: PositionState[] = [
+      POSITION_STATES.ENCAMINO,
+      POSITION_STATES.ENCURSO,
+      POSITION_STATES.ASIGNADO
+    ];
+
+    // Si el estado ya avanzó a uno de estos, significa que el servidor confirmó el viaje.
+    // Cancelamos el timer de expiración y salimos.
+    if (estadosActivos.includes(estadoRef.current)) {
       acceptanceTimerRef.current = null;
       return;
     }
+
+    // Si el tiempo se agotó y el estado NO cambió, ejecutamos la lógica de expiración (rechazo automático)
     expireOfferResponse();
   }, OFFER_RESPONSE_TIMEOUT_MS);
 };
@@ -1169,8 +1192,7 @@ const confirmarAbordo = () => {
   setChatAbierto(false);
 
   if (taxiPos?.lat && taxiPos?.lng) {
-    setHistorialRuta([[Number(taxiPos.lat), Number(taxiPos.lng)]]);
-  }
+  setHistorialRuta([L.latLng(Number(taxiPos.lat), Number(taxiPos.lng))]);  }
 };
 
 const finalizarViaje = () => {
