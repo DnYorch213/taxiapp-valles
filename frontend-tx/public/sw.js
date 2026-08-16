@@ -3,51 +3,60 @@ const API_BASE_URL =
     ? "http://localhost:3001"
     : "https://taxiapp-valles.onrender.com";
 
-self.addEventListener("install", () => {
-  self.skipWaiting();
-});
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) =>
+  event.waitUntil(self.clients.claim()),
+);
 
-self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
-});
-
-// 1. ESCUCHAR LA NOTIFICACIÓN PUSH (SOLO INFORMATIVA)
 self.addEventListener("push", function (event) {
   if (!event.data) return;
-
   try {
     const rawData = event.data.json();
     const requestId = rawData.data?.requestId || "unknown";
     const title = rawData.title || "¡NUEVO VIAJE DISPONIBLE! 🚕";
 
     const options = {
-      body:
-        rawData.body ||
-        "Toca para descartar esta alerta. Abre la app para aceptar.",
+      body: rawData.body || "Toca para abrir la app y aceptar el servicio.",
       icon: rawData.icon || "/icon-192x192.png",
       vibrate: rawData.vibrate || [200, 100, 200, 100, 200],
       tag: `taxi-request-${requestId}`,
       renotify: true,
-      requireInteraction: true, // Se queda en pantalla hasta que el usuario la descarte
+      requireInteraction: true,
       data: rawData.data,
-      // 🚫 SIN 'actions': No hay botones de aceptar/ignorar
     };
-
     event.waitUntil(self.registration.showNotification(title, options));
   } catch (err) {
     console.error("❌ [SW] Error procesando push:", err);
   }
 });
 
-// 2. AL TOCAR LA NOTIFICACIÓN: NO HACER NADA (Solo cerrarla)
+// 🎯 AL TOCAR: ABRIR LA APP PARA QUE EL TAXISTA PUEDA ACEPTAR A TIEMPO
 self.addEventListener("notificationclick", (event) => {
-  const notification = event.notification;
+  // 1. Cerrar la notificación
+  event.notification.close();
 
-  // 🎯 Simplemente cerramos la notificación.
-  // No abrimos la app, no navegamos, no enviamos fetch.
-  // El taxista abrirá la app manualmente y el WebSocket hará su trabajo de forma segura.
-  notification.close();
+  // 2. Definir la URL base (sin parámetros, el socket se encargará de rehidratar el estado real)
+  const targetUrl = `${self.location.origin}/taxista`;
 
-  // Evitamos cualquier comportamiento por defecto del navegador
-  event.stopImmediatePropagation();
+  // 3. Enfocar o abrir la ventana de la app
+  event.waitUntil(
+    clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((windowClients) => {
+        const client = windowClients.find((c) =>
+          c.url.startsWith(self.location.origin),
+        );
+
+        if (client && "focus" in client) {
+          if ("navigate" in client) {
+            client.navigate(targetUrl);
+          }
+          return client.focus();
+        }
+
+        if (clients.openWindow) {
+          return clients.openWindow(targetUrl);
+        }
+      }),
+  );
 });
