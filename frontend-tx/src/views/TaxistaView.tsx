@@ -776,8 +776,7 @@ else {
 
     socket.on("pasajero_asignado", handleAsignacion);
     socket.on("trip_destination_updated", handleTripDestinationUpdated);
-
-   // 1. 🏁 LISTENER DE CONFIRMACIÓN OFICIAL
+// 1. 🏁 LISTENER DE CONFIRMACIÓN OFICIAL
 socket.on("assignment_confirmed", (data) => {
   if (!tripSessionActiveRef.current) {
     console.warn("🛡️ assignment_confirmed ignorado: la sesión local ya fue cerrada.");
@@ -786,13 +785,22 @@ socket.on("assignment_confirmed", (data) => {
 
   if (data.success) {
     console.log("✅ Confirmación recibida del servidor:", data);
+    
+    // 🎯 LIMPIEZA CRÍTICA: El servidor respondió con éxito, matamos el timer de seguridad
+    // para que no se ejecute el fallback de expiración innecesariamente.
+    if (acceptanceTimerRef.current) {
+      window.clearTimeout(acceptanceTimerRef.current);
+      acceptanceTimerRef.current = null;
+    }
+
     setEstado(POSITION_STATES.ENCAMINO); 
     detenerSonido();
+    setIsAccepting(false); // Liberamos el bloqueo de clics
+    setViajeSolicitado(null);
+
     showToastOnce("taxista:assignment-confirmed", () => {
       toast.success("¡Viaje vinculado! Dirígete al pasajero.");
     }, { cooldownMs: 4000 });
-    setIsAccepting(false);
-    setViajeSolicitado(null);
 
     if (data.pasajero) {
       const pEmail = data.pasajero.email.toLowerCase().trim();
@@ -801,7 +809,7 @@ socket.on("assignment_confirmed", (data) => {
       // asegurándonos de que la dirección quede firmada en el hilo principal
       const direccionDetectada = data.pasajero.pickupAddress || data.pasajero.direccionOrigen;
       
-      setPasajeroAsignado((prev:  Payload | null) => ({
+      setPasajeroAsignado((prev: Payload | null) => ({
         ...prev,
         ...data.pasajero,
         pickupAddress: direccionDetectada && direccionDetectada !== "Calculando ubicación..." 
@@ -811,11 +819,16 @@ socket.on("assignment_confirmed", (data) => {
       }));
     }
   } else {
+    // Si el servidor rechaza la aceptación (ej. otro taxista fue más rápido)
+    if (acceptanceTimerRef.current) {
+      window.clearTimeout(acceptanceTimerRef.current);
+      acceptanceTimerRef.current = null;
+    }
     setIsAccepting(false);
     toast.error(data.message || "No se pudo confirmar el viaje.");
+    resetSolicitudActiva(); // Limpiamos todo para volver a estar disponibles
   }
 });
-
 
     
 // 🚩 AQUÍ PONES EL CANDADO DEL LADO DEL CLIENTE
@@ -1098,16 +1111,16 @@ useEffect(() => {
 }, [chatAbierto]);
 
  // --- ACCIONES DEL TAXISTA ---
+
 const aceptarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.PointerEvent<HTMLButtonElement>) => {
   if (event) {
     event.preventDefault();
     event.stopPropagation();
   }
 
+  // 🛡️ Guardias de seguridad
   if (!tripSessionActiveRef.current || isAccepting || !canRespondToOffer || !pasajeroAsignado?.email) {
-    if (!pasajeroAsignado?.email) {
-      console.error("❌ Error: No hay email de pasajero para aceptar.");
-    }
+    if (!pasajeroAsignado?.email) console.error("❌ Error: No hay email de pasajero para aceptar.");
     return;
   }
 
@@ -1120,32 +1133,36 @@ const aceptarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.Pointe
     answeredOfferRequestIdsRef.current.add(String(pasajeroAsignado.requestId));
   }
   
-  // Enviamos el email del pasajero tal cual lo recibimos del socket
+  // 1. Emitimos la aceptación al servidor
   socket.emit("taxi_response", { 
     requestEmail: pasajeroAsignado.email.toLowerCase().trim(), 
     accepted: true, 
     excludedEmails 
   });
 
+  // 2. Configuramos el timer de seguridad (fallback por si el servidor no responde)
   if (acceptanceTimerRef.current) {
     window.clearTimeout(acceptanceTimerRef.current);
   }
-    acceptanceTimerRef.current = window.setTimeout(() => {
-    // 🎯 CORRECCIÓN TS: Tipamos el array explícitamente para que .includes() acepte PositionState sin quejas
+  
+  acceptanceTimerRef.current = window.setTimeout(() => {
     const estadosActivos: PositionState[] = [
       POSITION_STATES.ENCAMINO,
       POSITION_STATES.ENCURSO,
       POSITION_STATES.ASIGNADO
     ];
 
-    // Si el estado ya avanzó a uno de estos, significa que el servidor confirmó el viaje.
-    // Cancelamos el timer de expiración y salimos.
+    // Si el servidor ya confirmó y cambió el estado, cancelamos el timer y no hacemos nada.
     if (estadosActivos.includes(estadoRef.current)) {
-      acceptanceTimerRef.current = null;
+      if (acceptanceTimerRef.current) {
+        window.clearTimeout(acceptanceTimerRef.current);
+        acceptanceTimerRef.current = null;
+      }
       return;
     }
 
-    // Si el tiempo se agotó y el estado NO cambió, ejecutamos la lógica de expiración (rechazo automático)
+    // Si pasaron 15s y el estado NO cambió, asumimos que el servidor no respondió y expiramos.
+    console.warn("⚠️ Timeout de aceptación: El servidor no respondió a tiempo.");
     expireOfferResponse();
   }, OFFER_RESPONSE_TIMEOUT_MS);
 };
@@ -1161,17 +1178,20 @@ const rechazarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.Point
   setIsAccepting(true);
   ignoreOffersUntilRef.current = Date.now() + 3000;
   detenerSonido();
+  
   if (pasajeroAsignado?.requestId) {
     answeredOfferRequestIdsRef.current.add(String(pasajeroAsignado.requestId));
   }
+
+  // 1. Emitimos el rechazo
   socket.emit("taxi_response", { 
     requestEmail: pasajeroAsignado.email.toLowerCase().trim(), 
     accepted: false, 
     excludedEmails 
   });
-  resetSolicitudActiva();
 
-  window.setTimeout(() => setIsAccepting(false), 250);
+  // 2. Limpiamos todo el estado local (esto ya incluye setIsAccepting(false))
+  resetSolicitudActiva();
 };
 
 const confirmarAbordo = () => {
@@ -1183,16 +1203,19 @@ const confirmarAbordo = () => {
     return;
   }
 
-  socket.emit("passenger_on_board", { 
-    taxistaEmail: tEmail.toLowerCase().trim(), 
-    pasajeroEmail: pEmail.toLowerCase().trim() 
-  });
-
+  // 🛡️ Actualización optimista para feedback visual inmediato
   setEstado(POSITION_STATES.ENCURSO);
   setChatAbierto(false);
 
   if (taxiPos?.lat && taxiPos?.lng) {
-  setHistorialRuta([L.latLng(Number(taxiPos.lat), Number(taxiPos.lng))]);  }
+    setHistorialRuta([L.latLng(Number(taxiPos.lat), Number(taxiPos.lng))]);
+  }
+
+  // Emitimos al servidor para que valide la relación y oficialice el estado
+  socket.emit("passenger_on_board", { 
+    taxistaEmail: tEmail.toLowerCase().trim(), 
+    pasajeroEmail: pEmail.toLowerCase().trim() 
+  });
 };
 
 const finalizarViaje = () => {
@@ -1204,11 +1227,13 @@ const finalizarViaje = () => {
     return;
   }
 
+  // 🛡️ Aquí NO hacemos actualización optimista del estado. 
+  // Dejamos que el servidor procese el cobro/cierre y nos envíe "trip_finished".
+  // Esto evita que el viaje se marque como finalizado si hay un error en el servidor.
   socket.emit("end_trip", { 
     pasajeroEmail: pEmail.toLowerCase().trim(), 
     taxistaEmail: tEmail.toLowerCase().trim() 
   });
-  
 };
 
    // --- OBJETO DE USUARIO PARA EL MENÚ LATERAL ---

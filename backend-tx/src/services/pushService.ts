@@ -54,10 +54,9 @@ export const enviarNotificacionPush = async (subscription: any, pasajeroData: an
                 body: `Pasajero: ${pasajeroData.name || pasajeroData.pasajeroEmail || pasajeroData.email}\nDistancia: ${distanciaMetros}m`,
                 icon: `${process.env.FRONTEND_URL}/icon-192x192.png`,
                 vibrate: [200, 100, 200, 100, 200],
-                actions: [
-                    { action: "accept_action", title: "✅ ACEPTAR VIAJE" },
-                    { action: "reject_action", title: "❌ IGNORAR" }
-                ],
+                // 🚫 ELIMINADO: El array 'actions' ya no existe
+                // Ahora la notificación solo sirve como alarma visual/sonora
+                // El taxista tocará la notificación y la app se abrirá
                 data: {
                     requestId: pasajeroData.requestId,
                     pickupAddress: pasajeroData.pickupAddress,
