@@ -89,13 +89,24 @@ const repairTripRelationForConnection = async (email: string, role: string) => {
         const taxiDoc = await Position.findOne({ email: normalizedEmail, role: "taxista" }).lean();
         const assignedPassenger = taxiDoc?.pasajeroAsignado?.toLowerCase().trim();
 
+        // 🛡️ Si el taxista NO tiene pasajero asignado en su propio documento, no hay nada que reparar.
         if (!assignedPassenger) return;
 
         const passengerDoc = await Position.findOne({ email: assignedPassenger, role: "pasajero" }).lean();
-        const hasActiveTrip = Boolean(passengerDoc && ACTIVE_TRIP_STATES.has(passengerDoc.estado));
-        const passengerMatchesTaxi = passengerDoc?.taxistaAsignado?.toLowerCase().trim() === normalizedEmail;
+
+        // 🛡️ CRÍTICO: Si no encontramos al pasajero (lag de BD), NO asumimos que el viaje murió.
+        // Respetamos el estado actual del taxista para evitar cancelaciones por falsos positivos.
+        if (!passengerDoc) {
+            logMotor("socket_repair", `Taxista ${normalizedEmail} tiene pasajero asignado pero doc no encontrado. Preservando estado.`, "WARN");
+            return;
+        }
+
+        const hasActiveTrip = Boolean(ACTIVE_TRIP_STATES.has(passengerDoc.estado));
+        const passengerMatchesTaxi = passengerDoc.taxistaAsignado?.toLowerCase().trim() === normalizedEmail;
 
         if (!hasActiveTrip || !passengerMatchesTaxi) {
+            // Solo limpiamos si estamos 100% seguros de que el pasajero canceló o cambió de taxista.
+            logMotor("socket_repair", `Relación inconsistente confirmada para ${normalizedEmail}. Limpiando.`, "WARN");
             await Position.updateOne(
                 { email: normalizedEmail, role: "taxista" },
                 { $set: { pasajeroAsignado: null, estado: POSITION_STATES.ACTIVO, updatedAt: new Date() } }
