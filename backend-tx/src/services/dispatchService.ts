@@ -22,10 +22,10 @@ const passengerActiveRequestIds = new Map<string, string>();
 
 // 🎯 Configuración configurable
 const MAX_RETRIES = 5;
-const MAX_DISPATCH_DISTANCE_KM = 15; // 🆕 Distancia máxima para despachar
-const BASE_TIMEOUT_MS = 15000; // 🆕 Timeout base: 15s
-const TIMEOUT_PER_KM_MS = 1000; // 🆕 1s adicional por km de distancia
-const MAX_TIMEOUT_MS = 45000; // 🆕 Timeout máximo: 45s
+const MAX_DISPATCH_DISTANCE_KM = 15;
+const BASE_TIMEOUT_MS = 15000;
+const TIMEOUT_PER_KM_MS = 1000;
+const MAX_TIMEOUT_MS = 45000;
 const RETRY_BACKOFF_MS = 1500;
 
 export let isAutoMode = true;
@@ -70,32 +70,26 @@ export const getActiveRequestIdForPassenger = (pEmail: string) => {
     return passengerActiveRequestIds.get(normalizeEmail(pEmail)) || null;
 };
 
-// 🆕 Función auxiliar para registrar timeouts por request
 export const registerPendingTimeout = (requestId: string, timeout: NodeJS.Timeout) => {
     const bucket = getTimeoutBucket(requestId);
     bucket.add(timeout);
     return timeout;
 };
 
-// 🆕 Función auxiliar para limpiar todos los timeouts del request activo de un pasajero
 export const clearPendingTimeouts = (pEmail: string, reason: string) => {
     const key = normalizeEmail(pEmail);
     const requestId = passengerActiveRequestIds.get(key);
-
     if (!requestId) return;
-
     clearDispatchCycle(requestId, reason);
     passengerActiveRequestIds.delete(key);
 };
 
 export const clearRequestTimeouts = (requestId: string, reason: string) => {
     const bucket = activeTimeouts.get(requestId);
-
     if (!bucket || bucket.size === 0) {
         activeTimeouts.delete(requestId);
         return;
     }
-
     bucket.forEach((timeout) => clearTimeout(timeout));
     activeTimeouts.delete(requestId);
     logMotor("dispatch_cleanup", `RequestId=${requestId} -> ${bucket.size} timeout(s) limpiado(s): ${reason}`, "INFO");
@@ -108,7 +102,6 @@ export const clearPassengerRequestBinding = (pEmail: string) => {
 export const registerTaxiResponseForRequest = (requestId: string | null | undefined, tEmail: string | null | undefined) => {
     const normalizedRequestId = String(requestId || "").trim();
     const normalizedEmail = normalizeEmail(String(tEmail || ""));
-
     if (!normalizedRequestId || !normalizedEmail) return;
 
     let bucket = respondedTaxistasByRequest.get(normalizedRequestId);
@@ -116,7 +109,6 @@ export const registerTaxiResponseForRequest = (requestId: string | null | undefi
         bucket = new Set<string>();
         respondedTaxistasByRequest.set(normalizedRequestId, bucket);
     }
-
     bucket.add(normalizedEmail);
 };
 
@@ -129,7 +121,6 @@ export const clearTaxiResponseRegistry = (requestId: string | null | undefined) 
 const isTaxiAlreadyRespondedForRequest = (requestId: string | null | undefined, tEmail: string | null | undefined) => {
     const normalizedRequestId = String(requestId || "").trim();
     const normalizedEmail = normalizeEmail(String(tEmail || ""));
-
     if (!normalizedRequestId || !normalizedEmail) return false;
 
     const bucket = respondedTaxistasByRequest.get(normalizedRequestId);
@@ -149,63 +140,36 @@ export const unlockDispatchCycle = (requestId: string) => {
 export const clearDispatchCycle = (requestId: string, reason: string) => {
     clearRequestTimeouts(requestId, reason);
     requestAttemptTokens.delete(requestId);
-    unlockDispatchCycle(requestId); // 🔓 Liberación segura del candado
+    unlockDispatchCycle(requestId);
 };
 
-// 🆕 Calcular timeout dinámico basado en distancia
 const calculateDynamicTimeout = (distanciaKm: number): number => {
     const timeout = BASE_TIMEOUT_MS + (distanciaKm * TIMEOUT_PER_KM_MS);
     return Math.min(timeout, MAX_TIMEOUT_MS);
 };
 
+// 🚨 CORRECCIÓN 3: Optimización de consulta y eliminación del bucle N+1 de sockets
 const getDispatchCandidates = async (
     io: Server,
     pasajeroData: any,
     currentExcluidos: string[]
-): Promise<{ candidates: IPosition[]; source: "db" | "socket-fallback" | "none" }> => {
+): Promise<{ candidates: IPosition[]; source: "db" | "none" }> => {
     const excluded = new Set(currentExcluidos.map(normalizeEmail));
-    const baseQuery = {
-        role: "taxista",
-        estado: POSITION_STATES.ACTIVO,
-        email: { $nin: Array.from(excluded) }
-    } as const;
 
+    // Consulta directa, estricta y con límite para no saturar la memoria
     const dbCandidates = await Position.find({
-        ...baseQuery,
+        role: "taxista", // 🛡️ Barrera principal: solo taxistas
+        estado: POSITION_STATES.ACTIVO,
+        email: { $nin: Array.from(excluded) },
         lat: { $exists: true, $ne: null, $gt: 0 },
         lng: { $exists: true, $ne: null, $nin: [null, 0] },
-    }).lean() as IPosition[];
+    }).limit(20).lean() as IPosition[]; // 👈 Límite de 20 para máxima velocidad
 
     if (dbCandidates.length > 0) {
         return { candidates: dbCandidates, source: "db" };
     }
 
-    const fallbackCandidates: IPosition[] = [];
-    for (const socket of io.sockets.sockets.values()) {
-        const rawEmail = socket.handshake?.auth?.email || socket.handshake?.query?.email;
-        const rawRole = socket.handshake?.auth?.role || socket.handshake?.query?.role;
-        const candidateEmail = normalizeEmail(String(rawEmail || ""));
-
-        if (!candidateEmail || excluded.has(candidateEmail) || rawRole !== "taxista") continue;
-
-        const taxistaDoc = await Position.findOne({
-            email: candidateEmail,
-            role: "taxista",
-            estado: POSITION_STATES.ACTIVO
-        }).lean() as IPosition | null;
-
-        if (!taxistaDoc) continue;
-        if (taxistaDoc.pasajeroAsignado && taxistaDoc.pasajeroAsignado !== normalizeEmail(String(pasajeroData?.email || ""))) {
-            continue;
-        }
-
-        fallbackCandidates.push(taxistaDoc);
-    }
-
-    if (fallbackCandidates.length > 0) {
-        return { candidates: fallbackCandidates, source: "socket-fallback" };
-    }
-
+    // Si no hay en BD, no hay. El fallback de sockets causaba conflictos de estado y N consultas a la BD.
     return { candidates: [], source: "none" };
 };
 
@@ -230,12 +194,10 @@ const runDispatchWithRetry = async (
         return;
     }
 
-    // Token único para ESTA iteración específica
     const currentAttemptToken = `${reqId}_v${attempt}_${Date.now()}`;
     requestAttemptTokens.set(reqId, currentAttemptToken);
 
     try {
-        // 🎯 1. VALIDACIÓN INICIAL DEL ESTADO DEL PASAJERO
         const pStatusCheck = await Position.findOne({ email: pEmail }).lean();
 
         if (!pStatusCheck) {
@@ -260,7 +222,6 @@ const runDispatchWithRetry = async (
             return;
         }
 
-        // 🛡️ Si el pasajero ya no está buscando, liberar cualquier taxista que haya quedado retenido
         if ([POSITION_STATES.CANCELADO, POSITION_STATES.FINALIZADO].includes(pStatusCheck.estado as any)) {
             await Position.updateMany(
                 { role: "taxista", estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail },
@@ -281,7 +242,6 @@ const runDispatchWithRetry = async (
             return;
         }
 
-        // 🎯 2. BÚSQUEDA DE TAXISTAS
         const { candidates: taxistasCandidatos, source } = await getDispatchCandidates(io, pasajeroData, currentExcluidos);
 
         if (taxistasCandidatos.length === 0) {
@@ -305,13 +265,12 @@ const runDispatchWithRetry = async (
             return;
         }
 
-        // 🎯 3. ENCONTRAR EL MÁS CERCANO
         const taxistasConDistancia = taxistasCandidatos
             .map(taxista => ({
                 taxista,
                 distancia: (taxista.lat && taxista.lng && pasajeroData.lat && pasajeroData.lng)
                     ? calculateDistance(pasajeroData.lat, pasajeroData.lng, taxista.lat, taxista.lng)
-                    : (source === "socket-fallback" ? 0 : Infinity)
+                    : Infinity // ← CORREGIDO: Ya no existe socket-fallback, por defecto es Infinity
             }))
             .filter(({ distancia }) => {
                 if (distancia === Infinity) return false;
@@ -351,7 +310,6 @@ const runDispatchWithRetry = async (
         const { taxista: elMasCercano, distancia } = elegibles[0];
         const tEmail = elMasCercano.email.toLowerCase().trim();
 
-        // 🎯 4. ASIGNACIÓN ATÓMICA CON TRANSACCIÓN SECUENCIAL
         const session = await Position.startSession();
         session.startTransaction();
 
@@ -414,7 +372,6 @@ const runDispatchWithRetry = async (
             throw txError;
         }
 
-        // 🎯 5. GEOCODIFICACIÓN & PAYLOAD
         let direccion = pasajeroData.pickupAddress;
         if (!direccion || direccion.includes("Calculando")) {
             try { direccion = await getCachedGeocoding(pasajeroData.lat, pasajeroData.lng); } catch (e) { direccion = "Ubicación no disponible"; }
@@ -431,7 +388,6 @@ const runDispatchWithRetry = async (
             timeoutMs: calculateDynamicTimeout(distancia)
         };
 
-        // 🎯 6. EMISIÓN DE EVENTOS
         const taxiSockets = await io.in(tEmail).fetchSockets();
         if (taxiSockets.length > 0) {
             io.to(tEmail).emit("pasajero_asignado", fullPayload);
@@ -444,7 +400,6 @@ const runDispatchWithRetry = async (
         io.emit("panel_update", { email: tEmail, estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail });
         io.emit("panel_update", { email: pEmail, estado: POSITION_STATES.PREASIGNADO, taxistaAsignado: tEmail });
 
-        // 🎯 7. CONFIGURAR TIMEOUT CONTROLADO POR TOKEN
         const timeoutMs = calculateDynamicTimeout(distancia);
 
         const timeout = setTimeout(async () => {
@@ -460,49 +415,57 @@ const runDispatchWithRetry = async (
                 const tCheck = await Position.findOne({ email: tEmail }).lean();
                 const pRefresh = await Position.findOne({ email: pEmail }).lean();
 
-                if (pRefresh && [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(pRefresh.estado as any)) {
-                    logMotor("dispatch_timeout", `Pasajero=${pEmail} -> Viaje ya aceptado por el conductor.`, "INFO");
-                    clearDispatchCycle(reqId, "viaje exitoso");
+                // 🚨 CORRECCIÓN 1: Abortar si el pasajero ya canceló o finalizó
+                if (pRefresh && [
+                    POSITION_STATES.ASIGNADO,
+                    POSITION_STATES.ENCAMINO,
+                    POSITION_STATES.ENCURSO,
+                    POSITION_STATES.CANCELADO,    // ← AGREGADO
+                    POSITION_STATES.FINALIZADO    // ← AGREGADO
+                ].includes(pRefresh.estado as any)) {
+                    logMotor("dispatch_timeout", `Pasajero=${pEmail} -> Estado final o ya aceptado. Abortando reintento.`, "INFO");
+                    clearDispatchCycle(reqId, "viaje finalizado o cancelado");
                     return;
                 }
 
+                // 🚨 CORRECCIÓN 2: Si el taxista ya no está asignado, liberar al pasajero y reintentar (no solo retornar)
                 if (!tCheck || tCheck.estado !== POSITION_STATES.ASIGNADO) {
-                    logMotor("dispatch_timeout", `Taxista=${tEmail} ya no está asignado. Cerrando hilo muerto.`, "INFO");
-                    io.to(tEmail).emit("dispatch_revoked", {
-                        message: "Tu asignación fue revocada porque el viaje ya no sigue activo.",
-                        requestId: reqId,
-                        passengerEmail: pEmail,
-                        newStatus: POSITION_STATES.ACTIVO
-                    });
-                    clearDispatchCycle(reqId, "taxista ya no asignado");
+                    logMotor("dispatch_timeout", `Taxista=${tEmail} ya no está asignado. Liberando pasajero y reintentando...`, "WARN");
+
+                    await Position.updateOne(
+                        { email: pEmail, estado: POSITION_STATES.PREASIGNADO },
+                        { $set: { estado: POSITION_STATES.BUSCANDO, taxistaAsignado: null, updatedAt: new Date() } }
+                    );
+
+                    io.emit("panel_update", { email: tEmail, estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null });
+
+                    clearDispatchCycle(reqId, "taxista ya no asignado, reintentando con otro");
+
+                    // Disparar el siguiente intento inmediatamente
+                    await runDispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt + 1);
                     return;
                 }
 
                 logMotor("dispatch_timeout", `Pasajero=${pEmail} Taxista=${tEmail} Intento=${attempt} -> No respondió, aplicando fallback...`, "INFO");
 
-                // 🚨 1. LIBERAR ESTADO DE TAXISTA INACTIVO EN BASE DE DATOS
                 await Position.updateOne(
                     { email: tEmail, estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail },
                     { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } }
                 );
 
-                // 🚨 2. EMITIR EVENTO CON STRUCT DE DATOS COMPLETO AL TAXISTA
                 io.to(tEmail).emit("dispatch_timeout", {
                     message: "El tiempo para responder la solicitud ha expirado",
                     requestId: reqId,
                     estado: POSITION_STATES.ACTIVO
                 });
 
-                // RESTAURAR ESTADO DEL PASAJERO A BUSCANDO EN BD
                 await Position.updateOne(
                     { email: pEmail, estado: POSITION_STATES.PREASIGNADO, taxistaAsignado: tEmail },
                     { $set: { estado: POSITION_STATES.BUSCANDO, taxistaAsignado: null, updatedAt: new Date() } }
                 );
 
-                // 🚨 3. EMITIR ACTUALIZACIÓN GLOBAL AL PANEL LIMPIANDO AL TAXISTA
                 io.emit("panel_update", { email: tEmail, estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null });
 
-                // Romper el ciclo viejo y dar paso al siguiente intento
                 clearDispatchCycle(reqId, "Relanzando siguiente conductor por inactividad");
                 await runDispatchWithRetry(io, pasajeroData, [...currentExcluidos, tEmail], attempt + 1);
 
@@ -536,7 +499,6 @@ export const dispatchWithRetry = async (
     await runDispatchWithRetry(io, pasajeroData, excludedEmails, attempt);
 };
 
-// 🆕 Función para limpiar todos los timeouts (útil en shutdown)
 export const clearAllTimeouts = () => {
     pendingTimeouts.forEach((timeouts, key) => {
         timeouts.forEach((timeout) => clearTimeout(timeout));
@@ -545,7 +507,6 @@ export const clearAllTimeouts = () => {
     pendingTimeouts.clear();
 };
 
-// 🆕 Función para obtener estadísticas de despacho
 export const getDispatchStats = () => {
     return {
         pendingTimeouts: Array.from(pendingTimeouts.values()).reduce((total, bucket) => total + bucket.size, 0),
