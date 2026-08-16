@@ -8,7 +8,7 @@ import { registerLocationHandlers } from "./handlers/locationHandler";
 import { registerTripHandlers } from "./handlers/tripHandler";
 import { logMotor } from "../utils/logger";
 import { calculateDistance } from "../utils/distance";
-import { POSITION_STATES, STATE_GROUPS, PositionState, isValidPositionState } from "../constants/states";
+import { POSITION_STATES, STATE_GROUPS, PositionState } from "../constants/states";
 
 // 🆕 Configuración configurable
 const MICRODROP_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos para microcortes
@@ -32,7 +32,6 @@ const shouldPreserveStateOnDisconnect = (state: string | undefined, reason: stri
     if (TRANSIENT_DISCONNECT_REASONS.has(normalizedReason)) {
         return true;
     }
-
     return Boolean(state && PRESERVED_ON_DISCONNECT_STATES.has(state));
 };
 
@@ -130,7 +129,7 @@ export const initSocketEngine = (io: Server) => {
         const rawEmail = socket.handshake.auth?.email || socket.handshake.query?.email;
         const email = rawEmail ? rawEmail.toString().toLowerCase().trim() : null;
         const role = socket.handshake.auth?.role || socket.handshake.query?.role;
-        const token = socket.handshake.auth?.token; // 🆕 Token de autenticación
+        const token = socket.handshake.auth?.token;
 
         logMotor("socket_connect", `Intento de conexión: Email[${email}] | Role[${role}] | SocketID[${socket.id}]`, "INFO");
 
@@ -144,7 +143,6 @@ export const initSocketEngine = (io: Server) => {
             return;
         }
 
-        // 🆕 Rate limiting: verificar número de conexiones activas
         const userConnections = activeConnections.get(email) || new Set();
         if (userConnections.size >= MAX_CONNECTIONS_PER_EMAIL) {
             logMotor("socket_connect", `Conexión rechazada: límite de conexiones para ${email}`, "WARN");
@@ -153,10 +151,8 @@ export const initSocketEngine = (io: Server) => {
             return;
         }
 
-        // 🆕 Validación de autenticación (opcional pero recomendado)
         try {
             const userMaster = await User.findOne({ email });
-
             if (!userMaster) {
                 logMotor("socket_connect", `Conexión rechazada: usuario ${email} no encontrado`, "WARN");
                 socket.emit("auth_error", { message: "Usuario no encontrado" });
@@ -164,21 +160,12 @@ export const initSocketEngine = (io: Server) => {
                 return;
             }
 
-            // 🆕 Validación de token (si tu sistema lo usa)
-            // if (token && userMaster.token !== token) {
-            //     logMotor("socket_connect", `Token inválido para ${email}`, "WARN");
-            //     socket.disconnect(true);
-            //     return;
-            // }
-
-            // 🆕 Verificar que el rol coincida
             if (userMaster.role !== role) {
                 logMotor("socket_connect", `Role mismatch para ${email}: esperado=${userMaster.role}, recibido=${role}`, "WARN");
                 socket.emit("auth_error", { message: "Role no coincide" });
                 socket.disconnect(true);
                 return;
             }
-
         } catch (authError) {
             logMotor("socket_connect", `Error en autenticación para ${email}: ${authError}`, "ERROR");
             socket.disconnect(true);
@@ -192,7 +179,6 @@ export const initSocketEngine = (io: Server) => {
         userConnections.add(socket.id);
         activeConnections.set(email, userConnections);
 
-        // 🆕 Permitir que coexistan varias ventanas del mismo usuario sin cortar abruptamente la sesión anterior.
         const previousDoc = await Position.findOne({ email }).lean();
         if (previousDoc?.socketId && previousDoc.socketId !== socket.id) {
             const previousSocket = io.sockets.sockets.get(previousDoc.socketId);
@@ -209,7 +195,6 @@ export const initSocketEngine = (io: Server) => {
         // ============================================================
         try {
             const userMaster = await User.findOne({ email }).lean();
-
             if (userMaster) {
                 await Position.findOneAndUpdate(
                     { email },
@@ -230,10 +215,8 @@ export const initSocketEngine = (io: Server) => {
             // ============================================================
             // 🎯 4. CALCULAR ESTADO INICIAL CORRECTO
             // ============================================================
-
             await repairTripRelationForConnection(email, role);
 
-            // 🆕 Buscar viaje activo filtrando por rol y relación real
             const activeStates = {
                 $in: [
                     POSITION_STATES.ASIGNADO,
@@ -246,8 +229,6 @@ export const initSocketEngine = (io: Server) => {
 
             const miPosicion = await Position.findOne({ email, role }).lean();
 
-            // Para taxista, SIEMPRE rehidratar con el documento del pasajero asignado.
-            // Para pasajero, usar su propio documento.
             const viajeActivo = role === "taxista"
                 ? await Position.findOne({
                     role: "pasajero",
@@ -260,39 +241,31 @@ export const initSocketEngine = (io: Server) => {
                     estado: activeStates
                 }).lean();
 
-            // 🛡️ TYPE GUARD: Valida que el string de la BD sea un PositionState legítimo
             const esEstadoValido = (estado: any): estado is PositionState => {
                 return Object.values(POSITION_STATES).includes(estado);
             };
 
-            // 🆕 Estado por defecto CORRECTO
             let nuevoEstado: PositionState;
 
             if (viajeActivo) {
-                // Si hay viaje activo, preservar estado
                 if (role === "pasajero") {
                     const estadoPersistido = viajeActivo.estado;
                     nuevoEstado = esEstadoValido(estadoPersistido)
                         ? estadoPersistido
-                        : "pendiente" as PositionState; // Fallback seguro
-
+                        : "pendiente" as PositionState;
                     logMotor("socket_connect", `Pasajero ${email} recuperado en estado: ${nuevoEstado}`, "INFO");
                 } else if (role === "taxista") {
                     const estadoBaseTaxista = miPosicion?.estado;
-
-                    // 🛡️ CORRECCIÓN TS: Arrays tipados explícitamente para que .includes() acepte PositionState
                     const estadosDeViajeActivo: PositionState[] = [
                         POSITION_STATES.ENCURSO,
                         POSITION_STATES.ENCAMINO,
                         POSITION_STATES.ASIGNADO
                     ];
-
                     const estadosEnRuta: PositionState[] = [
                         POSITION_STATES.ENCURSO,
                         POSITION_STATES.ENCAMINO
                     ];
 
-                    // Ahora TypeScript sabe que .includes() puede recibir un PositionState sin quejarse
                     const esTaxistaEnViaje = esEstadoValido(estadoBaseTaxista) && estadosDeViajeActivo.includes(estadoBaseTaxista);
 
                     nuevoEstado = esTaxistaEnViaje
@@ -306,19 +279,27 @@ export const initSocketEngine = (io: Server) => {
                     nuevoEstado = POSITION_STATES.ACTIVO;
                 }
             } else {
-                // 🆕 Sin viaje activo: estado correcto por rol
+                // 🛡️ BLINDAJE CRÍTICO: Sin viaje activo en la consulta del pasajero, 
+                // pero verificamos si el propio documento del usuario indica que está en viaje.
                 if (role === "taxista") {
-                    const estadosOcupados: PositionState[] = [POSITION_STATES.OCUPADO, POSITION_STATES.INACTIVO];
-                    nuevoEstado = esEstadoValido(miPosicion?.estado) && estadosOcupados.includes(miPosicion.estado)
-                        ? miPosicion.estado
-                        : POSITION_STATES.ACTIVO;
+                    const estadosDeViaje: PositionState[] = [
+                        POSITION_STATES.ASIGNADO,
+                        POSITION_STATES.ENCAMINO,
+                        POSITION_STATES.ENCURSO,
+                        POSITION_STATES.OCUPADO
+                    ];
+
+                    if (esEstadoValido(miPosicion?.estado) && estadosDeViaje.includes(miPosicion.estado)) {
+                        nuevoEstado = miPosicion.estado;
+                        logMotor("socket_connect", `Taxista ${email} preservado en estado: ${nuevoEstado} (fallback de seguridad)`, "INFO");
+                    } else {
+                        nuevoEstado = POSITION_STATES.ACTIVO;
+                    }
                 } else {
-                    // Pasajero sin viaje activo
                     nuevoEstado = "pendiente" as PositionState;
                 }
             }
 
-            // Cancelar timer de microcorte si existe
             const microdropTimer = microdropTimers.get(email);
             if (microdropTimer) {
                 clearTimeout(microdropTimer);
@@ -326,7 +307,6 @@ export const initSocketEngine = (io: Server) => {
                 logMotor("socket_connect", `Timer de microcorte cancelado para ${email}`, "INFO");
             }
 
-            // Actualizar estado en BD
             const updatedPos = await Position.findOneAndUpdate(
                 { email },
                 {
@@ -342,22 +322,18 @@ export const initSocketEngine = (io: Server) => {
             // ============================================================
             // 🎯 5. REGISTRAR HANDLERS ANTES DE REHIDRATACIÓN
             // ============================================================
-            // 🆕 CRÍTICO: Registrar handlers ANTES de emitir eventos
             registerLocationHandlers(io, socket, email);
             registerTripHandlers(io, socket, email);
 
             // ============================================================
             // 🎯 6. EMITIR DATOS INICIALES (SANITIZADOS)
             // ============================================================
-
-            // 🆕 Solo enviar posiciones a admin o panel de control
             if (role === "admin") {
                 const allPositions = await Position.find({
                     lat: { $exists: true, $ne: null },
                     lng: { $exists: true, $ne: null }
                 }).lean();
 
-                // 🆕 Sanitizar datos sensibles
                 const sanitizedPositions = allPositions.map(p => ({
                     email: p.email,
                     name: p.name,
@@ -367,7 +343,6 @@ export const initSocketEngine = (io: Server) => {
                     estado: p.estado,
                     taxiNumber: p.taxiNumber,
                     socketId: p.socketId
-                    // 🚫 NO incluir: pushSubscription, taxistaAsignado, etc.
                 }));
 
                 socket.emit("positions", sanitizedPositions);
@@ -377,12 +352,11 @@ export const initSocketEngine = (io: Server) => {
             socket.emit("initial_state", { estado: nuevoEstado, role });
 
             // ============================================================
-            // 🎯 7. REHIDRATACIÓN CONSOLIDADA (UN SOLO MECANISMO)
+            // 🎯 7. REHIDRATACIÓN CONSOLIDADA
             // ============================================================
             if (viajeActivo && role === "taxista") {
                 setTimeout(() => {
                     logMotor("socket_rehydrate", `Rehidratando taxista ${email} en viaje activo`, "INFO");
-
                     socket.emit("pasajero_asignado", {
                         ...buildPayload(viajeActivo, viajeActivo, nuevoEstado),
                         pasajeroEmail: viajeActivo.email,
@@ -403,7 +377,6 @@ export const initSocketEngine = (io: Server) => {
 
                         logMotor("socket_rehydrate", `Rehidratando pasajero ${email} con taxista ${viajeActivo.taxistaAsignado}`, "INFO");
 
-                        // 🆕 Emitir AMBOS eventos que el frontend espera
                         socket.emit("response_from_taxi", {
                             accepted: true,
                             tEmail: taxistaData?.email || viajeActivo.taxistaAsignado,
@@ -422,20 +395,17 @@ export const initSocketEngine = (io: Server) => {
                                 : null
                         });
 
-                        // 🆕 También emitir trip_status_update para consistencia
                         socket.emit("trip_status_update", {
                             estado: nuevoEstado,
                             pasajeroEmail: email,
                             rehydrated: true
                         });
-
                     } catch (rehydrateError) {
                         logMotor("socket_rehydrate", `Error en rehidratación para ${email}: ${rehydrateError}`, "ERROR");
                     }
                 }, REHYDRATION_DELAY_MS);
             }
 
-            // Actualizar panel de admin
             if (updatedPos) {
                 io.emit("panel_update", buildPayload(updatedPos, updatedPos, nuevoEstado));
             }
@@ -448,22 +418,17 @@ export const initSocketEngine = (io: Server) => {
         // ============================================================
         // 🎯 8. LISTENERS ADICIONALES
         // ============================================================
-
         socket.on("join_room", (roomEmail: string) => {
-            if (roomEmail) {
-                socket.join(roomEmail.toLowerCase().trim());
-            }
+            if (roomEmail) socket.join(roomEmail.toLowerCase().trim());
         });
 
         socket.on("request_dispatch_mode", async () => {
             try {
                 const adminUser = await User.findOne({ email }).lean();
-
                 if (!adminUser || adminUser.role !== "admin") {
                     socket.emit("auth_error", { message: "No autorizado" });
                     return;
                 }
-
                 socket.emit("dispatch_mode_changed", { auto: isAutoMode });
             } catch (error) {
                 logMotor("socket_admin", `Error en request_dispatch_mode para ${email}: ${error}`, "ERROR");
@@ -473,12 +438,10 @@ export const initSocketEngine = (io: Server) => {
         socket.on("toggle_dispatch_mode", async ({ auto }) => {
             try {
                 const adminUser = await User.findOne({ email }).lean();
-
                 if (!adminUser || adminUser.role !== "admin") {
                     socket.emit("auth_error", { message: "No autorizado" });
                     return;
                 }
-
                 const nextMode = Boolean(auto);
                 setAutoMode(nextMode);
                 io.emit("dispatch_mode_changed", { auto: nextMode });
@@ -488,11 +451,9 @@ export const initSocketEngine = (io: Server) => {
             }
         });
 
-        // 🆕 Listener de rehidratación manual (solo si el frontend lo solicita)
         socket.on("reproducir_estado_viaje", async () => {
             try {
                 const miEstado = await Position.findOne({ email }).lean();
-
                 if (!miEstado) {
                     socket.emit("trip_status_update", { estado: POSITION_STATES.PENDIENTE });
                     return;
@@ -500,10 +461,7 @@ export const initSocketEngine = (io: Server) => {
 
                 if (role === "pasajero") {
                     if (miEstado.taxistaAsignado || [POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO, POSITION_STATES.PREASIGNADO].includes(miEstado.estado as any)) {
-                        const taxistaData = miEstado.taxistaAsignado
-                            ? await Position.findOne({ email: miEstado.taxistaAsignado }).lean()
-                            : null;
-
+                        const taxistaData = miEstado.taxistaAsignado ? await Position.findOne({ email: miEstado.taxistaAsignado }).lean() : null;
                         socket.emit("response_from_taxi", {
                             accepted: true,
                             tEmail: taxistaData?.email || miEstado.taxistaAsignado || "",
@@ -524,14 +482,7 @@ export const initSocketEngine = (io: Server) => {
                     const pasajeroData = await Position.findOne({
                         role: "pasajero",
                         taxistaAsignado: email,
-                        estado: {
-                            $in: [
-                                POSITION_STATES.ASIGNADO,
-                                POSITION_STATES.PREASIGNADO,
-                                POSITION_STATES.ENCAMINO,
-                                POSITION_STATES.ENCURSO,
-                            ]
-                        }
+                        estado: { $in: [POSITION_STATES.ASIGNADO, POSITION_STATES.PREASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO] }
                     }).lean();
 
                     if (pasajeroData) {
@@ -551,10 +502,7 @@ export const initSocketEngine = (io: Server) => {
                             rehydrated: true
                         });
                     } else {
-                        socket.emit("trip_status_update", {
-                            estado: miEstado.estado || POSITION_STATES.ACTIVO,
-                            rehydrated: true
-                        });
+                        socket.emit("trip_status_update", { estado: miEstado.estado || POSITION_STATES.ACTIVO, rehydrated: true });
                     }
                 }
             } catch (err) {
@@ -567,9 +515,7 @@ export const initSocketEngine = (io: Server) => {
                 const requestId = payload?.requestId?.toString().trim();
                 const miEstado = role === "taxista"
                     ? await Position.findOne({ email }).lean()
-                    : (requestId
-                        ? await Position.findOne({ email, requestId }).lean()
-                        : await Position.findOne({ email }).lean());
+                    : (requestId ? await Position.findOne({ email, requestId }).lean() : await Position.findOne({ email }).lean());
 
                 if (!miEstado) {
                     socket.emit("trip_status_update", { estado: POSITION_STATES.PENDIENTE });
@@ -577,13 +523,8 @@ export const initSocketEngine = (io: Server) => {
                 }
 
                 if (role === "pasajero") {
-                    if (miEstado.taxistaAsignado ||
-                        [POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO, POSITION_STATES.PREASIGNADO].includes(miEstado.estado as any)) {
-
-                        const taxistaData = miEstado.taxistaAsignado
-                            ? await Position.findOne({ email: miEstado.taxistaAsignado }).lean()
-                            : null;
-
+                    if (miEstado.taxistaAsignado || [POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO, POSITION_STATES.PREASIGNADO].includes(miEstado.estado as any)) {
+                        const taxistaData = miEstado.taxistaAsignado ? await Position.findOne({ email: miEstado.taxistaAsignado }).lean() : null;
                         socket.emit("response_from_taxi", {
                             accepted: true,
                             tEmail: taxistaData?.email || miEstado.taxistaAsignado || "",
@@ -602,45 +543,15 @@ export const initSocketEngine = (io: Server) => {
                     }
                 } else if (role === "taxista") {
                     const pasajeroData = requestId
-                        ? await Position.findOne({
-                            requestId,
-                            taxistaAsignado: email,
-                            estado: {
-                                $in: [
-                                    POSITION_STATES.ASIGNADO,
-                                    POSITION_STATES.PREASIGNADO,
-                                    POSITION_STATES.ENCAMINO,
-                                    POSITION_STATES.ENCURSO,
-                                ]
-                            }
-                        }).lean()
+                        ? await Position.findOne({ requestId, taxistaAsignado: email, estado: { $in: [POSITION_STATES.ASIGNADO, POSITION_STATES.PREASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO] } }).lean()
                         : (miEstado.pasajeroAsignado
                             ? await Position.findOne({ email: miEstado.pasajeroAsignado }).lean()
-                            : await Position.findOne({
-                                role: "pasajero",
-                                taxistaAsignado: email,
-                                estado: {
-                                    $in: [
-                                        POSITION_STATES.ASIGNADO,
-                                        POSITION_STATES.PREASIGNADO,
-                                        POSITION_STATES.ENCAMINO,
-                                        POSITION_STATES.ENCURSO,
-                                    ]
-                                }
-                            }).lean());
+                            : await Position.findOne({ role: "pasajero", taxistaAsignado: email, estado: { $in: [POSITION_STATES.ASIGNADO, POSITION_STATES.PREASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO] } }).lean());
 
                     if (pasajeroData) {
                         const passengerPayload = buildPayload(pasajeroData, pasajeroData, pasajeroData.estado as PositionState);
-                        socket.emit("assignment_confirmed", {
-                            success: true,
-                            pasajero: passengerPayload,
-                            rehydrated: true
-                        });
-                        socket.emit("trip_status_update", {
-                            estado: pasajeroData.estado,
-                            pasajeroAsignado: passengerPayload,
-                            rehydrated: true
-                        });
+                        socket.emit("assignment_confirmed", { success: true, pasajero: passengerPayload, rehydrated: true });
+                        socket.emit("trip_status_update", { estado: pasajeroData.estado, pasajeroAsignado: passengerPayload, rehydrated: true });
                     } else {
                         socket.emit("trip_status_update", { estado: POSITION_STATES.ACTIVO });
                     }
@@ -650,12 +561,9 @@ export const initSocketEngine = (io: Server) => {
             }
         });
 
-        // 🆕 force_disconnect SOLO para admin
         socket.on("force_disconnect", async ({ email: targetEmail, adminEmail }) => {
             try {
-                // 🛡️ Validación: solo admin puede desconectar
                 const adminUser = await User.findOne({ email: adminEmail?.toLowerCase().trim() });
-
                 if (!adminUser || adminUser.role !== "admin") {
                     logMotor("socket_security", `Intento no autorizado de force_disconnect por ${email}`, "WARN");
                     socket.emit("auth_error", { message: "No autorizado" });
@@ -664,32 +572,17 @@ export const initSocketEngine = (io: Server) => {
 
                 if (targetEmail) {
                     const cleanEmail = targetEmail.toLowerCase().trim();
-
-                    // Limpiar ciclo de despacho activo del usuario
                     clearPendingTimeouts(cleanEmail, "force_disconnect");
 
-                    // Actualizar estado
-                    await Position.updateOne(
-                        { email: cleanEmail },
-                        { $set: { estado: "desconectado", socketId: null, updatedAt: new Date() } }
-                    );
+                    await Position.updateOne({ email: cleanEmail }, { $set: { estado: "desconectado", socketId: null, updatedAt: new Date() } });
 
-                    // Desconectar socket
                     const targetSockets = await io.in(cleanEmail).fetchSockets();
                     for (const targetSocket of targetSockets) {
-                        targetSocket.emit("force_disconnected", {
-                            message: "Desconectado por administrador",
-                            adminEmail
-                        });
+                        targetSocket.emit("force_disconnected", { message: "Desconectado por administrador", adminEmail });
                         targetSocket.disconnect(true);
                     }
 
-                    io.emit("panel_update", {
-                        email: cleanEmail,
-                        estado: "desconectado",
-                        force: true
-                    });
-
+                    io.emit("panel_update", { email: cleanEmail, estado: "desconectado", force: true });
                     logMotor("socket_admin", `Admin ${adminEmail} desconectó a ${cleanEmail}`, "INFO");
                 }
             } catch (error) {
@@ -702,54 +595,33 @@ export const initSocketEngine = (io: Server) => {
         // ============================================================
         socket.on("disconnect", async (reason) => {
             if (!email) return;
-
             logMotor("socket_disconnect", `Socket cerrado para ${email} | Razón: ${reason}`, "INFO");
 
-            // Remover de conexiones activas
             const userConnections = activeConnections.get(email);
             if (userConnections) {
                 userConnections.delete(socket.id);
-                if (userConnections.size === 0) {
-                    activeConnections.delete(email);
-                }
+                if (userConnections.size === 0) activeConnections.delete(email);
             }
 
             try {
                 const checkActive = await Position.findOne({ email }).lean();
-
                 if (!checkActive) return;
 
-                // Ignorar desconexiones de sockets obsoletos cuando ya existe una sesión más reciente.
                 if (checkActive.socketId && checkActive.socketId !== socket.id) {
                     logMotor("socket_disconnect", `Ignorando disconnect obsoleto para ${email} | Socket=${socket.id} | Vigente=${checkActive.socketId}`, "INFO");
                     return;
                 }
 
-                // 🆕 Protección contra microcortes con timer: conserva el estado mientras llega la reconexión.
                 if (shouldPreserveStateOnDisconnect(checkActive.estado, reason)) {
                     logMotor("socket_microdrop", `Conservando estado '${checkActive.estado}' para ${email} (${reason})`, "INFO");
 
-                    await Position.updateOne(
-                        { email },
-                        {
-                            $set: {
-                                socketId: null,
-                                updatedAt: new Date(),
-                                estado: checkActive.estado,
-                                lastSeenAt: new Date()
-                            }
-                        }
-                    );
+                    await Position.updateOne({ email }, { $set: { socketId: null, updatedAt: new Date(), estado: checkActive.estado, lastSeenAt: new Date() } });
 
-                    // 🆕 Programar limpieza después de MICRODROP_TIMEOUT_MS
                     const timer = setTimeout(async () => {
                         try {
                             const stillDisconnected = await Position.findOne({ email }).lean();
-
                             if (stillDisconnected && !stillDisconnected.socketId) {
-                                // Verificar si hay socket activo
                                 const activeSockets = await io.in(email).fetchSockets();
-
                                 if (activeSockets.length === 0) {
                                     const isTaxista = stillDisconnected.role === "taxista";
                                     const hasActiveTripRelation = Boolean(stillDisconnected.pasajeroAsignado || stillDisconnected.taxistaAsignado);
@@ -759,40 +631,18 @@ export const initSocketEngine = (io: Server) => {
 
                                     logMotor("socket_microdrop", `Limpiando estado huérfano para ${email} -> ${fallbackState} después de ${MICRODROP_TIMEOUT_MS}ms`, "WARN");
 
-                                    await Position.updateOne(
-                                        { email },
-                                        {
-                                            $set: {
-                                                estado: fallbackState,
-                                                socketId: null,
-                                                updatedAt: new Date(),
-                                                lastSeenAt: new Date()
-                                            }
-                                        }
-                                    );
+                                    await Position.updateOne({ email }, { $set: { estado: fallbackState, socketId: null, updatedAt: new Date(), lastSeenAt: new Date() } });
 
-                                    // Notificar a la otra parte si existe
                                     if (stillDisconnected.taxistaAsignado) {
-                                        io.to(stillDisconnected.taxistaAsignado).emit("passenger_disconnected", {
-                                            message: "El pasajero se ha desconectado permanentemente",
-                                            pasajeroEmail: email
-                                        });
+                                        io.to(stillDisconnected.taxistaAsignado).emit("passenger_disconnected", { message: "El pasajero se ha desconectado permanentemente", pasajeroEmail: email });
                                     }
                                     if (stillDisconnected.pasajeroAsignado) {
-                                        io.to(stillDisconnected.pasajeroAsignado).emit("taxi_disconnected", {
-                                            message: "El taxista se ha desconectado permanentemente",
-                                            taxistaEmail: email
-                                        });
+                                        io.to(stillDisconnected.pasajeroAsignado).emit("taxi_disconnected", { message: "El taxista se ha desconectado permanentemente", taxistaEmail: email });
                                     }
 
-                                    io.emit("panel_update", {
-                                        email,
-                                        estado: fallbackState,
-                                        reason: "microdrop_timeout"
-                                    });
+                                    io.emit("panel_update", { email, estado: fallbackState, reason: "microdrop_timeout" });
                                 }
                             }
-
                             microdropTimers.delete(email);
                         } catch (timerError) {
                             logMotor("socket_microdrop", `Error en timer de microcorte para ${email}: ${timerError}`, "ERROR");
@@ -803,24 +653,8 @@ export const initSocketEngine = (io: Server) => {
                     return;
                 }
 
-                // Para otros estados, marcar como desconectado
-                await Position.updateOne(
-                    { email },
-                    {
-                        $set: {
-                            estado: "desconectado",
-                            socketId: null,
-                            updatedAt: new Date()
-                        }
-                    }
-                );
-
-                io.emit("panel_update", {
-                    email,
-                    estado: "desconectado",
-                    force: false
-                });
-
+                await Position.updateOne({ email }, { $set: { estado: "desconectado", socketId: null, updatedAt: new Date() } });
+                io.emit("panel_update", { email, estado: "desconectado", force: false });
             } catch (error) {
                 logMotor("socket_disconnect", `Error en desconexión para ${email}: ${error}`, "ERROR");
             }
@@ -828,19 +662,13 @@ export const initSocketEngine = (io: Server) => {
     });
 };
 
-// 🆕 Función para limpiar recursos al cerrar el servidor
 export const cleanupSocketEngine = () => {
     logMotor("socket_cleanup", "Limpiando recursos del motor de sockets", "INFO");
-
-    // Limpiar todos los timers de microcortes
     microdropTimers.forEach((timer) => clearTimeout(timer));
     microdropTimers.clear();
-
-    // Limpiar mapa de conexiones
     activeConnections.clear();
 };
 
-// 🆕 Función para obtener estadísticas
 export const getSocketStats = () => {
     return {
         activeConnections: activeConnections.size,

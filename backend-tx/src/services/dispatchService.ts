@@ -23,9 +23,9 @@ const passengerActiveRequestIds = new Map<string, string>();
 // 🎯 Configuración configurable
 const MAX_RETRIES = 5;
 const MAX_DISPATCH_DISTANCE_KM = 15;
-const BASE_TIMEOUT_MS = 15000;
+const BASE_TIMEOUT_MS = 30000;
 const TIMEOUT_PER_KM_MS = 1000;
-const MAX_TIMEOUT_MS = 45000;
+const MAX_TIMEOUT_MS = 60000;
 const RETRY_BACKOFF_MS = 1500;
 
 export let isAutoMode = true;
