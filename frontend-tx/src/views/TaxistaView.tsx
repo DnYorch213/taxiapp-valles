@@ -1634,7 +1634,7 @@ const finalizarViaje = () => {
                     </Marker>
                   )}
 
-                {(estado === POSITION_STATES.ENCAMINO || estado === POSITION_STATES.ENCURSO) && geometriaRuta.length > 0 && (
+                {(estado === POSITION_STATES.ENCAMINO) && geometriaRuta.length > 0 && (
                   <Polyline positions={geometriaRuta} pathOptions={{ color: 'rgb(245, 33, 65)', weight: 4, lineJoin: 'round' }} />
                 )}
 
@@ -1690,7 +1690,8 @@ const finalizarViaje = () => {
                 {pasajeroAsignado?.lat && 
                  estado !== POSITION_STATES.FINALIZADO && 
                  estado !== POSITION_STATES.ACTIVO && 
-                 estado !== POSITION_STATES.CANCELADO && (
+                 estado !== POSITION_STATES.CANCELADO && 
+                 estado !== POSITION_STATES.ENCURSO && (
                   <Marker 
                     position={
                       estado === POSITION_STATES.ENCAMINO && geometriaRuta.length > 0
@@ -1840,26 +1841,35 @@ const finalizarViaje = () => {
                   </div>
                 </div>
 
-                <div className={isCompactTripPanel ? "p-2 rounded-xl flex items-start gap-2 bg-white/5" : "p-3 rounded-2xl flex items-start gap-3 bg-white/5"}>
-                  <span className={isCompactTripPanel ? "text-base" : "text-xl"}>{estado === POSITION_STATES.ENCURSO || (estado === POSITION_STATES.ENCAMINO && hasRealFinalDestination(pasajeroAsignado)) ? "🚖" : "📍"}</span>
-                  <div className="flex flex-col min-w-0 flex-1">
-                    <span className={isCompactTripPanel ? "text-[8px] font-black uppercase tracking-widest text-slate-400" : "text-[9px] font-black uppercase tracking-widest text-slate-400"}>
-                      {estado === POSITION_STATES.ENCURSO || (estado === POSITION_STATES.ENCAMINO && hasRealFinalDestination(pasajeroAsignado)) ? "Destino:" : "Punto de recogida:"}
-                    </span>
-                    {estado === POSITION_STATES.ENCURSO || (estado === POSITION_STATES.ENCAMINO && hasRealFinalDestination(pasajeroAsignado)) ? (
-                      <div className="address-marquee">
-                        <div className="address-marquee-track">
-                          <span>{formatShortAddress(pasajeroAsignado.destinationAddress)}</span>
-                          <span aria-hidden="true">{formatShortAddress(pasajeroAsignado.destinationAddress)}</span>
-                        </div>
+                             <div className={isCompactTripPanel ? "p-2 rounded-xl flex items-start gap-2 bg-white/5" : "p-3 rounded-2xl flex items-start gap-3 bg-white/5"}>
+                {/* 🎯 Icono contextual: 📍 para recogida, 🚖 para destino */}
+                <span className={isCompactTripPanel ? "text-base" : "text-xl"}>
+                  {estado === POSITION_STATES.ENCURSO ? "🚖" : "📍"}
+                </span>
+                
+                <div className="flex flex-col min-w-0 flex-1">
+                  {/* 🎯 Título contextual */}
+                  <span className={isCompactTripPanel ? "text-[8px] font-black uppercase tracking-widest text-slate-400" : "text-[9px] font-black uppercase tracking-widest text-slate-400"}>
+                    {estado === POSITION_STATES.ENCURSO ? "Destino final:" : "Punto de recogida:"}
+                  </span>
+                  
+                  {/* 🎯 Lógica de visualización estricta */}
+                  {estado === POSITION_STATES.ENCURSO ? (
+                    // ✅ SOLO EN ENCURSO: Mostrar dirección de destino con efecto marquee si es larga
+                    <div className="address-marquee">
+                      <div className="address-marquee-track">
+                        <span>{formatShortAddress(pasajeroAsignado.destinationAddress)}</span>
+                        <span aria-hidden="true">{formatShortAddress(pasajeroAsignado.destinationAddress)}</span>
                       </div>
-                    ) : (
-                      <p className={isCompactTripPanel ? "text-xs font-bold text-white leading-tight truncate max-w-[240px]" : "text-sm font-bold text-white leading-tight"}>
-                        {pasajeroAsignado.pickupAddress || "Calculando ubicación..."}
-                      </p>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    // ✅ EN ASIGNADO / ENCAMINO: Mostrar dirección de recogida
+                    <p className={isCompactTripPanel ? "text-xs font-bold text-white leading-tight truncate max-w-[240px]" : "text-sm font-bold text-white leading-tight"}>
+                      {pasajeroAsignado.pickupAddress || "Calculando ubicación..."}
+                    </p>
+                  )}
                 </div>
+              </div>
               </div>
             </div>
 
