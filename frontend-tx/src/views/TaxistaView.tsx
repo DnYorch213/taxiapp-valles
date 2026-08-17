@@ -231,6 +231,27 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   const [vistaActual, setVistaActual] = useState('mapa'); // 'mapa' o 'historial'
   const [isAccepting, setIsAccepting] = useState(false);
 
+    // 🚨 MENSAJES ROTATIVOS PARA EL ESTADO ACTIVO
+  const mensajesEspera = [
+    "Esperando solicitudes de pasajeros...",
+    "En un momento solicitarán un taxi...",
+    "Disponible para nuevos viajes...",
+    "Escaneando zona en busca de pasajeros...",
+    "Listo para salir a trabajar...",
+  ];
+  const [mensajeActualIndex, setMensajeActualIndex] = useState(0);
+
+    // 🚨 ROTACIÓN AUTOMÁTICA DE MENSAJES CADA 3.5 SEGUNDOS
+  useEffect(() => {
+    if (estado !== POSITION_STATES.ACTIVO) return; // Solo rota cuando está ACTIVO
+    
+    const intervalo = setInterval(() => {
+      setMensajeActualIndex((prev) => (prev + 1) % mensajesEspera.length);
+    }, 3500);
+    
+    return () => clearInterval(intervalo);
+  }, [estado, mensajesEspera.length]);
+
   useEffect(() => {
     if (estado === "finalizado" || estado === "activo") {
       const timeout = window.setTimeout(() => setGeometriaRuta([]), 300);
@@ -1472,26 +1493,26 @@ const finalizarViaje = () => {
       : CHAT_BUBBLE_MARGIN;
 
     
-      // 🚨 FUNCIÓN AUXILIAR PARA EL ICONO CON EFECTO RADAR
-const getRadarTaxiIcon = (heading: number) => L.divIcon({
-  className: 'bg-transparent',
-  html: `
-    <div class="relative flex items-center justify-center w-20 h-20">
-      <!-- Onda de radar expansiva -->
-      <div class="absolute w-20 h-20 border-2 border-[#22c55e] rounded-full animate-ping opacity-75"></div>
-      <!-- Círculo base pulsante -->
-      <div class="absolute w-16 h-16 bg-[#22c55e]/20 rounded-full animate-pulse"></div>
-      <!-- Icono del taxi rotado dinámicamente -->
-      <img 
-        src="${taxistaIcon.options.iconUrl}" 
-        class="relative w-12 h-12 object-contain drop-shadow-2xl" 
-        style="transform: rotate(${heading}deg); transition: transform 0.5s ease-out;" 
-      />
-    </div>
-  `,
-  iconSize: [80, 80],
-  iconAnchor: [40, 40], // Centra el ícono en las coordenadas
-});
+      // 🚨 FUNCIÓN AUXILIAR PARA EL ICONO CON EFECTO RADAR (TAMAÑO AJUSTADO)
+  const getRadarTaxiIcon = (heading: number) => L.divIcon({
+    className: 'bg-transparent',
+    html: `
+      <div class="relative flex items-center justify-center w-32 h-32">
+        <!-- Onda de radar expansiva (GRANDE) -->
+        <div class="absolute w-32 h-32 border-2 border-[#22c55e] rounded-full animate-ping opacity-75"></div>
+        <!-- Círculo base pulsante (GRANDE) -->
+        <div class="absolute w-28 h-28 bg-[#22c55e]/20 rounded-full animate-pulse"></div>
+        <!-- Icono del taxi (TAMAÑO ORIGINAL) -->
+        <img 
+          src="${taxistaIcon.options.iconUrl}" 
+          class="relative w-10 h-10 object-contain drop-shadow-2xl" 
+          style="transform: rotate(${heading}deg); transition: transform 0.5s ease-out;" 
+        />
+      </div>
+    `,
+    iconSize: [128, 128],   // 🎯 Tamaño total del contenedor (más grande para el círculo)
+    iconAnchor: [64, 64],   // 🎯 Centra el ícono en las coordenadas
+  });
 
   return (
     <div className="h-dvh bg-[#0f172a] flex flex-col overflow-hidden font-sans relative text-slate-100">
@@ -1940,9 +1961,9 @@ const getRadarTaxiIcon = (heading: number) => L.divIcon({
           <div className="py-8 flex flex-col items-center justify-center">
             <p className="text-slate-400 text-xs font-black uppercase tracking-widest animate-pulse">⚡ Responde arriba ⚡</p>
           </div>
-        ) : (
+                ) : (
           /* ESTADO LIBRE / DEFAULT (Se muestra al finalizar o cancelar) */
-          <div className="w-full py-8 px-4 flex items-center justify-center">
+          <div className="w-full py-6 px-4 flex flex-col items-center justify-center gap-4">
             <div className="flex w-full max-w-[560px] items-center justify-center gap-3 sm:gap-6">
               <div className="flex-shrink-0 rounded-[2rem] bg-white/5 p-3 shadow-[0_10px_30px_rgba(0,0,0,0.25)] border border-white/10">
                 <img
@@ -1964,9 +1985,16 @@ const getRadarTaxiIcon = (heading: number) => L.divIcon({
                   <h2 className="text-[1.05rem] sm:text-[1.25rem] font-black text-white uppercase italic tracking-[0.18em]">
                     VALLES<span className="ml-1 text-[#22c55e]">CONECTA</span>
                   </h2>
-                  <p className="mt-1 text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.28em] text-slate-400 animate-pulse">
-                    Esperando señal de viaje
-                  </p>
+                  
+                  {/* 🚨 MENSAJE ROTATIVO CON ANIMACIÓN */}
+                  <div className="mt-2 h-6 flex items-center justify-center overflow-hidden">
+                    <p
+                      key={mensajeActualIndex}
+                      className="mensaje-rotativo text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.2em] text-[#22c55e] text-center"
+                    >
+                      {mensajesEspera[mensajeActualIndex]}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>

@@ -79,3 +79,27 @@
     animation: none;
   }
 }
+
+/* 🚨 ANIMACIÓN DE FADE PARA MENSAJES ROTATIVOS */
+@keyframes fadeSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  85% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+.mensaje-rotativo {
+  animation: fadeSlideIn 3.5s ease-in-out;
+}
