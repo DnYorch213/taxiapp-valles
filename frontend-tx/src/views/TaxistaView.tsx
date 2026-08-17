@@ -1471,6 +1471,27 @@ const finalizarViaje = () => {
         )
       : CHAT_BUBBLE_MARGIN;
 
+      // 🚨 FUNCIÓN AUXILIAR PARA EL ICONO CON EFECTO RADAR
+const getRadarTaxiIcon = (heading: number) => L.divIcon({
+  className: 'bg-transparent',
+  html: `
+    <div class="relative flex items-center justify-center w-20 h-20">
+      <!-- Onda de radar expansiva -->
+      <div class="absolute w-20 h-20 border-2 border-[#22c55e] rounded-full animate-ping opacity-75"></div>
+      <!-- Círculo base pulsante -->
+      <div class="absolute w-16 h-16 bg-[#22c55e]/20 rounded-full animate-pulse"></div>
+      <!-- Icono del taxi rotado dinámicamente -->
+      <img 
+        src="${taxiValles.options.iconUrl}" 
+        class="relative w-12 h-12 object-contain drop-shadow-2xl" 
+        style="transform: rotate(${heading}deg); transition: transform 0.5s ease-out;" 
+      />
+    </div>
+  `,
+  iconSize: [80, 80],
+  iconAnchor: [40, 40], // Centra el ícono en las coordenadas
+});
+
   return (
     <div className="h-dvh bg-[#0f172a] flex flex-col overflow-hidden font-sans relative text-slate-100">
       <ToastContainer theme="dark" />
@@ -1683,9 +1704,27 @@ const finalizarViaje = () => {
                   <Polyline positions={historialRuta} pathOptions={{ color: 'rgb(55, 227, 55)', weight: 4 }} />
                 )}
 
-                <RotatedMarker position={[taxiPos.lat, taxiPos.lng]} icon={taxistaIcon} rotationAngle={taxiPos.heading || 0}>
-                  <Popup>Unidad {taxiPos.taxiNumber}</Popup>
-                </RotatedMarker>
+                {/* 8. 🚨 MARCADOR DEL TAXI CON LÓGICA CONDICIONAL (RADAR vs NORMAL) */}
+                {taxiPos?.lat && taxiPos?.lng && (
+                  estado === POSITION_STATES.ACTIVO ? (
+                    // MODO RADAR: Efecto de búsqueda cuando está libre
+                    <Marker 
+                      position={[taxiPos.lat, taxiPos.lng]} 
+                      icon={getRadarTaxiIcon(taxiPos.heading || 0)}
+                    >
+                      <Popup>Unidad {taxiPos.taxiNumber} - Esperando viaje</Popup>
+                    </Marker>
+                  ) : (
+                    // MODO NORMAL: Icono estándar durante el servicio
+                    <RotatedMarker 
+                      position={[taxiPos.lat, taxiPos.lng]} 
+                      icon={taxistaIcon} 
+                      rotationAngle={taxiPos.heading || 0}
+                    >
+                      <Popup>Unidad {taxiPos.taxiNumber}</Popup>
+                    </RotatedMarker>
+                  )
+                )}
                 
                 {pasajeroAsignado?.lat && 
                  estado !== POSITION_STATES.FINALIZADO && 
@@ -1842,7 +1881,7 @@ const finalizarViaje = () => {
                   </div>
                 </div>
 
-                <div className={isCompactTripPanel ? "p-2 rounded-xl flex items-start gap-2 bg-white/5" : "p-3 rounded-2xl flex items-start gap-3 bg-white/5"}>
+                                <div className={isCompactTripPanel ? "p-2 rounded-xl flex items-start gap-2 bg-white/5" : "p-3 rounded-2xl flex items-start gap-3 bg-white/5"}>
                   <span className={isCompactTripPanel ? "text-base" : "text-xl"}>
                     {estado === POSITION_STATES.ENCURSO ? "🚖" : "📍"}
                   </span>
@@ -1851,18 +1890,22 @@ const finalizarViaje = () => {
                       {estado === POSITION_STATES.ENCURSO ? "Destino final:" : "Punto de recogida:"}
                     </span>
                     
-                    {estado === POSITION_STATES.ENCURSO ? (
-                      <div className="address-marquee">
-                        <div className="address-marquee-track">
-                          <span>{formatShortAddress(pasajeroAsignado.destinationAddress)}</span>
-                          <span aria-hidden="true">{formatShortAddress(pasajeroAsignado.destinationAddress)}</span>
-                        </div>
+                    {/* 🎯 AMBOS USAN EL MISMO EFECTO MARQUEE */}
+                    <div className="address-marquee">
+                      <div className="address-marquee-track">
+                        {estado === POSITION_STATES.ENCURSO ? (
+                          <>
+                            <span>{formatShortAddress(pasajeroAsignado.destinationAddress)}</span>
+                            <span aria-hidden="true">{formatShortAddress(pasajeroAsignado.destinationAddress)}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>{pasajeroAsignado.pickupAddress || "Calculando ubicación..."}</span>
+                            <span aria-hidden="true">{pasajeroAsignado.pickupAddress || "Calculando ubicación..."}</span>
+                          </>
+                        )}
                       </div>
-                    ) : (
-                      <p className={isCompactTripPanel ? "text-xs font-bold text-white leading-tight truncate max-w-[240px]" : "text-sm font-bold text-white leading-tight"}>
-                        {pasajeroAsignado.pickupAddress || "Calculando ubicación..."}
-                      </p>
-                    )}
+                    </div>
                   </div>
                 </div>
               </div>
