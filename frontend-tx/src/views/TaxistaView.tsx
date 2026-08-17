@@ -1823,11 +1823,12 @@ const finalizarViaje = () => {
         )}
       </main>
     
-      {/* PANEL DE ACCIONES INFERIOR */}
+           {/* PANEL DE ACCIONES INFERIOR */}
       <div className="w-full max-w-md mx-auto bg-[#1e293b] rounded-t-[2.5rem] shadow-[0_-25px_60px_rgba(0,0,0,0.5)] shrink-0 z-[1001] relative border-t border-white/5">
         <div className="absolute top-3 left-1/2 -translate-x-1/2 w-12 h-1 bg-slate-700 rounded-full"></div>
 
-        {pasajeroAsignado && estado !== POSITION_STATES.ASIGNADO ? (
+        {/* 🎯 SOLO SE MUESTRA SI EL VIAJE ESTÁ EN CAMINO O EN CURSO */}
+        {pasajeroAsignado && (estado === POSITION_STATES.ENCAMINO || estado === POSITION_STATES.ENCURSO) ? (
           <div className="flex flex-col">
             <div className={isCompactTripPanel ? "px-4 pt-4 pb-1" : "px-6 pt-6 pb-2"}>
               <div className={isCompactTripPanel ? "p-3 rounded-[1.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-2" : "p-5 rounded-[2.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-3"}>
@@ -1841,39 +1842,33 @@ const finalizarViaje = () => {
                   </div>
                 </div>
 
-                             <div className={isCompactTripPanel ? "p-2 rounded-xl flex items-start gap-2 bg-white/5" : "p-3 rounded-2xl flex items-start gap-3 bg-white/5"}>
-                {/* 🎯 Icono contextual: 📍 para recogida, 🚖 para destino */}
-                <span className={isCompactTripPanel ? "text-base" : "text-xl"}>
-                  {estado === POSITION_STATES.ENCURSO ? "🚖" : "📍"}
-                </span>
-                
-                <div className="flex flex-col min-w-0 flex-1">
-                  {/* 🎯 Título contextual */}
-                  <span className={isCompactTripPanel ? "text-[8px] font-black uppercase tracking-widest text-slate-400" : "text-[9px] font-black uppercase tracking-widest text-slate-400"}>
-                    {estado === POSITION_STATES.ENCURSO ? "Destino final:" : "Punto de recogida:"}
+                <div className={isCompactTripPanel ? "p-2 rounded-xl flex items-start gap-2 bg-white/5" : "p-3 rounded-2xl flex items-start gap-3 bg-white/5"}>
+                  <span className={isCompactTripPanel ? "text-base" : "text-xl"}>
+                    {estado === POSITION_STATES.ENCURSO ? "🚖" : "📍"}
                   </span>
-                  
-                  {/* 🎯 Lógica de visualización estricta */}
-                  {estado === POSITION_STATES.ENCURSO ? (
-                    // ✅ SOLO EN ENCURSO: Mostrar dirección de destino con efecto marquee si es larga
-                    <div className="address-marquee">
-                      <div className="address-marquee-track">
-                        <span>{formatShortAddress(pasajeroAsignado.destinationAddress)}</span>
-                        <span aria-hidden="true">{formatShortAddress(pasajeroAsignado.destinationAddress)}</span>
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <span className={isCompactTripPanel ? "text-[8px] font-black uppercase tracking-widest text-slate-400" : "text-[9px] font-black uppercase tracking-widest text-slate-400"}>
+                      {estado === POSITION_STATES.ENCURSO ? "Destino final:" : "Punto de recogida:"}
+                    </span>
+                    
+                    {estado === POSITION_STATES.ENCURSO ? (
+                      <div className="address-marquee">
+                        <div className="address-marquee-track">
+                          <span>{formatShortAddress(pasajeroAsignado.destinationAddress)}</span>
+                          <span aria-hidden="true">{formatShortAddress(pasajeroAsignado.destinationAddress)}</span>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    // ✅ EN ASIGNADO / ENCAMINO: Mostrar dirección de recogida
-                    <p className={isCompactTripPanel ? "text-xs font-bold text-white leading-tight truncate max-w-[240px]" : "text-sm font-bold text-white leading-tight"}>
-                      {pasajeroAsignado.pickupAddress || "Calculando ubicación..."}
-                    </p>
-                  )}
+                    ) : (
+                      <p className={isCompactTripPanel ? "text-xs font-bold text-white leading-tight truncate max-w-[240px]" : "text-sm font-bold text-white leading-tight"}>
+                        {pasajeroAsignado.pickupAddress || "Calculando ubicación..."}
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
               </div>
             </div>
 
-            {/* BOTONES OPERATIVOS EN RUTA (BLINDADOS CON DISABLED) */}
+            {/* BOTONES OPERATIVOS EN RUTA */}
             <div className={isCompactTripPanel ? "p-4 pb-6" : "p-6 pb-10"}>
               {estado === POSITION_STATES.ENCAMINO && (
                 <button 
@@ -1897,10 +1892,12 @@ const finalizarViaje = () => {
             </div>
           </div>
         ) : estado === POSITION_STATES.ASIGNADO ? (
+          /* PANEL DE ESPERA MIENTRAS LA ALERTA ESTÁ ARRIBA */
           <div className="py-8 flex flex-col items-center justify-center">
             <p className="text-slate-400 text-xs font-black uppercase tracking-widest animate-pulse">⚡ Responde arriba ⚡</p>
           </div>
         ) : (
+          /* ESTADO LIBRE / DEFAULT (Se muestra al finalizar o cancelar) */
           <div className="w-full py-8 px-4 flex items-center justify-center">
             <div className="flex w-full max-w-[560px] items-center justify-center gap-3 sm:gap-6">
               <div className="flex-shrink-0 rounded-[2rem] bg-white/5 p-3 shadow-[0_10px_30px_rgba(0,0,0,0.25)] border border-white/10">

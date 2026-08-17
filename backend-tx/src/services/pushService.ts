@@ -26,7 +26,7 @@ export const enviarNotificacionPush = async (subscription: any, pasajeroData: an
                 body: `El conductor ${pasajeroData.name || "S/N"} (Eco: ${pasajeroData.taxiNumber || "S/N"}) ha aceptado tu viaje y va en camino.`,
                 icon: `${process.env.FRONTEND_URL}/icon-192x192.png`,
                 vibrate: [200, 100, 200],
-                actions: [], // Sin acciones adicionales de aceptación/rechazo para el pasajero
+                actions: [],
                 data: {
                     requestId: pasajeroData.requestId,
                     taxistaEmail: pasajeroData.taxistaEmail,
@@ -51,12 +51,10 @@ export const enviarNotificacionPush = async (subscription: any, pasajeroData: an
 
             payload = JSON.stringify({
                 title: "¡NUEVO VIAJE DISPONIBLE! 🚕",
-                body: `Pasajero: ${pasajeroData.name || pasajeroData.pasajeroEmail || pasajeroData.email}\nDistancia: ${distanciaMetros}m`,
+                // 🚨 CORRECCIÓN: Si no hay nombre, usa "Cliente". NUNCA uses el correo.
+                body: `Pasajero: ${pasajeroData.name || "Cliente"}\nDistancia: ${distanciaMetros}m`,
                 icon: `${process.env.FRONTEND_URL}/icon-192x192.png`,
                 vibrate: [200, 100, 200, 100, 200],
-                // 🚫 ELIMINADO: El array 'actions' ya no existe
-                // Ahora la notificación solo sirve como alarma visual/sonora
-                // El taxista tocará la notificación y la app se abrirá
                 data: {
                     requestId: pasajeroData.requestId,
                     pickupAddress: pasajeroData.pickupAddress,

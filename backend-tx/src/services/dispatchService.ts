@@ -372,13 +372,22 @@ const runDispatchWithRetry = async (
             throw txError;
         }
 
+        // 🎯 5. GEOCODIFICACIÓN & PAYLOAD
         let direccion = pasajeroData.pickupAddress;
         if (!direccion || direccion.includes("Calculando")) {
             try { direccion = await getCachedGeocoding(pasajeroData.lat, pasajeroData.lng); } catch (e) { direccion = "Ubicación no disponible"; }
         }
 
+        // 🚨 RESCATE DE NOMBRE: Si el frontend no envió el nombre, lo recuperamos de la BD
+        let nombrePasajero = pasajeroData.name;
+        if (!nombrePasajero || nombrePasajero.trim() === "") {
+            const userData = await Position.findOne({ email: pEmail }).lean();
+            nombrePasajero = userData?.name || "Pasajero";
+        }
+
         const fullPayload = {
             ...pasajeroData,
+            name: nombrePasajero, // 🎯 Forzamos que el nombre siempre esté presente y correcto
             email: pEmail,
             pasajeroEmail: pEmail,
             taxistaEmail: tEmail,
