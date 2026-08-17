@@ -1471,6 +1471,7 @@ const finalizarViaje = () => {
         )
       : CHAT_BUBBLE_MARGIN;
 
+    
       // 🚨 FUNCIÓN AUXILIAR PARA EL ICONO CON EFECTO RADAR
 const getRadarTaxiIcon = (heading: number) => L.divIcon({
   className: 'bg-transparent',
@@ -1482,7 +1483,7 @@ const getRadarTaxiIcon = (heading: number) => L.divIcon({
       <div class="absolute w-16 h-16 bg-[#22c55e]/20 rounded-full animate-pulse"></div>
       <!-- Icono del taxi rotado dinámicamente -->
       <img 
-        src="${taxiValles.options.iconUrl}" 
+        src="${taxistaIcon.options.iconUrl}" 
         class="relative w-12 h-12 object-contain drop-shadow-2xl" 
         style="transform: rotate(${heading}deg); transition: transform 0.5s ease-out;" 
       />
