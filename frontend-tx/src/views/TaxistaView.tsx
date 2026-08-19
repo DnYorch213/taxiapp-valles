@@ -642,124 +642,131 @@ useGeolocation(
       window.removeEventListener("focus", onResume);
     };
   }, [checkStatus, requestTripRehydrate]);
+  // ========================================================================
+  // 🎯 1. MANEJO DE ASIGNACIÓN Y REHIDRATACIÓN
+  // ========================================================================
+  const handleAsignacion = useCallback((data: any) => {
+    console.log("📩 Nueva asignación o rehidratación recibida:", data);
 
-const handleAsignacion = useCallback((data: any) => {
-  console.log("📩 Nueva asignación recibida:", data);
-
-  // 1. EXTRACCIÓN Y LIMPIEZA: Manejamos si viene de Mongoose (_doc) o es objeto plano
-  const rawData = data._doc ? data._doc : data;
-  
-  // Validamos que el email exista para evitar el error de "undefined" al aceptar
-  if (!rawData.email) {
-    console.error("❌ Error crítico: Los datos recibidos no tienen email", data);
-    return;
-  }
-
-  const incomingEmail = String(rawData.email).toLowerCase().trim();
-  const estadoActual = estadoRef.current;
-  const actualAsignado = pasajeroAsignadoRef.current?.email?.toLowerCase().trim();
-  const requestId = String(rawData.requestId || data.requestId || "").trim();
-
-  if (requestId && answeredOfferRequestIdsRef.current.has(requestId)) {
-    console.warn("🛡️ Oferta ignorada: ya respondimos a esta solicitud.", requestId);
-    return;
-  }
-
-  if (requestId && !tripSessionActiveRef.current && lastClosedOfferRequestIdRef.current === requestId) {
-    console.warn("🛡️ Oferta vieja ignorada tras el reset local de esta solicitud.", requestId);
-    return;
-  }
-
-  if (ignoreOffersUntilRef.current > Date.now()) {
-    console.warn("🛡️ Oferta ignorada por cooldown post-rechazo/reset.", requestId || incomingEmail);
-    return;
-  }
-
-  if (!tripSessionActiveRef.current && !["encamino", "encurso"].includes(estadoActual)) {
-    tripSessionActiveRef.current = true;
-  }
-
-  setCanRespondToOffer(true);
-
-  // Ignorar ofertas tardías cuando el viaje ya está confirmado o en curso.
-  if (["encamino", "encurso"].includes(estadoActual)) {
-    if (!actualAsignado || actualAsignado === incomingEmail) {
-      console.warn("🛡️ Oferta tardía ignorada: el viaje ya está en estado activo.");
+    const rawData = data._doc ? data._doc : data;
+    if (!rawData.email) {
+      console.error("❌ Error crítico: Los datos recibidos no tienen email", data);
       return;
     }
-  }
 
-  // Durante confirmación de aceptación por push, ignorar nuevas ofertas para evitar rebote a 'asignado'.
-  if (isAccepting && data.isNewOffer) {
-    console.warn("🛡️ Oferta ignorada durante confirmación push.");
-    return;
-  }
+    const incomingEmail = String(rawData.email).toLowerCase().trim();
+    const estadoActual = estadoRef.current;
+    const requestId = String(rawData.requestId || data.requestId || "").trim();
 
-  setTimeout(() => {
-    if (requestId) {
-      lastClosedOfferRequestIdRef.current = null;
-      activeOfferRequestIdRef.current = requestId;
+    // 🛡️ Guardias de seguridad existentes (¡Muy bien!)
+    if (requestId && answeredOfferRequestIdsRef.current.has(requestId)) {
+      console.warn("🛡️ Oferta ignorada: ya respondimos a esta solicitud.", requestId);
+      return;
     }
 
-    // 2. ACTUALIZACIÓN DE ESTADOS
-    // Limpiamos el email por si trae la "k" extra o espacios
-    const pEmail = incomingEmail;
-    setPasajeroAsignado((prev:  Payload | null) => ({ 
-      ...prev,
-      ...rawData, 
-      email: pEmail, 
-      attempt: data.attempt,
-      pasajeroEmail: rawData.pasajeroEmail || pEmail,
-      pasajeroLat: rawData.pasajeroLat || rawData.lat,
-      pasajeroLng: rawData.pasajeroLng || rawData.lng,
-      distancia: rawData.distancia || null,
-      destinationLat: rawData.destinationLat ?? prev?.destinationLat ?? null,
-      destinationLng: rawData.destinationLng ?? prev?.destinationLng ?? null,
-      destinationAddress: rawData.destinationAddress ?? prev?.destinationAddress ?? "Rumbo al destino...",
-      pickupAddress: rawData.pickupAddress || prev?.pickupAddress || "Calculando ubicación..."
-    }));
-    setExcludedEmails(data.excludedEmails || []);
-    
-    const estadoServidor = rawData.estado?.toLowerCase().trim();
+    if (requestId && !tripSessionActiveRef.current && lastClosedOfferRequestIdRef.current === requestId) {
+      console.warn("🛡️ Oferta vieja ignorada tras el reset local de esta solicitud.", requestId);
+      return;
+    }
 
-    // 3. LÓGICA DE FLUJO (Diferenciando Oferta Nueva vs Viaje Activo)
-    
-    if (data.isNewOffer) {
-      /**
-       * CASO A: Oferta Nueva (Viene del salto de Jorge o solicitud inicial)
-       
-      * Forzamos estado "Asignado" para que React muestre el botón de ACEPTAR.
-       */
-      setEstado(POSITION_STATES.ASIGNADO); 
-      reproducirAlerta();
-    } 
-   else if (estadoServidor === "encurso") {
-  // CASO B: Viaje ya iniciado
-  setEstado(POSITION_STATES.ENCURSO);
-  detenerSonido();
-} 
-else if (estadoServidor === "encamino") {
-  // CASO C: Taxista en camino al pasajero
-  setEstado(POSITION_STATES.ENCAMINO);
-  detenerSonido();
-} 
-else if (estadoServidor === "asignado") {
-  // CASO D: Reconexión (ya aceptó pero aún no se mueve)
-  setEstado(POSITION_STATES.ASIGNADO);
-  detenerSonido();
-} 
-else {
-  // Backup de seguridad
-  setEstado(POSITION_STATES.ASIGNADO); 
-  reproducirAlerta();
-}
+    if (ignoreOffersUntilRef.current > Date.now()) {
+      console.warn("🛡️ Oferta ignorada por cooldown post-rechazo/reset.", requestId || incomingEmail);
+      return;
+    }
 
-  }, 10);
-}, [detenerSonido, reproducirAlerta, isAccepting]);
+    if (!tripSessionActiveRef.current && !["encamino", "encurso"].includes(estadoActual)) {
+      tripSessionActiveRef.current = true;
+    }
 
+    setCanRespondToOffer(true);
+
+    if (["encamino", "encurso"].includes(estadoActual)) {
+      if (!pasajeroAsignadoRef.current?.email || pasajeroAsignadoRef.current.email.toLowerCase().trim() === incomingEmail) {
+        console.warn("🛡️ Oferta tardía ignorada: el viaje ya está en estado activo.");
+        return;
+      }
+    }
+
+    if (isAccepting && data.isNewOffer) {
+      console.warn("🛡️ Oferta ignorada durante confirmación push.");
+      return;
+    }
+
+    setTimeout(() => {
+      if (requestId) {
+        lastClosedOfferRequestIdRef.current = null;
+        activeOfferRequestIdRef.current = requestId;
+        
+        // 🚨 NUEVO: Unirse a la sala del viaje apenas se tiene el requestId
+        if (socket?.connected) {
+          console.log(`🔗 Uniéndose a la sala del viaje: ${requestId}`);
+          socket.emit("join_trip_room", requestId);
+        }
+      }
+
+      const pEmail = incomingEmail;
+      setPasajeroAsignado((prev: Payload | null) => ({ 
+        ...prev,
+        ...rawData, 
+        email: pEmail, 
+        attempt: data.attempt,
+        pasajeroEmail: rawData.pasajeroEmail || pEmail,
+        pasajeroLat: rawData.pasajeroLat || rawData.lat,
+        pasajeroLng: rawData.pasajeroLng || rawData.lng,
+        distancia: rawData.distancia || null,
+        destinationLat: rawData.destinationLat ?? prev?.destinationLat ?? null,
+        destinationLng: rawData.destinationLng ?? prev?.destinationLng ?? null,
+        destinationAddress: rawData.destinationAddress ?? prev?.destinationAddress ?? "Rumbo al destino...",
+        pickupAddress: rawData.pickupAddress || prev?.pickupAddress || "Calculando ubicación..."
+      }));
+      setExcludedEmails(data.excludedEmails || []);
+      
+      const estadoServidor = String(data.estado || rawData.estado || "").toLowerCase().trim();
+
+      // 🛡️ PRIORIDAD 1: Si es rehidratación, confiamos ciegamente en el estado del servidor
+      if (data.rehydrated) {
+        if (estadoServidor === "encurso") {
+          setEstado(POSITION_STATES.ENCURSO);
+          detenerSonido();
+        } else if (estadoServidor === "encamino") {
+          setEstado(POSITION_STATES.ENCAMINO);
+          detenerSonido();
+        } else {
+          setEstado(POSITION_STATES.ASIGNADO);
+          detenerSonido();
+        }
+        return; // Salimos temprano, no es una oferta nueva
+      }
+
+      // 🛡️ PRIORIDAD 2: Lógica normal de flujo
+      if (data.isNewOffer) {
+        setEstado(POSITION_STATES.ASIGNADO); 
+        reproducirAlerta();
+      } else if (estadoServidor === "encurso") {
+        setEstado(POSITION_STATES.ENCURSO);
+        detenerSonido();
+      } else if (estadoServidor === "encamino") {
+        setEstado(POSITION_STATES.ENCAMINO);
+        detenerSonido();
+      } else if (estadoServidor === "asignado") {
+        setEstado(POSITION_STATES.ASIGNADO);
+        detenerSonido();
+      } else {
+        setEstado(POSITION_STATES.ASIGNADO); 
+        reproducirAlerta();
+      }
+
+    }, 10);
+  }, [detenerSonido, reproducirAlerta, isAccepting, socket]);
+
+
+  // ========================================================================
+  // 🎯 2. USE EFFECT DE SOCKETS Y LISTENERS
+  // ========================================================================
   useEffect(() => {
     if (!socket) return;
 
+    // Listener para actualización de destino
     const handleTripDestinationUpdated = (data: any) => {
       const passengerEmail = pasajeroAsignadoRef.current?.email?.toLowerCase().trim();
       const incomingEmail = String(data?.pasajeroEmail || "").toLowerCase().trim();
@@ -767,22 +774,14 @@ else {
 
       setPasajeroAsignado((prev: Payload | null) => {
         if (!prev) return prev;
-
         const nextLat = data?.destinationLat ?? prev.destinationLat ?? null;
         const nextLng = data?.destinationLng ?? prev.destinationLng ?? null;
         const nextAddress = data?.destinationAddress ?? prev.destinationAddress ?? "Rumbo al destino...";
         const sameDestination = prev.destinationLat === nextLat && prev.destinationLng === nextLng;
 
-        if (sameDestination) {
-          return prev;
-        }
+        if (sameDestination) return prev;
 
-        return {
-          ...prev,
-          destinationLat: nextLat,
-          destinationLng: nextLng,
-          destinationAddress: nextAddress,
-        } as Payload;
+        return { ...prev, destinationLat: nextLat, destinationLng: nextLng, destinationAddress: nextAddress } as Payload;
       });
 
       const nextLat = data?.destinationLat ?? pasajeroAsignadoRef.current?.destinationLat ?? null;
@@ -795,61 +794,77 @@ else {
       }
     };
 
-    socket.on("pasajero_asignado", handleAsignacion);
-    socket.on("trip_destination_updated", handleTripDestinationUpdated);
-// 1. 🏁 LISTENER DE CONFIRMACIÓN OFICIAL
-socket.on("assignment_confirmed", (data) => {
-  if (!tripSessionActiveRef.current) {
-    console.warn("🛡️ assignment_confirmed ignorado: la sesión local ya fue cerrada.");
-    return;
-  }
+    // 🚨 NUEVO: Listeners de la Trip Room (Coordinación)
+    const handlePeerReconnected = (data: any) => {
+      if (data.who === "pasajero") {
+        console.log("🔄 El pasajero se reconectó al viaje");
+        showToastOnce("taxista:peer-reconnected", () => {
+          toast.info("📱 El pasajero volvió a conectarse");
+        }, { cooldownMs: 5000 });
+      }
+    };
 
-  if (data.success) {
-    console.log("✅ Confirmación recibida del servidor:", data);
-    
-    // 🎯 LIMPIEZA CRÍTICA: El servidor respondió con éxito, matamos el timer de seguridad
-    // para que no se ejecute el fallback de expiración innecesariamente.
-    if (acceptanceTimerRef.current) {
-      window.clearTimeout(acceptanceTimerRef.current);
-      acceptanceTimerRef.current = null;
-    }
+    const handleBoardingConfirmed = (data: any) => {
+      console.log("🧍 Abordaje confirmado en sala coordinada:", data);
+      // Opcional: Aquí podrías forzar el estado a ENCURSO si el backend lo emite
+    };
 
-    setEstado(POSITION_STATES.ENCAMINO); 
-    detenerSonido();
-    setIsAccepting(false); // Liberamos el bloqueo de clics
-    setViajeSolicitado(null);
+    const handleTripFinished = (data: any) => {
+      console.log("🏁 Viaje finalizado en sala coordinada:", data);
+    };
 
-    showToastOnce("taxista:assignment-confirmed", () => {
-      toast.success("¡Viaje vinculado! Dirígete al pasajero.");
-    }, { cooldownMs: 4000 });
+    // 🏁 LISTENER DE CONFIRMACIÓN OFICIAL (Aceptar viaje)
+    const handleAssignmentConfirmed = (data: any) => {
+      if (!tripSessionActiveRef.current) {
+        console.warn("🛡️ assignment_confirmed ignorado: la sesión local ya fue cerrada.");
+        return;
+      }
 
-    if (data.pasajero) {
-      const pEmail = data.pasajero.email.toLowerCase().trim();
-      
-      // 🎯 MODIFICACIÓN: Guardamos directamente el payload de respaldo limpio
-      // asegurándonos de que la dirección quede firmada en el hilo principal
-      const direccionDetectada = data.pasajero.pickupAddress || data.pasajero.direccionOrigen;
-      
-      setPasajeroAsignado((prev: Payload | null) => ({
-        ...prev,
-        ...data.pasajero,
-        pickupAddress: direccionDetectada && direccionDetectada !== "Calculando ubicación..." 
-          ? direccionDetectada 
-          : (prev?.pickupAddress || "Calle Detectada"),
-        email: pEmail
-      }));
-    }
-  } else {
-    // Si el servidor rechaza la aceptación (ej. otro taxista fue más rápido)
-    if (acceptanceTimerRef.current) {
-      window.clearTimeout(acceptanceTimerRef.current);
-      acceptanceTimerRef.current = null;
-    }
-    setIsAccepting(false);
-    toast.error(data.message || "No se pudo confirmar el viaje.");
-    resetSolicitudActiva(); // Limpiamos todo para volver a estar disponibles
-  }
-});
+      if (data.success) {
+        console.log("✅ Confirmación recibida del servidor:", data);
+        
+        if (acceptanceTimerRef.current) {
+          window.clearTimeout(acceptanceTimerRef.current);
+          acceptanceTimerRef.current = null;
+        }
+
+        setEstado(POSITION_STATES.ENCAMINO); 
+        detenerSonido();
+        setIsAccepting(false);
+        setViajeSolicitado(null);
+
+        showToastOnce("taxista:assignment-confirmed", () => {
+          toast.success("¡Viaje vinculado! Dirígete al pasajero.");
+        }, { cooldownMs: 4000 });
+
+        if (data.pasajero) {
+          const pEmail = data.pasajero.email.toLowerCase().trim();
+          const direccionDetectada = data.pasajero.pickupAddress || data.pasajero.direccionOrigen;
+          
+          setPasajeroAsignado((prev: Payload | null) => ({
+            ...prev,
+            ...data.pasajero,
+            pickupAddress: direccionDetectada && direccionDetectada !== "Calculando ubicación..." 
+              ? direccionDetectada 
+              : (prev?.pickupAddress || "Calle Detectada"),
+            email: pEmail
+          }));
+
+          // 🚨 NUEVO: Unirse a la sala al confirmar aceptación
+          if (data.pasajero.requestId && socket?.connected) {
+            socket.emit("join_trip_room", data.pasajero.requestId);
+          }
+        }
+      } else {
+        if (acceptanceTimerRef.current) {
+          window.clearTimeout(acceptanceTimerRef.current);
+          acceptanceTimerRef.current = null;
+        }
+        setIsAccepting(false);
+        toast.error(data.message || "No se pudo confirmar el viaje.");
+        resetSolicitudActiva();
+      }
+    };
 
     
 // 🚩 AQUÍ PONES EL CANDADO DEL LADO DEL CLIENTE
@@ -869,6 +884,11 @@ socket.on("assignment_confirmed", (data) => {
     socket.on("trip_already_taken", handleLateOffer);
     socket.on("push_late", handleLateOffer);
     socket.on("reset_estado_taxista", handleResetTaxistaState);
+     // Listeners de la Trip Room
+    socket.on("trip_peer_reconnected", handlePeerReconnected);
+    socket.on("trip_boarding_confirmed", handleBoardingConfirmed);
+    socket.on("trip_finished_coordinated", handleTripFinished);
+
 
 // 2. 🔄 LISTENER DE CAMBIO DE ESTADO (BLINDADO)
 socket.on("trip_status_update", (data: any) => {
@@ -1071,6 +1091,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       socket.off("trip_cancelled_by_passenger");
       socket.off("trip_finished");
       socket.off("reset_estado_taxista");
+      socket.off("trip_peer_reconnected", handlePeerReconnected);
+      socket.off("trip_boarding_confirmed", handleBoardingConfirmed);
+      socket.off("trip_finished_coordinated", handleTripFinished);
+
     };
   }, [handleAsignacion, checkStatus, detenerSonido, getDestinoFinalLatLng, handleResetTaxistaState, resetSolicitudActiva]);
 

@@ -6,6 +6,7 @@ import { reverseGeocode } from "./geocodingService";
 import { enviarNotificacionPush } from "./pushService";
 import { logMotor } from "../utils/logger";
 import { POSITION_STATES, STATE_GROUPS } from "../constants/states";
+import { emitToTripRoom } from "./tripRoomService";
 
 // 🎯 Mapa de timeouts pendientes (clave: requestId)
 export const activeTimeouts = new Map<string, Set<NodeJS.Timeout>>();
@@ -397,10 +398,28 @@ const runDispatchWithRetry = async (
             timeoutMs: calculateDynamicTimeout(distancia)
         };
 
+        // 🎯 6. EMISIÓN DE EVENTOS
         const taxiSockets = await io.in(tEmail).fetchSockets();
         if (taxiSockets.length > 0) {
             io.to(tEmail).emit("pasajero_asignado", fullPayload);
             logMotor("dispatch_retry", `Emitido pasajero_asignado a ${tEmail}`, "INFO");
+        }
+
+        // 🎯 NUEVO: Notificar a la sala del viaje para que ambos se coordinen
+        try {
+            // 🚨 AQUÍ SÍ USAMOS LA FUNCIÓN IMPORTADA
+            // Esto envía el evento UNA SOLA VEZ a la sala compartida del viaje
+            emitToTripRoom(io, reqId, "trip_created", {
+                pasajeroEmail: pEmail,
+                taxistaEmail: tEmail,
+                pickupAddress: direccion,
+                distancia,
+                timestamp: Date.now()
+            });
+
+            logMotor("dispatch_retry", `Notificación de trip_created enviada a la sala del viaje ${reqId}`, "INFO");
+        } catch (tripRoomErr) {
+            logMotor("dispatch_retry", `Error al notificar creación de sala: ${tripRoomErr}`, "WARN");
         }
         if (elMasCercano.pushSubscription) {
             try { await enviarNotificacionPush(elMasCercano.pushSubscription, fullPayload, tEmail); } catch (pErr) { }

@@ -9,6 +9,12 @@ import { registerTripHandlers } from "./handlers/tripHandler";
 import { logMotor } from "../utils/logger";
 import { calculateDistance } from "../utils/distance";
 import { POSITION_STATES, STATE_GROUPS, PositionState } from "../constants/states";
+import {
+    joinTripRoom,
+    leaveTripRoom,
+    notifyPeerReconnection,
+    getTripRoomId
+} from "../services/tripRoomService";
 
 // 🆕 Configuración configurable
 const MICRODROP_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos para microcortes
@@ -337,6 +343,32 @@ export const initSocketEngine = (io: Server) => {
             );
 
             // ============================================================
+            // 🎯 4.1 UNIR A LA SALA DEL VIAJE (TRIP ROOM)
+            // ============================================================
+            try {
+                if (role === "taxista") {
+                    // Buscar el viaje activo del taxista
+                    const taxiDoc = await Position.findOne({ email, role: "taxista" }).lean();
+                    if (taxiDoc?.pasajeroAsignado) {
+                        const pasajeroDoc = await Position.findOne({
+                            email: taxiDoc.pasajeroAsignado,
+                            role: "pasajero"
+                        }).lean();
+
+                        if (pasajeroDoc?.requestId) {
+                            joinTripRoom(socket, pasajeroDoc.requestId, email);
+                            notifyPeerReconnection(io, pasajeroDoc.requestId, "taxista", email);
+                        }
+                    }
+                } else if (role === "pasajero" && viajeActivo?.requestId) {
+                    joinTripRoom(socket, viajeActivo.requestId, email);
+                    notifyPeerReconnection(io, viajeActivo.requestId, "pasajero", email);
+                }
+            } catch (tripRoomErr) {
+                logMotor("trip_room", `Error al unir a sala de viaje: ${tripRoomErr}`, "WARN");
+            }
+
+            // ============================================================
             // 🎯 5. REGISTRAR HANDLERS ANTES DE REHIDRATACIÓN
             // ============================================================
             registerLocationHandlers(io, socket, email);
@@ -530,9 +562,13 @@ export const initSocketEngine = (io: Server) => {
         socket.on("request_rehydrate", async (payload?: { requestId?: string }) => {
             try {
                 const requestId = payload?.requestId?.toString().trim();
+
+                // Obtenemos el estado real del usuario que se está reconectando
                 const miEstado = role === "taxista"
                     ? await Position.findOne({ email }).lean()
-                    : (requestId ? await Position.findOne({ email, requestId }).lean() : await Position.findOne({ email }).lean());
+                    : (requestId
+                        ? await Position.findOne({ email, requestId }).lean()
+                        : await Position.findOne({ email }).lean());
 
                 if (!miEstado) {
                     socket.emit("trip_status_update", { estado: POSITION_STATES.PENDIENTE });
@@ -541,7 +577,10 @@ export const initSocketEngine = (io: Server) => {
 
                 if (role === "pasajero") {
                     if (miEstado.taxistaAsignado || [POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO, POSITION_STATES.PREASIGNADO].includes(miEstado.estado as any)) {
-                        const taxistaData = miEstado.taxistaAsignado ? await Position.findOne({ email: miEstado.taxistaAsignado }).lean() : null;
+                        const taxistaData = miEstado.taxistaAsignado
+                            ? await Position.findOne({ email: miEstado.taxistaAsignado }).lean()
+                            : null;
+
                         socket.emit("response_from_taxi", {
                             accepted: true,
                             tEmail: taxistaData?.email || miEstado.taxistaAsignado || "",
@@ -554,23 +593,38 @@ export const initSocketEngine = (io: Server) => {
                             taxiData: taxistaData ? buildPayload(taxistaData, taxistaData, miEstado.estado as PositionState) : null
                         });
                     } else if (miEstado.estado === POSITION_STATES.BUSCANDO) {
-                        socket.emit("trip_status_update", { estado: POSITION_STATES.BUSCANDO });
+                        socket.emit("trip_status_update", { estado: POSITION_STATES.BUSCANDO, rehydrated: true });
                     } else {
-                        socket.emit("trip_status_update", { estado: POSITION_STATES.PENDIENTE });
+                        socket.emit("trip_status_update", { estado: POSITION_STATES.PENDIENTE, rehydrated: true });
                     }
                 } else if (role === "taxista") {
-                    const pasajeroData = requestId
-                        ? await Position.findOne({ requestId, taxistaAsignado: email, estado: { $in: [POSITION_STATES.ASIGNADO, POSITION_STATES.PREASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO] } }).lean()
-                        : (miEstado.pasajeroAsignado
-                            ? await Position.findOne({ email: miEstado.pasajeroAsignado }).lean()
-                            : await Position.findOne({ role: "pasajero", taxistaAsignado: email, estado: { $in: [POSITION_STATES.ASIGNADO, POSITION_STATES.PREASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO] } }).lean());
+                    // 🚨 CLAVE: Confiamos ciegamente en el estado del propio documento del taxista
+                    const estadoRealDelTaxista = (miEstado.estado as PositionState) || POSITION_STATES.ACTIVO;
+
+                    // Buscamos al pasajero SOLO para obtener sus datos de la UI, no para decidir el estado
+                    const pasajeroData = miEstado.pasajeroAsignado
+                        ? await Position.findOne({ email: miEstado.pasajeroAsignado, role: "pasajero" }).lean()
+                        : await Position.findOne({ role: "pasajero", taxistaAsignado: email }).lean();
 
                     if (pasajeroData) {
-                        const passengerPayload = buildPayload(pasajeroData, pasajeroData, pasajeroData.estado as PositionState);
-                        socket.emit("assignment_confirmed", { success: true, pasajero: passengerPayload, rehydrated: true });
-                        socket.emit("trip_status_update", { estado: pasajeroData.estado, pasajeroAsignado: passengerPayload, rehydrated: true });
+                        const passengerPayload = buildPayload(pasajeroData, pasajeroData, estadoRealDelTaxista);
+
+                        socket.emit("assignment_confirmed", {
+                            success: true,
+                            pasajero: passengerPayload,
+                            rehydrated: true
+                        });
+
+                        socket.emit("trip_status_update", {
+                            estado: estadoRealDelTaxista, // 🚨 Aquí enviamos el estado correcto del taxista
+                            pasajeroAsignado: passengerPayload,
+                            rehydrated: true
+                        });
                     } else {
-                        socket.emit("trip_status_update", { estado: POSITION_STATES.ACTIVO });
+                        socket.emit("trip_status_update", {
+                            estado: estadoRealDelTaxista,
+                            rehydrated: true
+                        });
                     }
                 }
             } catch (err) {
@@ -612,6 +666,10 @@ export const initSocketEngine = (io: Server) => {
         // ============================================================
         socket.on("disconnect", async (reason) => {
             if (!email) return;
+
+            // 🎯 NUEVO: Salir de la sala del viaje antes de cualquier otra limpieza
+            leaveTripRoom(socket);
+
             logMotor("socket_disconnect", `Socket cerrado para ${email} | Razón: ${reason}`, "INFO");
 
             const userConnections = activeConnections.get(email);
