@@ -1,5 +1,6 @@
 // src/socket/socketEngine.ts
 import { Server, Socket } from "socket.io";
+import jwt from "jsonwebtoken";
 import { Position } from "../models/Position";
 import { User } from "../models/User";
 import { buildPayload } from "../utils/payloadBuilder";
@@ -118,6 +119,33 @@ export const initSocketEngine = (io: Server) => {
             return;
         }
 
+        // ============================================================
+        // 🛡️ 1b. VALIDACIÓN DEL TOKEN JWT
+        // ============================================================
+        if (!token) {
+            logMotor("socket_connect", `Conexión rechazada: token ausente para ${email}`, "WARN");
+            socket.emit("auth_error", { message: "Token no proporcionado" });
+            socket.disconnect(true);
+            return;
+        }
+
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { email?: string; role?: string };
+            const decodedEmail = decoded.email?.toLowerCase().trim();
+
+            if (decodedEmail !== email || decoded.role !== role) {
+                logMotor("socket_connect", `Conexión rechazada: token no coincide con email/role declarados (${email})`, "WARN");
+                socket.emit("auth_error", { message: "Token no coincide con las credenciales" });
+                socket.disconnect(true);
+                return;
+            }
+        } catch (tokenError) {
+            logMotor("socket_connect", `Conexión rechazada: token inválido o expirado para ${email}: ${tokenError}`, "WARN");
+            socket.emit("auth_error", { message: "Token inválido o expirado" });
+            socket.disconnect(true);
+            return;
+        }
+
         const userConnections = activeConnections.get(email) || new Set();
         if (userConnections.size >= MAX_CONNECTIONS_PER_EMAIL) {
             logMotor("socket_connect", `Conexión rechazada: límite de conexiones para ${email}`, "WARN");
@@ -159,9 +187,20 @@ export const initSocketEngine = (io: Server) => {
             const previousSocket = io.sockets.sockets.get(previousDoc.socketId);
             if (previousSocket) {
                 previousSocket.emit("session_replaced", {
-                    message: "Se abrió otra sesión para esta cuenta. El estado local se limpiará para evitar desincronización."
+                    message: "Se abrió otra sesión para esta cuenta. Esta sesión fue cerrada para evitar desincronización."
                 });
-                logMotor("socket_connect", `Se notificó a la sesión anterior ${previousDoc.socketId} para ${email} sin cortarla`, "INFO");
+
+                previousSocket.disconnect(true);
+
+                const previousConnections = activeConnections.get(email);
+                if (previousConnections) {
+                    previousConnections.delete(previousSocket.id);
+                    if (previousConnections.size === 0) {
+                        activeConnections.delete(email);
+                    }
+                }
+
+                logMotor("socket_connect", `Se cerró la sesión anterior ${previousDoc.socketId} para ${email} y se mantuvo la nueva conexión`, "WARN");
             }
         }
 

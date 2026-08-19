@@ -7,6 +7,7 @@ export const socket = io(API_URL, {
   auth: {
     email: typeof window !== "undefined" ? localStorage.getItem("email") : undefined,
     role: typeof window !== "undefined" ? localStorage.getItem("role") : undefined,
+    token: typeof window !== "undefined" ? localStorage.getItem("token") : undefined,
   },
   transports: ["websocket", "polling"],
   reconnection: true,
@@ -43,7 +44,8 @@ export const connectSocket = (email: string, role: string) => {
   };
   const sameIdentity = currentAuth.email === normalizedEmail && currentAuth.role === role;
 
-  socket.auth = { ...currentAuth, email: normalizedEmail, role };
+  const storedToken = typeof window !== "undefined" ? localStorage.getItem("token") : undefined;
+  socket.auth = { ...currentAuth, email: normalizedEmail, role, token: storedToken || currentAuth.token };
 
   if (sameIdentity && (socket.connected || socket.active)) {
     return;

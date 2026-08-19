@@ -881,6 +881,11 @@ useGeolocation(
       resetSolicitudActiva();
     };
 
+    // 🚨 Listeners de oferta/asignación de viaje (faltaban: sin esto nunca abre el modal)
+    socket.on("pasajero_asignado", handleAsignacion);
+    socket.on("assignment_confirmed", handleAssignmentConfirmed);
+    socket.on("trip_destination_updated", handleTripDestinationUpdated);
+
     socket.on("trip_already_taken", handleLateOffer);
     socket.on("push_late", handleLateOffer);
     socket.on("reset_estado_taxista", handleResetTaxistaState);
