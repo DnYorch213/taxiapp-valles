@@ -295,12 +295,12 @@ export const initSocketEngine = (io: Server) => {
             );
 
             // ============================================================
-            // 🎯 4.1 UNIR A LA SALA DEL VIAJE (TRIP ROOM)
+            // 🎯 UNIR A LA SALA DEL VIAJE Y REHIDRATAR SI ES NECESARIO
             // ============================================================
             try {
                 if (role === "taxista") {
-                    // Buscar el viaje activo del taxista
                     const taxiDoc = await Position.findOne({ email, role: "taxista" }).lean();
+
                     if (taxiDoc?.pasajeroAsignado) {
                         const pasajeroDoc = await Position.findOne({
                             email: taxiDoc.pasajeroAsignado,
@@ -308,18 +308,42 @@ export const initSocketEngine = (io: Server) => {
                         }).lean();
 
                         if (pasajeroDoc?.requestId) {
+                            // 1. Unir a la sala y notificar al pasajero
                             joinTripRoom(socket, pasajeroDoc.requestId, email);
                             notifyPeerReconnection(io, pasajeroDoc.requestId, "taxista", email);
+
+                            // 🚨 2. EL ESLABÓN PERDIDO: Enviar los datos al frontend del taxista para que dibuje la UI
+                            const passengerPayload = buildPayload(pasajeroDoc, pasajeroDoc, taxiDoc.estado as PositionState);
+
+                            socket.emit("assignment_confirmed", {
+                                success: true,
+                                pasajero: passengerPayload,
+                                rehydrated: true // 🛡️ Esto le dice al frontend que confíe ciegamente en este estado
+                            });
+
+                            socket.emit("trip_status_update", {
+                                estado: taxiDoc.estado,
+                                pasajeroAsignado: passengerPayload,
+                                rehydrated: true
+                            });
+
+                            logMotor("socket_rehydrate", `Datos de viaje enviados a taxista ${email} al reconectar`, "INFO");
                         }
                     }
                 } else if (role === "pasajero" && viajeActivo?.requestId) {
                     joinTripRoom(socket, viajeActivo.requestId, email);
                     notifyPeerReconnection(io, viajeActivo.requestId, "pasajero", email);
+
+                    // También rehidratamos al pasajero por si acaso
+                    socket.emit("trip_status_update", {
+                        estado: viajeActivo.estado,
+                        taxistaAsignado: viajeActivo.taxistaAsignado,
+                        rehydrated: true
+                    });
                 }
             } catch (tripRoomErr) {
                 logMotor("trip_room", `Error al unir a sala de viaje: ${tripRoomErr}`, "WARN");
             }
-
             // ============================================================
             // 🎯 5. REGISTRAR HANDLERS ANTES DE REHIDRATACIÓN
             // ============================================================
