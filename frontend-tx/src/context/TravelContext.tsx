@@ -235,14 +235,23 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     };
 
+    // Si la pestaña se cierra de verdad (no bfcache), cortamos el socket para no dejarlo vivo en segundo plano
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (!event.persisted) {
+        socket.disconnect();
+      }
+    };
+
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("focus", handleResume);
     window.addEventListener("online", handleOnline);
+    window.addEventListener("pagehide", handlePageHide);
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", handleResume);
       window.removeEventListener("online", handleOnline);
+      window.removeEventListener("pagehide", handlePageHide);
       void releaseWakeLock();
     };
   }, [keepSessionAlive, reconnectIfNeeded, releaseWakeLock, tryRequestWakeLock, userPosition]);

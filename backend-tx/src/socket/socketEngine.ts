@@ -97,6 +97,9 @@ const repairTripRelationForConnection = async (email: string, role: string) => {
 // 🆕 Mapa de conexiones activas por email (para rate limiting)
 const activeConnections = new Map<string, Set<string>>();
 
+// 🆕 Identificador de dispositivo/pestaña por email, para distinguir una reconexión propia de una sesión nueva
+const deviceIdByEmail = new Map<string, string>();
+
 // 🆕 Mapa de timers de microcortes
 const microdropTimers = new Map<string, NodeJS.Timeout>();
 
@@ -106,6 +109,7 @@ export const initSocketEngine = (io: Server) => {
         const email = rawEmail ? rawEmail.toString().toLowerCase().trim() : null;
         const role = socket.handshake.auth?.role || socket.handshake.query?.role;
         const token = socket.handshake.auth?.token;
+        const deviceId = socket.handshake.auth?.deviceId || socket.handshake.query?.deviceId;
 
         logMotor("socket_connect", `Intento de conexión: Email[${email}] | Role[${role}] | SocketID[${socket.id}]`, "INFO");
 
@@ -186,9 +190,15 @@ export const initSocketEngine = (io: Server) => {
         if (previousDoc?.socketId && previousDoc.socketId !== socket.id) {
             const previousSocket = io.sockets.sockets.get(previousDoc.socketId);
             if (previousSocket) {
-                previousSocket.emit("session_replaced", {
-                    message: "Se abrió otra sesión para esta cuenta. Esta sesión fue cerrada para evitar desincronización."
-                });
+                // Si el deviceId coincide con el de la conexión anterior, es la misma pestaña
+                // reconectando por una red inestable, no una sesión nueva: no alarmamos al usuario.
+                const isSameDevice = Boolean(deviceId) && deviceIdByEmail.get(email) === deviceId;
+
+                if (!isSameDevice) {
+                    previousSocket.emit("session_replaced", {
+                        message: "Se abrió otra sesión para esta cuenta. Esta sesión fue cerrada para evitar desincronización."
+                    });
+                }
 
                 previousSocket.disconnect(true);
 
@@ -202,6 +212,10 @@ export const initSocketEngine = (io: Server) => {
 
                 logMotor("socket_connect", `Se cerró la sesión anterior ${previousDoc.socketId} para ${email} y se mantuvo la nueva conexión`, "WARN");
             }
+        }
+
+        if (deviceId) {
+            deviceIdByEmail.set(email, deviceId);
         }
 
         // ============================================================

@@ -3,11 +3,26 @@ import { io } from "socket.io-client";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
+// Identificador estable por pestaña: permite al backend distinguir una reconexión
+// de la misma pestaña (red inestable) de una sesión realmente nueva en otro dispositivo.
+const getDeviceId = () => {
+  if (typeof window === "undefined") return undefined;
+  let id = sessionStorage.getItem("deviceId");
+  if (!id) {
+    id = typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    sessionStorage.setItem("deviceId", id);
+  }
+  return id;
+};
+
 export const socket = io(API_URL, {
   auth: {
     email: typeof window !== "undefined" ? localStorage.getItem("email") : undefined,
     role: typeof window !== "undefined" ? localStorage.getItem("role") : undefined,
     token: typeof window !== "undefined" ? localStorage.getItem("token") : undefined,
+    deviceId: getDeviceId(),
   },
   transports: ["websocket", "polling"],
   reconnection: true,
@@ -45,7 +60,7 @@ export const connectSocket = (email: string, role: string) => {
   const sameIdentity = currentAuth.email === normalizedEmail && currentAuth.role === role;
 
   const storedToken = typeof window !== "undefined" ? localStorage.getItem("token") : undefined;
-  socket.auth = { ...currentAuth, email: normalizedEmail, role, token: storedToken || currentAuth.token };
+  socket.auth = { ...currentAuth, email: normalizedEmail, role, token: storedToken || currentAuth.token, deviceId: getDeviceId() };
 
   if (sameIdentity && (socket.connected || socket.active)) {
     return;
