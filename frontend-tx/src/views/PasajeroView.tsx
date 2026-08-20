@@ -794,15 +794,11 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     setSearchFlowActivo(true);
     setEstado(TRIP_STATES.BUSCANDO || ("buscando" as ViajeEstado));
 
-    const origenLat = origenPersonalizado?.lat ?? userPosition.lat;
-    const origenLng = origenPersonalizado?.lng ?? userPosition.lng;
-
     socket.emit("request_taxi", {
       email: userPosition.email.toLowerCase().trim(),
       name: userPosition.name,
-      lat: origenLat,
-      lng: origenLng,
-      pickupAddress: origenPersonalizado?.address,
+      lat: userPosition.lat,
+      lng: userPosition.lng,
       destinationLat,
       destinationLng,
       destinationAddress: destinationAddress || destinationQuery || undefined,
@@ -812,7 +808,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     });
 
     toast.info("Buscando taxi disponible...", { autoClose: 3000 });
-  }, [userPosition, estado, destinationLat, destinationLng, destinationAddress, destinationQuery, origenPersonalizado]);
+  }, [userPosition, estado, destinationLat, destinationLng, destinationAddress, destinationQuery]);
   const cancelarSolicitud = useCallback(() => {
     setSearchFlowActivo(false);
     setEstado(TRIP_STATES.PENDIENTE);
