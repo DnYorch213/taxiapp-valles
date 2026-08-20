@@ -12,7 +12,6 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { taxistaIcon, pasajeroIcon } from "../utils/icons";
 import RotatedMarker from "../components/RotatedMarker";
-import { TripLocationModal, TripLocationResult } from "../components/TripLocationModal";
 import { calcularHeading } from "../utils/heading";
 import { TRIP_STATES } from "../constants/states";
 import { shouldAcceptStateTransition } from "../utils/socketStateGuard";
@@ -82,8 +81,6 @@ const PasajeroView: React.FC = () => {
   const [destinoColapsado, setDestinoColapsado] = useState(false);
   const [selectorDestinoAbierto, setSelectorDestinoAbierto] = useState(false);
   const [isSearchingDestination, setIsSearchingDestination] = useState(false);
-  const [modalUbicacionAbierto, setModalUbicacionAbierto] = useState(false);
-  const [origenPersonalizado, setOrigenPersonalizado] = useState<{ lat: number; lng: number; address: string } | null>(null);
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
   const [geometriaRuta, setGeometriaRuta] = useState<L.LatLngExpression[]>([]);
   const [rutaDestinoPreview, setRutaDestinoPreview] = useState<L.LatLngExpression[]>([]);
@@ -816,7 +813,6 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
     toast.info("Buscando taxi disponible...", { autoClose: 3000 });
   }, [userPosition, estado, destinationLat, destinationLng, destinationAddress, destinationQuery, origenPersonalizado]);
-
   const cancelarSolicitud = useCallback(() => {
     setSearchFlowActivo(false);
     setEstado(TRIP_STATES.PENDIENTE);
@@ -893,26 +889,9 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   const mostrarTextoBuscando = !taxistaAsignado && ["buscando", "preasignado"].includes(estado);
 
   const abrirSelectorDestino = () => {
-    setModalUbicacionAbierto(true);
+    setSelectorDestinoAbierto(true);
+    setDestinoColapsado(false);
   };
-
-  const handleConfirmarUbicaciones = useCallback((result: TripLocationResult) => {
-    const mismoOrigenQueGPS = userPosition?.lat === result.originLat && userPosition?.lng === result.originLng;
-    setOrigenPersonalizado(mismoOrigenQueGPS ? null : {
-      lat: result.originLat,
-      lng: result.originLng,
-      address: result.originAddress,
-    });
-
-    if (result.destinationLat !== null && result.destinationLng !== null) {
-      setDestinationLat(result.destinationLat);
-      setDestinationLng(result.destinationLng);
-      setDestinationAddress(result.destinationAddress);
-      setDestinationQuery(result.destinationAddress);
-    }
-
-    setModalUbicacionAbierto(false);
-  }, [userPosition?.lat, userPosition?.lng]);
 
   useEffect(() => {
     if (enCaminoUI) {
@@ -946,19 +925,6 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   return (
     <div className="h-dvh bg-slate-50 flex flex-col items-center font-sans relative overflow-hidden">
       <ToastContainer theme="light" />
-      {userPosition?.lat && userPosition?.lng && (
-        <TripLocationModal
-          isOpen={modalUbicacionAbierto}
-          onClose={() => setModalUbicacionAbierto(false)}
-          onConfirm={handleConfirmarUbicaciones}
-          initialOriginLat={origenPersonalizado?.lat ?? userPosition.lat}
-          initialOriginLng={origenPersonalizado?.lng ?? userPosition.lng}
-          initialOriginAddress={origenPersonalizado?.address ?? ""}
-          initialDestinationLat={destinationLat}
-          initialDestinationLng={destinationLng}
-          initialDestinationAddress={destinationAddress}
-        />
-      )}
       <div className="absolute top-0 left-0 w-full h-1 bg-[#22c55e] z-[2001]"></div>
 
       {/* MAIN */}
@@ -1279,9 +1245,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 onClick={abrirSelectorDestino}
                 className="mt-1 text-left text-[10px] font-black uppercase tracking-[0.16em] text-[#22c55e] hover:text-[#15803d]"
               >
-                {destinationAddress || origenPersonalizado
-                  ? "Origen y destino elegidos · Editar"
-                  : "Elige tu origen y destino (Opcional)"}
+                Selecciona tu Destino (Opcional)
               </button>
             )}
           </div>
