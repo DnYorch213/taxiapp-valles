@@ -106,6 +106,312 @@ const microdropTimers = new Map<string, NodeJS.Timeout>();
 // 🆕 Mapa de timers de rehidratación por email
 const rehydrationTimers = new Map<string, NodeJS.Timeout>();
 
+// 🆕 Set de emails en proceso de handshake para evitar condiciones de carrera
+const handshaking = new Set<string>();
+
+const initSocketConnection = async (
+    io: Server,
+    socket: Socket,
+    email: string,
+    role: string,
+    deviceId?: string
+) => {
+    const userConnections = activeConnections.get(email) || new Set();
+
+    socket.join(email);
+    userConnections.add(socket.id);
+    activeConnections.set(email, userConnections);
+
+    const previousDoc = await Position.findOne({ email, role }).lean();
+    if (previousDoc?.socketId && previousDoc.socketId !== socket.id) {
+        const previousSocket = io.sockets.sockets.get(previousDoc.socketId);
+        if (previousSocket) {
+            const isSameDevice = Boolean(deviceId) && deviceIdByEmail.get(email) === deviceId;
+
+            if (!isSameDevice) {
+                previousSocket.emit("session_replaced", {
+                    message: "Se abrió otra sesión para esta cuenta. Esta sesión fue cerrada para evitar desincronización."
+                });
+            }
+
+            previousSocket.disconnect(true);
+
+            const previousConnections = activeConnections.get(email);
+            if (previousConnections) {
+                previousConnections.delete(previousSocket.id);
+                if (previousConnections.size === 0) {
+                    activeConnections.delete(email);
+                }
+            }
+
+            logMotor("socket_connect", `Se cerró la sesión anterior ${previousDoc.socketId} para ${email} y se mantuvo la nueva conexión`, "WARN");
+        }
+    }
+
+    if (deviceId) {
+        deviceIdByEmail.set(email, deviceId);
+    }
+
+    try {
+        const userMaster = await User.findOne({ email }).lean();
+        if (userMaster) {
+            await Position.findOneAndUpdate(
+                { email },
+                {
+                    $set: {
+                        pushSubscription: userMaster.pushSubscription,
+                        name: userMaster.name,
+                        taxiNumber: userMaster.taxiNumber,
+                        role: userMaster.role,
+                        socketId: socket.id,
+                        updatedAt: new Date()
+                    }
+                },
+                { upsert: true }
+            );
+        }
+
+        await repairTripRelationForConnection(email, role);
+        logMotor("socket_connect", `Reparación de relaciones completada para ${email} (${role})`, "INFO");
+
+        const activeStates = {
+            $in: [
+                POSITION_STATES.ASIGNADO,
+                POSITION_STATES.ENCURSO,
+                POSITION_STATES.ENCAMINO,
+                POSITION_STATES.PREASIGNADO,
+                POSITION_STATES.BUSCANDO
+            ]
+        };
+
+        const miPosicion = await Position.findOne({ email, role }).lean();
+        logMotor("socket_connect", `miPosicion para ${email}: estado=${miPosicion?.estado} socketId=${miPosicion?.socketId}`, "INFO");
+
+        const viajeActivo = role === "taxista"
+            ? await Position.findOne({
+                role: "pasajero",
+                taxistaAsignado: email,
+                estado: activeStates
+            }).lean()
+            : await Position.findOne({
+                email,
+                role: "pasajero",
+                estado: activeStates
+            }).lean();
+
+        logMotor("socket_connect", `viajeActivo para ${email} (${role}): ${viajeActivo ? `estado=${viajeActivo.estado} taxistaAsignado=${viajeActivo.taxistaAsignado}` : "null"}`, "INFO");
+
+        const esEstadoValido = (estado: any): estado is PositionState => {
+            return Object.values(POSITION_STATES).includes(estado);
+        };
+
+        let nuevoEstado: PositionState;
+
+        if (viajeActivo) {
+            if (role === "pasajero") {
+                const estadoPersistido = viajeActivo.estado;
+                nuevoEstado = esEstadoValido(estadoPersistido)
+                    ? estadoPersistido
+                    : "pendiente" as PositionState;
+                logMotor("socket_connect", `Pasajero ${email} recuperado en estado: ${nuevoEstado}`, "INFO");
+            } else if (role === "taxista") {
+                const estadoBaseTaxista = miPosicion?.estado;
+                const estadosDeViajeActivo: PositionState[] = [
+                    POSITION_STATES.ENCURSO,
+                    POSITION_STATES.ENCAMINO,
+                    POSITION_STATES.ASIGNADO
+                ];
+                const estadosEnRuta: PositionState[] = [
+                    POSITION_STATES.ENCURSO,
+                    POSITION_STATES.ENCAMINO
+                ];
+
+                const esTaxistaEnViaje = esEstadoValido(estadoBaseTaxista) && estadosDeViajeActivo.includes(estadoBaseTaxista);
+
+                nuevoEstado = esTaxistaEnViaje
+                    ? estadoBaseTaxista
+                    : (esEstadoValido(viajeActivo.estado) && estadosEnRuta.includes(viajeActivo.estado)
+                        ? viajeActivo.estado
+                        : POSITION_STATES.ENCAMINO);
+
+                logMotor("socket_connect", `Taxista ${email} recuperado en estado: ${nuevoEstado}`, "INFO");
+            } else {
+                nuevoEstado = POSITION_STATES.ACTIVO;
+            }
+        } else {
+            if (role === "taxista") {
+                const estadosDeViaje: PositionState[] = [
+                    POSITION_STATES.ASIGNADO,
+                    POSITION_STATES.ENCAMINO,
+                    POSITION_STATES.ENCURSO,
+                    POSITION_STATES.OCUPADO
+                ];
+
+                if (esEstadoValido(miPosicion?.estado) && estadosDeViaje.includes(miPosicion.estado)) {
+                    nuevoEstado = miPosicion.estado;
+                    logMotor("socket_connect", `Taxista ${email} preservado en estado: ${nuevoEstado} (fallback de seguridad)`, "INFO");
+                } else {
+                    nuevoEstado = POSITION_STATES.ACTIVO;
+                }
+            } else {
+                nuevoEstado = "pendiente" as PositionState;
+            }
+        }
+
+        const microdropTimer = microdropTimers.get(email);
+        if (microdropTimer) {
+            clearTimeout(microdropTimer);
+            microdropTimers.delete(email);
+            logMotor("socket_connect", `Timer de microcorte cancelado para ${email}`, "INFO");
+        }
+
+        const updatedPos = await Position.findOneAndUpdate(
+            { email },
+            {
+                $set: {
+                    estado: nuevoEstado,
+                    socketId: socket.id,
+                    updatedAt: new Date()
+                }
+            },
+            { upsert: true, returnDocument: "after" }
+        );
+
+        try {
+            if (role === "taxista") {
+                const taxiDoc = await Position.findOne({ email, role: "taxista" }).lean();
+
+                if (taxiDoc?.pasajeroAsignado) {
+                    const pasajeroDoc = await Position.findOne({
+                        email: taxiDoc.pasajeroAsignado,
+                        role: "pasajero"
+                    }).lean();
+
+                    if (pasajeroDoc?.requestId) {
+                        joinTripRoom(socket, pasajeroDoc.requestId, email);
+                        notifyPeerReconnection(io, pasajeroDoc.requestId, "taxista", email);
+
+                        const passengerPayload = buildPayload(pasajeroDoc, pasajeroDoc, taxiDoc.estado as PositionState);
+
+                        socket.emit("assignment_confirmed", {
+                            success: true,
+                            pasajero: passengerPayload,
+                            rehydrated: true
+                        });
+
+                        socket.emit("trip_status_update", {
+                            estado: taxiDoc.estado,
+                            pasajeroAsignado: passengerPayload,
+                            rehydrated: true
+                        });
+
+                        logMotor("socket_rehydrate", `Datos de viaje enviados a taxista ${email} al reconectar`, "INFO");
+                    }
+                }
+            } else if (role === "pasajero" && viajeActivo?.requestId) {
+                joinTripRoom(socket, viajeActivo.requestId, email);
+                notifyPeerReconnection(io, viajeActivo.requestId, "pasajero", email);
+
+                socket.emit("trip_status_update", {
+                    estado: viajeActivo.estado,
+                    taxistaAsignado: viajeActivo.taxistaAsignado,
+                    rehydrated: true
+                });
+            }
+        } catch (tripRoomErr) {
+            logMotor("trip_room", `Error al unir a sala de viaje: ${tripRoomErr}`, "WARN");
+        }
+
+        registerLocationHandlers(io, socket, email);
+        registerTripHandlers(io, socket, email);
+
+        if (role === "admin") {
+            const allPositions = await Position.find({
+                lat: { $exists: true, $ne: null },
+                lng: { $exists: true, $ne: null }
+            }).limit(500).lean();
+
+            const sanitizedPositions = allPositions.map(p => ({
+                email: p.email,
+                name: p.name,
+                role: p.role,
+                lat: p.lat,
+                lng: p.lng,
+                estado: p.estado,
+                taxiNumber: p.taxiNumber,
+                socketId: p.socketId
+            }));
+
+            socket.emit("positions", sanitizedPositions);
+        }
+
+        socket.emit("dispatch_mode_changed", { auto: isAutoMode });
+        socket.emit("initial_state", { estado: nuevoEstado, role });
+
+        if (viajeActivo && role === "taxista") {
+            const rehydrationTimer = setTimeout(() => {
+                rehydrationTimers.delete(email);
+                logMotor("socket_rehydrate", `Rehidratando taxista ${email} en viaje activo`, "INFO");
+                socket.emit("pasajero_asignado", {
+                    ...buildPayload(viajeActivo, viajeActivo, nuevoEstado),
+                    pasajeroEmail: viajeActivo.email,
+                    pasajeroLat: viajeActivo.lat,
+                    pasajeroLng: viajeActivo.lng,
+                    isNewOffer: false,
+                    rehydrated: true
+                });
+            }, REHYDRATION_DELAY_MS);
+            rehydrationTimers.set(email, rehydrationTimer);
+        }
+
+        if (viajeActivo && role === "pasajero" && viajeActivo.taxistaAsignado) {
+            const rehydrationTimer = setTimeout(async () => {
+                rehydrationTimers.delete(email);
+                try {
+                    const taxistaData = await Position.findOne({
+                        email: viajeActivo.taxistaAsignado
+                    }).lean();
+
+                    logMotor("socket_rehydrate", `Rehidratando pasajero ${email} con taxista ${viajeActivo.taxistaAsignado}`, "INFO");
+
+                    socket.emit("response_from_taxi", {
+                        accepted: true,
+                        tEmail: taxistaData?.email || viajeActivo.taxistaAsignado,
+                        name: taxistaData?.name || "Taxista",
+                        taxiNumber: taxistaData?.taxiNumber || "ECO",
+                        lat: taxistaData?.lat || null,
+                        lng: taxistaData?.lng || null,
+                        estado: nuevoEstado,
+                        rehydrated: true,
+                        taxiData: taxistaData ? buildPayload(taxistaData, taxistaData, nuevoEstado) : null,
+                        pasajeroEmail: viajeActivo.email,
+                        pasajeroLat: viajeActivo.lat,
+                        pasajeroLng: viajeActivo.lng,
+                        distancia: (taxistaData?.lat && taxistaData?.lng && viajeActivo.lat && viajeActivo.lng)
+                            ? calculateDistance(viajeActivo.lat, viajeActivo.lng, taxistaData.lat, taxistaData.lng)
+                            : null
+                    });
+
+                    socket.emit("trip_status_update", {
+                        estado: nuevoEstado,
+                        pasajeroEmail: email,
+                        rehydrated: true
+                    });
+                } catch (rehydrateError) {
+                    logMotor("socket_rehydrate", `Error en rehidratación para ${email}: ${rehydrateError}`, "ERROR");
+                }
+            }, REHYDRATION_DELAY_MS);
+        }
+
+        if (updatedPos) {
+            io.emit("panel_update", buildPayload(updatedPos, updatedPos, nuevoEstado));
+        }
+    } catch (error) {
+        logMotor("socket_connect", `Error en inicialización de conexión para ${email}: ${error}`, "ERROR");
+        throw error;
+    }
+};
+
 export const initSocketEngine = (io: Server) => {
     io.on("connection", async (socket: Socket) => {
         const rawEmail = socket.handshake.auth?.email || socket.handshake.query?.email;
@@ -171,6 +477,13 @@ export const initSocketEngine = (io: Server) => {
             return;
         }
 
+        if (handshaking.has(email)) {
+            logMotor("socket_connect", `Rechazado: handshake concurrente para ${email}`, "WARN");
+            socket.emit("auth_error", { message: "Handshake en progreso" });
+            socket.disconnect(true);
+            return;
+        }
+
         try {
             const userMaster = await User.findOne({ email }).lean();
             if (!userMaster) {
@@ -193,326 +506,26 @@ export const initSocketEngine = (io: Server) => {
             return;
         }
 
-        // ============================================================
-        // 🎯 2. UNIR A SALA Y REGISTRAR CONEXIÓN
-        // ============================================================
-        socket.join(email);
-        userConnections.add(socket.id);
-        activeConnections.set(email, userConnections);
+        // 🆕 Bloqueo de handshake para este email mientras inicializamos
+        handshaking.add(email);
 
-        const previousDoc = await Position.findOne({ email, role }).lean();
-        if (previousDoc?.socketId && previousDoc.socketId !== socket.id) {
-            const previousSocket = io.sockets.sockets.get(previousDoc.socketId);
-            if (previousSocket) {
-                // Si el deviceId coincide con el de la conexión anterior, es la misma pestaña
-                // reconectando por una red inestable, no una sesión nueva: no alarmamos al usuario.
-                const isSameDevice = Boolean(deviceId) && deviceIdByEmail.get(email) === deviceId;
-
-                if (!isSameDevice) {
-                    previousSocket.emit("session_replaced", {
-                        message: "Se abrió otra sesión para esta cuenta. Esta sesión fue cerrada para evitar desincronización."
-                    });
-                }
-
-                previousSocket.disconnect(true);
-
-                const previousConnections = activeConnections.get(email);
-                if (previousConnections) {
-                    previousConnections.delete(previousSocket.id);
-                    if (previousConnections.size === 0) {
-                        activeConnections.delete(email);
-                    }
-                }
-
-                logMotor("socket_connect", `Se cerró la sesión anterior ${previousDoc.socketId} para ${email} y se mantuvo la nueva conexión`, "WARN");
-            }
-        }
-
-        if (deviceId) {
-            deviceIdByEmail.set(email, deviceId);
-        }
-
-        // ============================================================
-        // 🎯 3. ACTUALIZAR POSICIÓN EN BD CON DATOS DEL USUARIO
-        // ============================================================
         try {
-            const userMaster = await User.findOne({ email }).lean();
-            if (userMaster) {
-                await Position.findOneAndUpdate(
-                    { email },
-                    {
-                        $set: {
-                            pushSubscription: userMaster.pushSubscription,
-                            name: userMaster.name,
-                            taxiNumber: userMaster.taxiNumber,
-                            role: userMaster.role,
-                            socketId: socket.id,
-                            updatedAt: new Date()
-                        }
-                    },
-                    { upsert: true }
-                );
-            }
-
-            // ============================================================
-            // 🎯 4. CALCULAR ESTADO INICIAL CORRECTO
-            // ============================================================
-            await repairTripRelationForConnection(email, role);
-            logMotor("socket_connect", `Reparación de relaciones completada para ${email} (${role})`, "INFO");
-
-            const activeStates = {
-                $in: [
-                    POSITION_STATES.ASIGNADO,
-                    POSITION_STATES.ENCURSO,
-                    POSITION_STATES.ENCAMINO,
-                    POSITION_STATES.PREASIGNADO,
-                    POSITION_STATES.BUSCANDO
-                ]
-            };
-
-            const miPosicion = await Position.findOne({ email, role }).lean();
-            logMotor("socket_connect", `miPosicion para ${email}: estado=${miPosicion?.estado} socketId=${miPosicion?.socketId}`, "INFO");
-
-            const viajeActivo = role === "taxista"
-                ? await Position.findOne({
-                    role: "pasajero",
-                    taxistaAsignado: email,
-                    estado: activeStates
-                }).lean()
-                : await Position.findOne({
-                    email,
-                    role: "pasajero",
-                    estado: activeStates
-                }).lean();
-
-            logMotor("socket_connect", `viajeActivo para ${email} (${role}): ${viajeActivo ? `estado=${viajeActivo.estado} taxistaAsignado=${viajeActivo.taxistaAsignado}` : "null"}`, "INFO");
-
-            const esEstadoValido = (estado: any): estado is PositionState => {
-                return Object.values(POSITION_STATES).includes(estado);
-            };
-
-            let nuevoEstado: PositionState;
-
-            if (viajeActivo) {
-                if (role === "pasajero") {
-                    const estadoPersistido = viajeActivo.estado;
-                    nuevoEstado = esEstadoValido(estadoPersistido)
-                        ? estadoPersistido
-                        : "pendiente" as PositionState;
-                    logMotor("socket_connect", `Pasajero ${email} recuperado en estado: ${nuevoEstado}`, "INFO");
-                } else if (role === "taxista") {
-                    const estadoBaseTaxista = miPosicion?.estado;
-                    const estadosDeViajeActivo: PositionState[] = [
-                        POSITION_STATES.ENCURSO,
-                        POSITION_STATES.ENCAMINO,
-                        POSITION_STATES.ASIGNADO
-                    ];
-                    const estadosEnRuta: PositionState[] = [
-                        POSITION_STATES.ENCURSO,
-                        POSITION_STATES.ENCAMINO
-                    ];
-
-                    const esTaxistaEnViaje = esEstadoValido(estadoBaseTaxista) && estadosDeViajeActivo.includes(estadoBaseTaxista);
-
-                    nuevoEstado = esTaxistaEnViaje
-                        ? estadoBaseTaxista
-                        : (esEstadoValido(viajeActivo.estado) && estadosEnRuta.includes(viajeActivo.estado)
-                            ? viajeActivo.estado
-                            : POSITION_STATES.ENCAMINO);
-
-                    logMotor("socket_connect", `Taxista ${email} recuperado en estado: ${nuevoEstado}`, "INFO");
-                } else {
-                    nuevoEstado = POSITION_STATES.ACTIVO;
-                }
-            } else {
-                // 🛡️ BLINDAJE CRÍTICO: Sin viaje activo en la consulta del pasajero, 
-                // pero verificamos si el propio documento del usuario indica que está en viaje.
-                if (role === "taxista") {
-                    const estadosDeViaje: PositionState[] = [
-                        POSITION_STATES.ASIGNADO,
-                        POSITION_STATES.ENCAMINO,
-                        POSITION_STATES.ENCURSO,
-                        POSITION_STATES.OCUPADO
-                    ];
-
-                    if (esEstadoValido(miPosicion?.estado) && estadosDeViaje.includes(miPosicion.estado)) {
-                        nuevoEstado = miPosicion.estado;
-                        logMotor("socket_connect", `Taxista ${email} preservado en estado: ${nuevoEstado} (fallback de seguridad)`, "INFO");
-                    } else {
-                        nuevoEstado = POSITION_STATES.ACTIVO;
-                    }
-                } else {
-                    nuevoEstado = "pendiente" as PositionState;
-                }
-            }
-
-            const microdropTimer = microdropTimers.get(email);
-            if (microdropTimer) {
-                clearTimeout(microdropTimer);
-                microdropTimers.delete(email);
-                logMotor("socket_connect", `Timer de microcorte cancelado para ${email}`, "INFO");
-            }
-
-            const updatedPos = await Position.findOneAndUpdate(
-                { email },
-                {
-                    $set: {
-                        estado: nuevoEstado,
-                        socketId: socket.id,
-                        updatedAt: new Date()
-                    }
-                },
-                { upsert: true, returnDocument: "after" }
-            );
-
-            // ============================================================
-            // 🎯 UNIR A LA SALA DEL VIAJE Y REHIDRATAR SI ES NECESARIO
-            // ============================================================
-            try {
-                if (role === "taxista") {
-                    const taxiDoc = await Position.findOne({ email, role: "taxista" }).lean();
-
-                    if (taxiDoc?.pasajeroAsignado) {
-                        const pasajeroDoc = await Position.findOne({
-                            email: taxiDoc.pasajeroAsignado,
-                            role: "pasajero"
-                        }).lean();
-
-                        if (pasajeroDoc?.requestId) {
-                            // 1. Unir a la sala y notificar al pasajero
-                            joinTripRoom(socket, pasajeroDoc.requestId, email);
-                            notifyPeerReconnection(io, pasajeroDoc.requestId, "taxista", email);
-
-                            // 🚨 2. EL ESLABÓN PERDIDO: Enviar los datos al frontend del taxista para que dibuje la UI
-                            const passengerPayload = buildPayload(pasajeroDoc, pasajeroDoc, taxiDoc.estado as PositionState);
-
-                            socket.emit("assignment_confirmed", {
-                                success: true,
-                                pasajero: passengerPayload,
-                                rehydrated: true // 🛡️ Esto le dice al frontend que confíe ciegamente en este estado
-                            });
-
-                            socket.emit("trip_status_update", {
-                                estado: taxiDoc.estado,
-                                pasajeroAsignado: passengerPayload,
-                                rehydrated: true
-                            });
-
-                            logMotor("socket_rehydrate", `Datos de viaje enviados a taxista ${email} al reconectar`, "INFO");
-                        }
-                    }
-                } else if (role === "pasajero" && viajeActivo?.requestId) {
-                    joinTripRoom(socket, viajeActivo.requestId, email);
-                    notifyPeerReconnection(io, viajeActivo.requestId, "pasajero", email);
-
-                    // También rehidratamos al pasajero por si acaso
-                    socket.emit("trip_status_update", {
-                        estado: viajeActivo.estado,
-                        taxistaAsignado: viajeActivo.taxistaAsignado,
-                        rehydrated: true
-                    });
-                }
-            } catch (tripRoomErr) {
-                logMotor("trip_room", `Error al unir a sala de viaje: ${tripRoomErr}`, "WARN");
-            }
-            // ============================================================
-            // 🎯 5. REGISTRAR HANDLERS ANTES DE REHIDRATACIÓN
-            // ============================================================
-            registerLocationHandlers(io, socket, email);
-            registerTripHandlers(io, socket, email);
-
-            // ============================================================
-            // 🎯 6. EMITIR DATOS INICIALES (SANITIZADOS)
-            // ============================================================
-            if (role === "admin") {
-                const allPositions = await Position.find({
-                    lat: { $exists: true, $ne: null },
-                    lng: { $exists: true, $ne: null }
-                }).limit(500).lean();
-
-                const sanitizedPositions = allPositions.map(p => ({
-                    email: p.email,
-                    name: p.name,
-                    role: p.role,
-                    lat: p.lat,
-                    lng: p.lng,
-                    estado: p.estado,
-                    taxiNumber: p.taxiNumber,
-                    socketId: p.socketId
-                }));
-
-                socket.emit("positions", sanitizedPositions);
-            }
-
-            socket.emit("dispatch_mode_changed", { auto: isAutoMode });
-            socket.emit("initial_state", { estado: nuevoEstado, role });
-
-            // ============================================================
-            // 🎯 7. REHIDRATACIÓN CONSOLIDADA
-            // ============================================================
-            if (viajeActivo && role === "taxista") {
-                const rehydrationTimer = setTimeout(() => {
-                    rehydrationTimers.delete(email);
-                    logMotor("socket_rehydrate", `Rehidratando taxista ${email} en viaje activo`, "INFO");
-                    socket.emit("pasajero_asignado", {
-                        ...buildPayload(viajeActivo, viajeActivo, nuevoEstado),
-                        pasajeroEmail: viajeActivo.email,
-                        pasajeroLat: viajeActivo.lat,
-                        pasajeroLng: viajeActivo.lng,
-                        isNewOffer: false,
-                        rehydrated: true
-                    });
-                }, REHYDRATION_DELAY_MS);
-                rehydrationTimers.set(email, rehydrationTimer);
-            }
-
-            if (viajeActivo && role === "pasajero" && viajeActivo.taxistaAsignado) {
-                const rehydrationTimer = setTimeout(async () => {
-                    rehydrationTimers.delete(email);
-                    try {
-                        const taxistaData = await Position.findOne({
-                            email: viajeActivo.taxistaAsignado
-                        }).lean();
-
-                        logMotor("socket_rehydrate", `Rehidratando pasajero ${email} con taxista ${viajeActivo.taxistaAsignado}`, "INFO");
-
-                        socket.emit("response_from_taxi", {
-                            accepted: true,
-                            tEmail: taxistaData?.email || viajeActivo.taxistaAsignado,
-                            name: taxistaData?.name || "Taxista",
-                            taxiNumber: taxistaData?.taxiNumber || "ECO",
-                            lat: taxistaData?.lat || null,
-                            lng: taxistaData?.lng || null,
-                            estado: nuevoEstado,
-                            rehydrated: true,
-                            taxiData: taxistaData ? buildPayload(taxistaData, taxistaData, nuevoEstado) : null,
-                            pasajeroEmail: viajeActivo.email,
-                            pasajeroLat: viajeActivo.lat,
-                            pasajeroLng: viajeActivo.lng,
-                            distancia: (taxistaData?.lat && taxistaData?.lng && viajeActivo.lat && viajeActivo.lng)
-                                ? calculateDistance(viajeActivo.lat, viajeActivo.lng, taxistaData.lat, taxistaData.lng)
-                                : null
-                        });
-
-                        socket.emit("trip_status_update", {
-                            estado: nuevoEstado,
-                            pasajeroEmail: email,
-                            rehydrated: true
-                        });
-                    } catch (rehydrateError) {
-                        logMotor("socket_rehydrate", `Error en rehidratación para ${email}: ${rehydrateError}`, "ERROR");
-                    }
-                }, REHYDRATION_DELAY_MS);
-            }
-
-            if (updatedPos) {
-                io.emit("panel_update", buildPayload(updatedPos, updatedPos, nuevoEstado));
-            }
-
-        } catch (error) {
-            logMotor("socket_connect", `Error en conexión para ${email}: ${error}`, "ERROR");
+            await initSocketConnection(io, socket, email, role, deviceId);
+        } catch (connectionError) {
+            logMotor("socket_connect", `Error crítico en handshake para ${email}: ${connectionError}`, "ERROR");
             socket.emit("connection_error", { message: "Error al inicializar conexión" });
+            socket.disconnect(true);
+            return;
+        } finally {
+            handshaking.delete(email);
         }
+
+        // ============================================================
+        // 🎯 8. LISTENERS ADICIONALES
+        // ============================================================
+        socket.on("join_room", (roomEmail: string) => {
+            if (roomEmail) socket.join(roomEmail.toLowerCase().trim());
+        });
 
         // ============================================================
         // 🎯 8. LISTENERS ADICIONALES
