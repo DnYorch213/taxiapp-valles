@@ -25,15 +25,27 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   "http://localhost:5173",
   "http://127.0.0.1:5173"
-];
+].filter((origin): origin is string => Boolean(origin));
+
+if (process.env.NODE_ENV !== "production" && allowedOrigins.length === 0) {
+  console.warn("⚠️ FRONTEND_URL no configurado. Solo orígenes de desarrollo permitidos.");
+}
 
 const corsOptions = {
   origin: (origin: string | undefined, callback: any) => {
-    if (!origin || allowedOrigins.includes(origin) || isDev) {
+    if (!origin) {
       callback(null, true);
-    } else {
-      callback(new Error("🚫 Bloqueado por seguridad de Red Taxi"));
+      return;
     }
+    if (isDev) {
+      callback(null, true);
+      return;
+    }
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error("🚫 Bloqueado por seguridad de Red Taxi"));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
@@ -47,6 +59,7 @@ const io = new Server(server, {
   cors: {
     origin: (origin: string | undefined) => {
       if (!origin) return false;
+      if (isDev) return true;
       if (allowedOrigins.includes(origin)) return true;
       return false;
     },
