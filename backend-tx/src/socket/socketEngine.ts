@@ -114,13 +114,13 @@ export const initSocketEngine = (io: Server) => {
         const token = socket.handshake.auth?.token;
         const deviceId = socket.handshake.auth?.deviceId || socket.handshake.query?.deviceId;
 
-        logMotor("socket_connect", `Intento de conexión: Email[${email}] | Role[${role}] | SocketID[${socket.id}]`, "INFO");
+        logMotor("socket_connect", `Intento: Email[${email}] Role[${role}] SocketID[${socket.id}] TokenPresent=${Boolean(token)}`, "INFO");
 
         // ============================================================
         // 🛡️ 1. VALIDACIÓN DE CREDENCIALES
         // ============================================================
         if (!email || email === "null" || email === "undefined" || !role) {
-            logMotor("socket_connect", `Conexión rechazada: credenciales inválidas`, "WARN");
+            logMotor("socket_connect", `Rechazado: credenciales inválidas`, "WARN");
             socket.emit("auth_error", { message: "Credenciales inválidas" });
             socket.disconnect(true);
             return;
@@ -130,61 +130,65 @@ export const initSocketEngine = (io: Server) => {
         // 🛡️ 1b. VALIDACIÓN DEL TOKEN JWT
         // ============================================================
         if (!token) {
-            logMotor("socket_connect", `Conexión rechazada: token ausente para ${email}`, "WARN");
+            logMotor("socket_connect", `Rechazado: token ausente para ${email}`, "WARN");
             socket.emit("auth_error", { message: "Token no proporcionado" });
             socket.disconnect(true);
             return;
         }
 
         if (!process.env.JWT_SECRET) {
-            logMotor("socket_connect", "JWT_SECRET no configurado en el servidor", "ERROR");
+            logMotor("socket_connect", "Rechazado: JWT_SECRET no configurado", "ERROR");
             socket.emit("auth_error", { message: "Error de configuración del servidor" });
             socket.disconnect(true);
             return;
         }
 
+        let decoded: { email?: string; role?: string } | null = null;
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET) as { email?: string; role?: string };
-            const decodedEmail = decoded.email?.toLowerCase().trim();
-
-            if (decodedEmail !== email || decoded.role !== role) {
-                logMotor("socket_connect", `Conexión rechazada: token no coincide con email/role declarados (${email})`, "WARN");
-                socket.emit("auth_error", { message: "Token no coincide con las credenciales" });
-                socket.disconnect(true);
-                return;
-            }
+            decoded = jwt.verify(token, process.env.JWT_SECRET) as { email?: string; role?: string };
+            logMotor("socket_connect", `JWT válido para ${email}: decodedEmail=${decoded.email} decodedRole=${decoded.role}`, "INFO");
         } catch (tokenError) {
-            logMotor("socket_connect", `Conexión rechazada: token inválido o expirado para ${email}: ${tokenError}`, "WARN");
+            logMotor("socket_connect", `Rechazado: token inválido/expirado para ${email}: ${tokenError}`, "WARN");
             socket.emit("auth_error", { message: "Token inválido o expirado" });
+            socket.disconnect(true);
+            return;
+        }
+
+        const decodedEmail = decoded?.email?.toLowerCase().trim();
+
+        if (decodedEmail !== email || decoded?.role !== role) {
+            logMotor("socket_connect", `Rechazado: token no coincide (${email} vs ${decodedEmail}, ${role} vs ${decoded?.role})`, "WARN");
+            socket.emit("auth_error", { message: "Token no coincide con las credenciales" });
             socket.disconnect(true);
             return;
         }
 
         const userConnections = activeConnections.get(email) || new Set();
         if (userConnections.size >= MAX_CONNECTIONS_PER_EMAIL) {
-            logMotor("socket_connect", `Conexión rechazada: límite de conexiones para ${email}`, "WARN");
+            logMotor("socket_connect", `Rechazado: límite de conexiones para ${email} (${userConnections.size})`, "WARN");
             socket.emit("auth_error", { message: "Demasiadas conexiones activas" });
             socket.disconnect(true);
             return;
         }
 
         try {
-            const userMaster = await User.findOne({ email });
+            const userMaster = await User.findOne({ email }).lean();
             if (!userMaster) {
-                logMotor("socket_connect", `Conexión rechazada: usuario ${email} no encontrado`, "WARN");
+                logMotor("socket_connect", `Rechazado: usuario ${email} no encontrado en BD`, "WARN");
                 socket.emit("auth_error", { message: "Usuario no encontrado" });
                 socket.disconnect(true);
                 return;
             }
 
             if (userMaster.role !== role) {
-                logMotor("socket_connect", `Role mismatch para ${email}: esperado=${userMaster.role}, recibido=${role}`, "WARN");
+                logMotor("socket_connect", `Rechazado: role mismatch ${email} esperado=${userMaster.role} recibido=${role}`, "WARN");
                 socket.emit("auth_error", { message: "Role no coincide" });
                 socket.disconnect(true);
                 return;
             }
+            logMotor("socket_connect", `Usuario ${email} validado en BD con rol ${userMaster.role}`, "INFO");
         } catch (authError) {
-            logMotor("socket_connect", `Error en autenticación para ${email}: ${authError}`, "ERROR");
+            logMotor("socket_connect", `Error validando usuario ${email}: ${authError}`, "ERROR");
             socket.disconnect(true);
             return;
         }
@@ -254,6 +258,7 @@ export const initSocketEngine = (io: Server) => {
             // 🎯 4. CALCULAR ESTADO INICIAL CORRECTO
             // ============================================================
             await repairTripRelationForConnection(email, role);
+            logMotor("socket_connect", `Reparación de relaciones completada para ${email} (${role})`, "INFO");
 
             const activeStates = {
                 $in: [
@@ -266,6 +271,7 @@ export const initSocketEngine = (io: Server) => {
             };
 
             const miPosicion = await Position.findOne({ email, role }).lean();
+            logMotor("socket_connect", `miPosicion para ${email}: estado=${miPosicion?.estado} socketId=${miPosicion?.socketId}`, "INFO");
 
             const viajeActivo = role === "taxista"
                 ? await Position.findOne({
@@ -278,6 +284,8 @@ export const initSocketEngine = (io: Server) => {
                     role: "pasajero",
                     estado: activeStates
                 }).lean();
+
+            logMotor("socket_connect", `viajeActivo para ${email} (${role}): ${viajeActivo ? `estado=${viajeActivo.estado} taxistaAsignado=${viajeActivo.taxistaAsignado}` : "null"}`, "INFO");
 
             const esEstadoValido = (estado: any): estado is PositionState => {
                 return Object.values(POSITION_STATES).includes(estado);

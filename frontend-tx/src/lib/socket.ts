@@ -36,8 +36,8 @@ export const socket = io(API_URL, {
   autoConnect: false,
 });
 
-socket.on("connect_error", () => {
-  console.warn("⚠️ Socket connect_error: la sesión puede estar siendo reemplazada o la red está inestable.");
+socket.on("connect_error", (err) => {
+  console.warn("⚠️ Socket connect_error:", err.message, err);
 });
 
 socket.on("session_replaced", () => {
