@@ -117,7 +117,8 @@ export const getPassengerControlStats = async (req: Request, res: Response) => {
             ? { $gte: new Date(now.getTime() - daysParam * 24 * 60 * 60 * 1000) }
             : undefined;
 
-        const searchRegex = searchParam ? new RegExp(searchParam, 'i') : null;
+        const sanitizedSearch = searchParam.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const searchRegex = sanitizedSearch ? new RegExp(sanitizedSearch, 'i') : null;
 
         const listFilter: Record<string, any> = { role: 'pasajero' };
         if (createdAtFilter) listFilter.createdAt = createdAtFilter;

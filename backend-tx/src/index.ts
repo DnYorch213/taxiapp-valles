@@ -45,7 +45,11 @@ app.use(express.json());
 // Configuración robusta de Socket.io
 const io = new Server(server, {
   cors: {
-    origin: isDev ? true : process.env.FRONTEND_URL,
+    origin: (origin: string | undefined) => {
+      if (!origin) return false;
+      if (allowedOrigins.includes(origin)) return true;
+      return false;
+    },
     credentials: true,
     methods: ["GET", "POST"]
   },

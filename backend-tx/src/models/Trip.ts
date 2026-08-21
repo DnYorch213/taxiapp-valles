@@ -30,4 +30,6 @@ const TripSchema: Schema = new Schema({
     }
 });
 
+TripSchema.index({ taxistaEmail: 1, estado: 1, fecha: -1 });
+
 export const Trip = mongoose.model<ITrip>("Trip", TripSchema);

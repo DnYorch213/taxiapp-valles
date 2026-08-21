@@ -1,13 +1,34 @@
 import axios from "axios";
 
-const geoCache: Record<string, string> = {};
+interface CachedGeo {
+    address: string;
+    timestamp: number;
+}
+
+const geoCache: Record<string, CachedGeo> = {};
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
+
+const cleanGeoCache = () => {
+    const now = Date.now();
+    Object.keys(geoCache).forEach(key => {
+        if (now - geoCache[key].timestamp > CACHE_TTL_MS) {
+            delete geoCache[key];
+        }
+    });
+};
 
 export const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
     if (lat == null || lng == null) return "Dirección no disponible";
 
     const token = process.env.MAPBOX_TOKEN;
     const cacheKey = `${lat.toFixed(6)},${lng.toFixed(6)}`;
-    if (geoCache[cacheKey]) return geoCache[cacheKey];
+    const cached = geoCache[cacheKey];
+
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+        return cached.address;
+    }
+
+    cleanGeoCache();
 
     try {
         // ==================== MOTOR 1: MAPBOX ====================
@@ -82,7 +103,7 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<string> 
         }
 
         // 🎯 GUARDAMOS EN CACHÉ Y RETORNAMOS EL STRING FINAL COMPILADO
-        geoCache[cacheKey] = direccion;
+        geoCache[cacheKey] = { address: direccion, timestamp: Date.now() };
         console.log(`✅ DIRECCIÓN DETALLADA FINAL: ${direccion}`);
         return direccion;
 

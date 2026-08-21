@@ -881,7 +881,6 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 estado: "finalizado",
                 fecha: new Date()
             });
-            await nuevoHistorial.save();
 
             // 🎯 TRANSACCIÓN ATÓMICA para actualizar estados
             session = await Position.startSession();
@@ -924,6 +923,12 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 throw txError;
             } finally {
                 session.endSession();
+            }
+
+            try {
+                await nuevoHistorial.save();
+            } catch (historialError) {
+                logMotor("end_trip", `No se pudo guardar historial para ${pEmail}/${tEmail}: ${historialError}`, "ERROR");
             }
 
             // Obtener documentos actualizados
@@ -1022,10 +1027,23 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             return;
         }
 
+        if (text.length > 500) {
+            socket.emit("receive_message", {
+                fromEmail: email,
+                fromName: senderName,
+                message: "❌ Mensaje demasiado largo (máximo 500 caracteres)",
+                timestamp: new Date().toISOString(),
+                system: true
+            });
+            return;
+        }
+
+        const sanitizedText = text.replace(/<[^>]*>?/gm, "");
+
         const payload = {
             fromEmail: email,
             fromName: senderName,
-            message: text,
+            message: sanitizedText,
             timestamp: new Date().toISOString(),
         };
 

@@ -33,13 +33,24 @@ const positionSchema = new Schema(
         destinationLat: { type: Number },
         destinationLng: { type: Number },
         estado: { type: String, default: "pendiente" },
-        socketId: { type: String }, // 🆕 AGREGAR ESTA LÍNEA
+        socketId: { type: String },
+    location: {
+        type: {
+            type: String,
+            enum: ["Point"],
+            default: "Point"
+        },
+        coordinates: {
+            type: [Number],
+            default: undefined
+        }
+    },
         taxiNumber: { type: String },
         taxistaAsignado: { type: String, lowercase: true, trim: true },
         pasajeroAsignado: { type: String, lowercase: true, trim: true },
         pickupAddress: { type: String },
         destinationAddress: { type: String },
-        requestId: { type: String, required: true },
+        requestId: { type: String, required: false },
         pushSubscription: { type: Schema.Types.Mixed },
         updatedAt: { type: Date, default: Date.now },
         createdAt: { type: Date, default: Date.now }
@@ -55,5 +66,6 @@ positionSchema.index({ email: 1, estado: 1 });
 positionSchema.index({ role: 1, estado: 1 });
 positionSchema.index({ lat: 1, lng: 1 });
 positionSchema.index({ socketId: 1 });
+positionSchema.index({ location: "2dsphere" });
 
 export const Position = mongoose.model<IPosition>("Position", positionSchema);

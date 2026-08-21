@@ -58,6 +58,7 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
 
     socket.on("update_trip_destination", async (data: any) => {
         try {
+            const callerRole = String(socket.handshake.auth?.role || socket.handshake.query?.role || "").toLowerCase().trim();
             const passengerEmail = String(data?.pasajeroEmail || data?.email || "").toLowerCase().trim();
             if (!passengerEmail) return;
 
@@ -67,6 +68,11 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
 
             const passengerDoc = await Position.findOne({ email: passengerEmail, role: "pasajero" }).lean();
             if (!passengerDoc) return;
+
+            if (callerRole !== 'admin' && passengerDoc.taxistaAsignado !== email) {
+                logMotor("socket_security", `Intento no autorizado de actualizar destino para ${passengerEmail} por ${email}`, "WARN");
+                return;
+            }
 
             const updatePayload: Record<string, any> = {
                 updatedAt: new Date(),
@@ -109,6 +115,10 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
 
     socket.on("position", async (data: any) => {
         if (!data.email) return;
+        if (data.email !== email) {
+            logMotor("socket_security", `Intento de spoofing de posición: ${data.email} vs ${email}`, "WARN");
+            return;
+        }
         try {
             const currentDoc = await Position.findOne({ email: data.email });
             const finalName = (data.name && !data.name.includes('@')) ? data.name : (currentDoc?.name || data.name);
@@ -133,6 +143,9 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                         lng: data.lng,
                         name: finalName,
                         estado: resolvedEstado,
+                        location: (typeof data.lat === "number" && typeof data.lng === "number")
+                            ? { type: "Point", coordinates: [data.lng, data.lat] }
+                            : undefined,
                         updatedAt: new Date()
                     }
                 },

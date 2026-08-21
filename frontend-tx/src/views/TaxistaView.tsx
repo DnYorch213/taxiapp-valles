@@ -36,7 +36,7 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
-const VAPID_PUBLIC_KEY = "BHtVjCOYiH1nbyPq-mPS_ZqA0oHjGcONq5r5PV-sTC1jXzAvgGuFFwL5iv0ymk725NUX4_obl82JLilVs9W49-A";
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || "";
 const ROUTE_RECALC_THRESHOLD_METERS = 45;
 const OFFROAD_TAIL_THRESHOLD_METERS = 22;
 const OFFER_RESPONSE_TIMEOUT_MS = 15000;
@@ -1295,7 +1295,12 @@ const finalizarViaje = () => {
 
   const handleLogout = () => {
     socket.disconnect();
-    localStorage.clear();
+    localStorage.removeItem("token");
+    localStorage.removeItem("email");
+    localStorage.removeItem("role");
+    localStorage.removeItem("userName");
+    localStorage.removeItem("phone");
+    localStorage.removeItem("taxiNumber");
     window.location.href = "/login";
   };
 

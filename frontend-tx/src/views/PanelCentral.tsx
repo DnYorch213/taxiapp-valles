@@ -75,21 +75,21 @@ const PanelCentral: React.FC = () => {
   console.log("📡 Posiciones recibidas en Panel:", positions);
   return positions.filter(p => 
     esPosicionValida(p.lat, p.lng) &&
-    !excludedPositionStates.includes(p.estado.toLowerCase())
+    !excludedPositionStates.includes((p.estado || "").toLowerCase())
   );
 }, [positions]);
 
 const pasajerosEspera = useMemo(() => 
   posicionesValidas.filter(u => 
     u.role === "pasajero" && 
-    [POSITION_STATES.ACTIVO, "esperando", "solicitando", POSITION_STATES.BUSCANDO].map(s => s.toLowerCase()).includes(u.estado.toLowerCase())
+    [POSITION_STATES.ACTIVO, "esperando", "solicitando", POSITION_STATES.BUSCANDO].map(s => s.toLowerCase()).includes((u.estado || "").toLowerCase())
   ),
   [posicionesValidas]
 );
 
 const viajesEnCurso = useMemo(() =>
   posicionesValidas.filter(u => 
-    [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, "aceptado", "viajando", POSITION_STATES.ENCURSO, "ocupado"].map(s => s.toLowerCase()).includes(u.estado.toLowerCase())
+    [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, "aceptado", "viajando", POSITION_STATES.ENCURSO, "ocupado"].map(s => s.toLowerCase()).includes((u.estado || "").toLowerCase())
   )
   .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()),
   [posicionesValidas]
@@ -115,7 +115,7 @@ const pasajerosEnViajeMapa = useMemo(() => {
 
 
   const taxistasOnline = useMemo(() => 
-    posicionesValidas.filter(u => u.role === "taxista" && !taxiOnlineBlockedStates.includes(u.estado.toLowerCase())),
+    posicionesValidas.filter(u => u.role === "taxista" && !taxiOnlineBlockedStates.includes((u.estado || "").toLowerCase())),
     [posicionesValidas]
   );
 

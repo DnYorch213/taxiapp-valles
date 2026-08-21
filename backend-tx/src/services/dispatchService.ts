@@ -10,7 +10,6 @@ import { emitToTripRoom } from "./tripRoomService";
 
 // 🎯 Mapa de timeouts pendientes (clave: requestId)
 export const activeTimeouts = new Map<string, Set<NodeJS.Timeout>>();
-export const pendingTimeouts = activeTimeouts;
 
 const requestAttemptTokens = new Map<string, string>();
 const respondedTaxistasByRequest = new Map<string, Set<string>>();
@@ -152,39 +151,59 @@ const calculateDynamicTimeout = (distanciaKm: number): number => {
 // 🚨 CORRECCIÓN 3: Optimización de consulta y eliminación del bucle N+1 de sockets
 const getDispatchCandidates = async (
     io: Server,
-    pasajeroData: any,
+    pasajeroData: { email: string; requestId?: string; lat?: number; lng?: number; name?: string; pickupAddress?: string },
     currentExcluidos: string[]
 ): Promise<{ candidates: IPosition[]; source: "db" | "none" }> => {
     const excluded = new Set(currentExcluidos.map(normalizeEmail));
 
-    // Consulta directa, estricta y con límite para no saturar la memoria
+    if (pasajeroData.lat != null && pasajeroData.lng != null) {
+        try {
+            const geoCandidates = await Position.find({
+                role: "taxista",
+                estado: POSITION_STATES.ACTIVO,
+                email: { $nin: Array.from(excluded) },
+                location: {
+                    $near: {
+                        $geometry: { type: "Point", coordinates: [pasajeroData.lng, pasajeroData.lat] },
+                        $maxDistance: MAX_DISPATCH_DISTANCE_KM * 1000
+                    }
+                }
+            }).limit(20).lean() as IPosition[];
+
+            if (geoCandidates.length > 0) {
+                return { candidates: geoCandidates, source: "db" };
+            }
+        } catch (geoError) {
+            logMotor("dispatch_geo", `Fallo en query geoespacial, usando fallback: ${geoError}`, "WARN");
+        }
+    }
+
     const dbCandidates = await Position.find({
-        role: "taxista", // 🛡️ Barrera principal: solo taxistas
+        role: "taxista",
         estado: POSITION_STATES.ACTIVO,
         email: { $nin: Array.from(excluded) },
         lat: { $exists: true, $ne: null, $gt: 0 },
         lng: { $exists: true, $ne: null, $nin: [null, 0] },
-    }).limit(20).lean() as IPosition[]; // 👈 Límite de 20 para máxima velocidad
+    }).limit(20).lean() as IPosition[];
 
     if (dbCandidates.length > 0) {
         return { candidates: dbCandidates, source: "db" };
     }
 
-    // Si no hay en BD, no hay. El fallback de sockets causaba conflictos de estado y N consultas a la BD.
     return { candidates: [], source: "none" };
 };
 
 const runDispatchWithRetry = async (
     io: Server,
-    pasajeroData: any,
+    pasajeroData: { email: string; requestId?: string; lat?: number; lng?: number; name?: string; pickupAddress?: string },
     excludedEmails: string[] = [],
     attempt: number = 1,
     transactionAttempt: number = 1
 ) => {
-    if (!isAutoMode || !pasajeroData || !pasajeroData.email) {
-        unlockDispatchCycle(pasajeroData?.requestId);
-        return;
-    }
+        if (!isAutoMode || !pasajeroData || !pasajeroData.email) {
+            unlockDispatchCycle(pasajeroData.requestId || "");
+            return;
+        }
 
     const pEmail = pasajeroData.email.toLowerCase().trim();
     const currentExcluidos = [...new Set(excludedEmails.map(e => e.toLowerCase().trim()))];
@@ -376,7 +395,7 @@ const runDispatchWithRetry = async (
         // 🎯 5. GEOCODIFICACIÓN & PAYLOAD
         let direccion = pasajeroData.pickupAddress;
         if (!direccion || direccion.includes("Calculando")) {
-            try { direccion = await getCachedGeocoding(pasajeroData.lat, pasajeroData.lng); } catch (e) { direccion = "Ubicación no disponible"; }
+            try { if (pasajeroData.lat != null && pasajeroData.lng != null) { direccion = await getCachedGeocoding(pasajeroData.lat, pasajeroData.lng); } } catch (e) { direccion = "Ubicación no disponible"; }
         }
 
         // 🚨 RESCATE DE NOMBRE: Si el frontend no envió el nombre, lo recuperamos de la BD
@@ -422,7 +441,9 @@ const runDispatchWithRetry = async (
             logMotor("dispatch_retry", `Error al notificar creación de sala: ${tripRoomErr}`, "WARN");
         }
         if (elMasCercano.pushSubscription) {
-            try { await enviarNotificacionPush(elMasCercano.pushSubscription, fullPayload, tEmail); } catch (pErr) { }
+            try { await enviarNotificacionPush(elMasCercano.pushSubscription, fullPayload, tEmail); } catch (pErr) {
+                logMotor("push", `Error enviando push a ${tEmail}: ${pErr}`, "ERROR");
+            }
         }
 
         io.emit("panel_update", { email: tEmail, estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail });
@@ -528,16 +549,16 @@ export const dispatchWithRetry = async (
 };
 
 export const clearAllTimeouts = () => {
-    pendingTimeouts.forEach((timeouts, key) => {
+    activeTimeouts.forEach((timeouts, key) => {
         timeouts.forEach((timeout) => clearTimeout(timeout));
         logMotor("dispatch_cleanup", `Timeout(s) limpiado(s) para ${key}`, "INFO");
     });
-    pendingTimeouts.clear();
+    activeTimeouts.clear();
 };
 
 export const getDispatchStats = () => {
     return {
-        pendingTimeouts: Array.from(pendingTimeouts.values()).reduce((total, bucket) => total + bucket.size, 0),
+        pendingTimeouts: Array.from(activeTimeouts.values()).reduce((total, bucket) => total + bucket.size, 0),
         isAutoMode,
         maxRetries: MAX_RETRIES,
         maxDistance: MAX_DISPATCH_DISTANCE_KM

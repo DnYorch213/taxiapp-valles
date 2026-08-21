@@ -103,6 +103,9 @@ const deviceIdByEmail = new Map<string, string>();
 // 🆕 Mapa de timers de microcortes
 const microdropTimers = new Map<string, NodeJS.Timeout>();
 
+// 🆕 Mapa de timers de rehidratación por email
+const rehydrationTimers = new Map<string, NodeJS.Timeout>();
+
 export const initSocketEngine = (io: Server) => {
     io.on("connection", async (socket: Socket) => {
         const rawEmail = socket.handshake.auth?.email || socket.handshake.query?.email;
@@ -133,8 +136,15 @@ export const initSocketEngine = (io: Server) => {
             return;
         }
 
+        if (!process.env.JWT_SECRET) {
+            logMotor("socket_connect", "JWT_SECRET no configurado en el servidor", "ERROR");
+            socket.emit("auth_error", { message: "Error de configuración del servidor" });
+            socket.disconnect(true);
+            return;
+        }
+
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { email?: string; role?: string };
+            const decoded = jwt.verify(token, process.env.JWT_SECRET) as { email?: string; role?: string };
             const decodedEmail = decoded.email?.toLowerCase().trim();
 
             if (decodedEmail !== email || decoded.role !== role) {
@@ -186,7 +196,7 @@ export const initSocketEngine = (io: Server) => {
         userConnections.add(socket.id);
         activeConnections.set(email, userConnections);
 
-        const previousDoc = await Position.findOne({ email }).lean();
+        const previousDoc = await Position.findOne({ email, role }).lean();
         if (previousDoc?.socketId && previousDoc.socketId !== socket.id) {
             const previousSocket = io.sockets.sockets.get(previousDoc.socketId);
             if (previousSocket) {
@@ -410,7 +420,7 @@ export const initSocketEngine = (io: Server) => {
                 const allPositions = await Position.find({
                     lat: { $exists: true, $ne: null },
                     lng: { $exists: true, $ne: null }
-                }).lean();
+                }).limit(500).lean();
 
                 const sanitizedPositions = allPositions.map(p => ({
                     email: p.email,
@@ -433,7 +443,8 @@ export const initSocketEngine = (io: Server) => {
             // 🎯 7. REHIDRATACIÓN CONSOLIDADA
             // ============================================================
             if (viajeActivo && role === "taxista") {
-                setTimeout(() => {
+                const rehydrationTimer = setTimeout(() => {
+                    rehydrationTimers.delete(email);
                     logMotor("socket_rehydrate", `Rehidratando taxista ${email} en viaje activo`, "INFO");
                     socket.emit("pasajero_asignado", {
                         ...buildPayload(viajeActivo, viajeActivo, nuevoEstado),
@@ -444,10 +455,12 @@ export const initSocketEngine = (io: Server) => {
                         rehydrated: true
                     });
                 }, REHYDRATION_DELAY_MS);
+                rehydrationTimers.set(email, rehydrationTimer);
             }
 
             if (viajeActivo && role === "pasajero" && viajeActivo.taxistaAsignado) {
-                setTimeout(async () => {
+                const rehydrationTimer = setTimeout(async () => {
+                    rehydrationTimers.delete(email);
                     try {
                         const taxistaData = await Position.findOne({
                             email: viajeActivo.taxistaAsignado
@@ -696,6 +709,12 @@ export const initSocketEngine = (io: Server) => {
         socket.on("disconnect", async (reason) => {
             if (!email) return;
 
+            const rehydrationTimer = rehydrationTimers.get(email);
+            if (rehydrationTimer) {
+                clearTimeout(rehydrationTimer);
+                rehydrationTimers.delete(email);
+            }
+
             // 🎯 NUEVO: Salir de la sala del viaje antes de cualquier otra limpieza
             leaveTripRoom(socket);
 
@@ -708,7 +727,7 @@ export const initSocketEngine = (io: Server) => {
             }
 
             try {
-                const checkActive = await Position.findOne({ email }).lean();
+                const checkActive = await Position.findOne({ email, role }).lean();
                 if (!checkActive) return;
 
                 if (checkActive.socketId && checkActive.socketId !== socket.id) {
@@ -770,6 +789,8 @@ export const cleanupSocketEngine = () => {
     logMotor("socket_cleanup", "Limpiando recursos del motor de sockets", "INFO");
     microdropTimers.forEach((timer) => clearTimeout(timer));
     microdropTimers.clear();
+    rehydrationTimers.forEach((timer) => clearTimeout(timer));
+    rehydrationTimers.clear();
     activeConnections.clear();
 };
 

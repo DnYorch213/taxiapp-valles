@@ -38,6 +38,10 @@ const restoreSessionFromStorage = (): Position | null => {
 
   try {
     const decoded = jwtDecode<DecodedToken>(token);
+    if (decoded.exp && Date.now() >= decoded.exp * 1000) {
+      localStorage.removeItem("token");
+      return null;
+    }
     const storedRole = (localStorage.getItem("role") as Rol | null) || decoded.role;
     const storedEmail = localStorage.getItem("email") || decoded.email;
     const storedName = localStorage.getItem("userName") || decoded.name || "Usuario";

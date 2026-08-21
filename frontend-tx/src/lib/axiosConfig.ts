@@ -5,20 +5,11 @@ let hasForcedRedirect = false;
 
 const shouldResetSession = (error: any) => {
     const status = error?.response?.status;
-    const message = String(error?.response?.data?.message || "").toLowerCase();
 
     if (status === 401) return true;
-    if (status !== 403) return false;
+    if (status === 403) return true;
 
-    const isTokenExpired = message.includes("token expirado") ||
-        message.includes("token inválido") ||
-        message.includes("token no proporcionado");
-
-    if (document.visibilityState !== "visible" && !isTokenExpired) {
-        return false;
-    }
-
-    return isTokenExpired;
+    return false;
 };
 
 const clearSessionAndRedirect = () => {

@@ -25,7 +25,7 @@ export const useGeolocation = (user: UserData, onRegistered?: (pos: Position) =>
         const watchId = navigator.geolocation.watchPosition(
             (pos) => {
                 const { latitude, longitude } = pos.coords;
-                if (latitude === 0 || longitude === 0) return;
+                if (!(latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180)) return;
 
                 let lat = latitude;
                 let lng = longitude;
@@ -64,9 +64,9 @@ export const useGeolocation = (user: UserData, onRegistered?: (pos: Position) =>
                 }
             },
             {
-                enableHighAccuracy: true,
-                timeout: 10000, // Margen de 10s para evitar microcaídas en segundo plano
-                maximumAge: 0
+                enableHighAccuracy: false,
+                timeout: 10000,
+                maximumAge: 5000
             }
         );
 
