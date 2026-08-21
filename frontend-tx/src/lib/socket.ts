@@ -3,8 +3,6 @@ import { io } from "socket.io-client";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
-// Identificador estable por pestaña: permite al backend distinguir una reconexión
-// de la misma pestaña (red inestable) de una sesión realmente nueva en otro dispositivo.
 const getDeviceId = () => {
   if (typeof window === "undefined") return undefined;
   let id = sessionStorage.getItem("deviceId");
@@ -18,21 +16,29 @@ const getDeviceId = () => {
 };
 
 export const socket = io(API_URL, {
-  auth: {
-    email: typeof window !== "undefined" ? localStorage.getItem("email") : undefined,
-    role: typeof window !== "undefined" ? localStorage.getItem("role") : undefined,
-    token: typeof window !== "undefined" ? localStorage.getItem("token") : undefined,
-    deviceId: getDeviceId(),
+  auth: (cb) => {
+    // 💡 Pasar auth como función para asegurar datos frescos de localStorage en cada intento
+    if (typeof window === "undefined") {
+      cb({});
+      return;
+    }
+    cb({
+      email: localStorage.getItem("email")?.toLowerCase().trim(),
+      role: localStorage.getItem("role"),
+      token: localStorage.getItem("token"),
+      deviceId: getDeviceId(),
+    });
   },
-  transports: ["websocket"],
+  // 🚀 PERMITIR POLLING PRIMERO Y LUEGO UPGRADE A WEBSOCKET (Indispensable para Render)
+  transports: ["polling", "websocket"],
+  upgrade: true,
+  withCredentials: false,
   reconnection: true,
   reconnectionAttempts: Infinity,
   reconnectionDelay: 1000,
   reconnectionDelayMax: 10000,
   randomizationFactor: 0.5,
-  timeout: 30000,
-  upgrade: false,
-  rememberUpgrade: false,
+  timeout: 20000,
   autoConnect: false,
 });
 
@@ -47,32 +53,23 @@ socket.on("session_replaced", () => {
   }
 });
 
-// 🚀 FUNCIÓN CORREGIDA:
 export const connectSocket = (email: string, role: string) => {
   if (!email || !role) return;
 
   const normalizedEmail = email.toLowerCase().trim();
-  const currentAuth = (typeof socket.auth === "function" ? {} : (socket.auth || {})) as {
-    email?: string;
-    role?: string;
-    token?: string;
-  };
-  const sameIdentity = currentAuth.email === normalizedEmail && currentAuth.role === role;
 
-  const storedToken = typeof window !== "undefined" ? localStorage.getItem("token") : undefined;
-  socket.auth = { ...currentAuth, email: normalizedEmail, role, token: storedToken || currentAuth.token, deviceId: getDeviceId() };
+  // Guardar en localStorage para garantizar persistencia
+  if (typeof window !== "undefined") {
+    localStorage.setItem("email", normalizedEmail);
+    localStorage.setItem("role", role);
+  }
 
-  if (sameIdentity && (socket.connected || socket.active)) {
+  // Si ya está totalmente conectado con la misma identidad, no hacer nada
+  if (socket.connected) {
     return;
   }
 
-  if (socket.connected && !sameIdentity) {
-    socket.disconnect();
-  }
-
-  if (!socket.connected && !socket.active) {
-    socket.connect();
-  }
-
-  console.log(`✅ Socket conectado: ${normalizedEmail} como ${role}`);
+  // Forzar reconexión limpia
+  socket.connect();
+  console.log(`🚀 Iniciando conexión Socket para: ${normalizedEmail} (${role})`);
 };
