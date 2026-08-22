@@ -745,7 +745,7 @@ const PasajeroView: React.FC = () => {
     };
   }, []);
 
-  // 🛡️ Listener separado para dispatch_error (socket es una instancia estable)
+  // 🛡️ Dispatch error en su propio useEffect para evitar duplicados
   useEffect(() => {
     const handleDispatchError = (payload?: { message?: string }) => {
       if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
@@ -762,72 +762,70 @@ const PasajeroView: React.FC = () => {
     };
 
     socket.on("dispatch_error", handleDispatchError);
-
     return () => {
       socket.off("dispatch_error", handleDispatchError);
     };
-  }, [socket]); //  SOLO depende de socket - nunca se re-registra por cambios de posición
+  }, [socket]);
 
   // ============================================================
-  //  HEARTBEAT OPTIMIZADO - No se re-crea en cada cambio de posición
-  // ============================================================
-  useEffect(() => {
-    if (!userPosition?.email || !userPosition?.lat) return;
-
-    const interval = setInterval(() => {
-      // Candado: no enviar si está inactivo
-      if (estadoRef.current === "pendiente" || estadoRef.current === "finalizado") return;
-      
-      // Verificar que el socket esté conectado antes de emitir
-      if (!socket?.connected) {
-        console.warn("Socket desconectado, omitiendo heartbeat");
-        return;
-      }
-
-      const pos = userPositionRef.current;
-      if (pos?.lat && pos?.lng) {
-        socket.emit("position", {
-          ...pos,
-          role: "pasajero",
-          estado: estadoRef.current.toLowerCase(),
-        });
-      }
-    }, 12000);
-
-    return () => clearInterval(interval);
-  }, [userPosition?.email, userPosition?.lat]); // Solo depende del email y si hay lat
 
   // ============================================================
-  // SOLICITAR TAXI - CON FEEDBACK INMEDIATO
+  // HEARTBEAT OPTIMIZADO - Referencias estables sin re-suscripciones
+ // ✅ FIX: Heartbeat con interval estable
+useEffect(() => {
+  // Solo verificar existencia inicial al montar o cuando el socket cambie
+  const interval = setInterval(() => {
+    if (estadoRef.current === "pendiente" || estadoRef.current === "finalizado") return;
+    
+    if (!socket?.connected) {
+      console.warn("Socket desconectado, omitiendo heartbeat");
+      return;
+    }
+
+    const pos = userPositionRef.current;
+    if (pos?.email && pos?.lat && pos?.lng) {
+      socket.emit("position", {
+        ...pos,
+        role: "pasajero",
+         estado: (estadoRef.current || "pendiente").toLowerCase(),
+      });
+    }
+  }, 12000);
+
+  return () => clearInterval(interval);
+}, [socket]); // Única dependencia necesaria
+
+  // ============================================================
+  // SOLICITAR TAXI - Dependencias estables para evitar re-renders
   // ============================================================
   const solicitarTaxi = useCallback(() => {
-    // Escudo anti-disparos
-    if (["asignado", "encamino", "encurso", "buscando"].includes(estado)) {
+    const posActual = userPositionRef.current;
+
+    // Escudo anti-disparos usando la Ref
+    if (["asignado", "encamino", "encurso", "buscando"].includes(estadoRef.current)) {
       console.warn("Intento de solicitarTaxi bloqueado: viaje ya activo.");
       return;
     }
 
-    if (!userPosition?.lat || !userPosition?.lng) {
+    if (!posActual?.lat || !posActual?.lng) {
       toast.error("Esperando señal GPS...");
       return;
     }
 
-    // Verificar conexión del socket
     if (!socket?.connected) {
       toast.error("Sin conexión al servidor. Reintentando...");
       socket?.connect?.();
       return;
     }
 
-    // FEEDBACK INMEDIATO: Cambiar estado ANTES de emitir
     setSearchFlowActivo(true);
     setEstado(TRIP_STATES.BUSCANDO || ("buscando" as ViajeEstado));
 
     socket.emit("request_taxi", {
-      email: userPosition.email.toLowerCase().trim(),
-      name: userPosition.name,
-      lat: userPosition.lat,
-      lng: userPosition.lng,
+      email: posActual.email?.toLowerCase().trim(),
+      name: posActual.name,
+      lat: posActual.lat,
+      lng: posActual.lng,
       destinationLat,
       destinationLng,
       destinationAddress: destinationAddress || destinationQuery || undefined,
@@ -837,15 +835,17 @@ const PasajeroView: React.FC = () => {
     });
 
     toast.info("Buscando taxi disponible...", { autoClose: 3000 });
-  }, [userPosition, estado, destinationLat, destinationLng, destinationAddress, destinationQuery]);
+  }, [socket, destinationLat, destinationLng, destinationAddress, destinationQuery]);
+
+  // CANCELAR SOLICITUD
   const cancelarSolicitud = useCallback(() => {
     setSearchFlowActivo(false);
     setEstado(TRIP_STATES.PENDIENTE);
 
     if (socket?.connected) {
       socket.emit("passenger_cancel", {
-        pasajeroEmail: userPosition?.email?.toLowerCase().trim(),
-        taxistaEmail: taxistaAsignado?.email?.toLowerCase().trim() || null,
+        pasajeroEmail: userPositionRef.current?.email?.toLowerCase().trim(),
+        taxistaEmail: taxistaAsignadoRef.current?.email?.toLowerCase().trim() || null,
       });
     }
 
@@ -855,8 +855,9 @@ const PasajeroView: React.FC = () => {
     setGeometriaRuta([]);
     setRutaDestinoEnCurso([]);
     toast.info("Solicitud cancelada correctamente.");
-  }, [userPosition?.email, taxistaAsignado?.email]);
+  }, [socket]);
 
+  // RESETEAR APP
   const resetearApp = useCallback(() => {
     setSearchFlowActivo(false);
     setEstado(TRIP_STATES.PENDIENTE);
@@ -869,7 +870,7 @@ const PasajeroView: React.FC = () => {
   }, [limpiarMapaDestino]);
 
   // ============================================================
-  // RECORTE DE RUTA DINÁMICA (optimizado)
+  // RECORTE DE RUTA DINÁMICA (Sin loops infinitos)
   // ============================================================
   useEffect(() => {
     if (!taxiPos?.lat || !taxiPos?.lng || geometriaRuta.length === 0) return;
@@ -879,23 +880,32 @@ const PasajeroView: React.FC = () => {
     let indiceMasCercano = -1;
     let distanciaMinima = Infinity;
 
-    geometriaRuta.forEach((punto: any, index: number) => {
-      const pLeaflet = L.latLng(punto.lat ?? punto[0], punto.lng ?? punto[1]);
+    for (let index = 0; index < geometriaRuta.length; index++) {
+      const punto = geometriaRuta[index];
+      const pLeaflet = Array.isArray(punto) 
+        ? L.latLng(punto[0], punto[1]) 
+        : L.latLng((punto as any).lat, (punto as any).lng);
+
       const d = posTaxi.distanceTo(pLeaflet);
       if (d < distanciaMinima) {
         distanciaMinima = d;
         indiceMasCercano = index;
       }
-    });
+    }
 
     if (distanciaMinima < 45 && indiceMasCercano > 0) {
-      setGeometriaRuta((prev) => prev.slice(indiceMasCercano));
+      setGeometriaRuta((prev) => {
+        // Validación para evitar escrituras idénticas en el estado
+        if (indiceMasCercano >= prev.length) return prev;
+        return prev.slice(indiceMasCercano);
+      });
     } else if (distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS) {
       console.log("El taxista tomó otra calle. Recalculando polilínea...");
       setGeometriaRuta([]);
     }
-  }, [taxiPos, estado, geometriaRuta.length]); //  Solo reaccionar al length, no al array completo
+  }, [taxiPos?.lat, taxiPos?.lng, estado]); // Removido geometriaRuta.length de dependencias
 
+  // UTILS Y ESTADÍSTICAS UI
   const obtenerTextoEstado = () => {
     if (estado === "pendiente") return "ACTIVO";
     if (estado === "encurso") return "VIAJE EN CURSO";
@@ -904,8 +914,10 @@ const PasajeroView: React.FC = () => {
   };
 
   const handleLogout = () => {
-    logout();
+    resetearApp();
+    socket.removeAllListeners();
     socket.disconnect();
+    logout();
     navigate("/login");
   };
 
@@ -935,17 +947,21 @@ const PasajeroView: React.FC = () => {
     }
   }, [chatAbierto]);
 
+  // POLILÍNEA DE VIAJE EN CURSO MEMOIZADA
   const routePositionsEnCurso = useMemo(() => {
     if (rutaDestinoEnCurso.length > 0) {
       return rutaDestinoEnCurso;
     }
 
     if (estado === "encurso" && taxiPos?.lat && taxiPos?.lng && destinationPosition) {
-      return [[Number(taxiPos.lat), Number(taxiPos.lng)], destinationPosition] as L.LatLngExpression[];
+      return [
+        L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)), 
+        destinationPosition
+      ] as L.LatLngExpression[];
     }
 
     return [] as L.LatLngExpression[];
-  }, [estado, rutaDestinoEnCurso, taxiPos?.lat, taxiPos?.lng, destinationPosition?.[0], destinationPosition?.[1]]);
+  }, [estado, rutaDestinoEnCurso, taxiPos?.lat, taxiPos?.lng, destinationPosition]);
 
   return (
     <div className="h-dvh bg-slate-50 flex flex-col items-center font-sans relative overflow-hidden">
