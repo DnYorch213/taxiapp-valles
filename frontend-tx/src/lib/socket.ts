@@ -1,7 +1,9 @@
 // src/lib/socket.ts
 import { io } from "socket.io-client";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+// 1. Limpieza de URL: remueve slashes finales y el sufijo /api si está presente
+const RAW_URL = (import.meta.env.VITE_API_URL || "http://localhost:3001").replace(/\/+$/, '');
+const SOCKET_BASE_URL = RAW_URL.endsWith('/api') ? RAW_URL.slice(0, -4) : RAW_URL;
 
 const getDeviceId = () => {
   if (typeof window === "undefined") return undefined;
@@ -15,7 +17,7 @@ const getDeviceId = () => {
   return id;
 };
 
-export const socket = io(API_URL, {
+export const socket = io(SOCKET_BASE_URL, {
   auth: (cb) => {
     // 💡 Pasar auth como función para asegurar datos frescos de localStorage en cada intento
     if (typeof window === "undefined") {
@@ -38,7 +40,7 @@ export const socket = io(API_URL, {
   reconnectionDelay: 1000,
   reconnectionDelayMax: 10000,
   randomizationFactor: 0.5,
-  timeout: 20000,
+  timeout: 25000, // Aumentado ligeramente para tolerar "Cold Starts" de Render
   autoConnect: false,
 });
 
@@ -71,5 +73,5 @@ export const connectSocket = (email: string, role: string) => {
 
   // Forzar reconexión limpia
   socket.connect();
-  console.log(`🚀 Iniciando conexión Socket para: ${normalizedEmail} (${role})`);
+  console.log(`🚀 Iniciando conexión Socket para: ${normalizedEmail} (${role}) en ${SOCKET_BASE_URL}`);
 };

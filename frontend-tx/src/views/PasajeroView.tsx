@@ -6,6 +6,7 @@ import { useTravel } from "../context/TravelContext";
 import { useNavigate } from "react-router-dom";
 import { useGeolocation } from "../hooks/useGeolocation";
 import { Payload, ViajeEstado } from "../types/Payload";
+import { Position } from "../types/Positions";
 import { ChatBox } from "../components/ChatBox";
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
 import L from "leaflet";
@@ -49,11 +50,12 @@ const sanitizeRouteTail = (coords: L.LatLng[]) => {
   return coords;
 };
 
+// 🛡️ CORRECCIÓN CSS: Unificado transform en lugar de usar la propiedad 'rotate' separada
 const destinationMarkerIcon = L.divIcon({
   className: "",
   html: `
     <div style="position:relative;width:30px;height:42px;filter:drop-shadow(0 6px 10px rgba(0,0,0,0.28));">
-      <div style="position:absolute;left:50%;top:0;transform:translateX(-50%);width:30px;height:30px;background:#22c55e;border:2px solid #ffffff;border-radius:50% 50% 50% 0;transform-origin:center;rotate:-45deg;"></div>
+      <div style="position:absolute;left:50%;top:0;transform:translateX(-50%) rotate(-45deg);width:30px;height:30px;background:#22c55e;border:2px solid #ffffff;border-radius:50% 50% 50% 0;transform-origin:center;"></div>
       <div style="position:absolute;left:50%;top:9px;transform:translateX(-50%);width:10px;height:10px;background:#ffffff;border-radius:9999px;"></div>
     </div>
   `,
@@ -91,6 +93,7 @@ const PasajeroView: React.FC = () => {
   const estadoRef = useRef<ViajeEstado>(TRIP_STATES.PENDIENTE);
   const taxiPosRef = useRef<any>(null);
   const userPositionRef = useRef<any>(null);
+  const searchAbortControllerRef = useRef<AbortController | null>(null);
   const previewRouteSeedRef = useRef<{ origin: L.LatLng | null; destination: L.LatLng | null }>({
     origin: null,
     destination: null,
@@ -165,16 +168,16 @@ const PasajeroView: React.FC = () => {
     role: "pasajero" as const,
   }), [userPosition?.email, userPosition?.name]);
 
-  // GPS con callback estable usando refs
+  // 🛡️ GPS optimizado: Comprueba únicamente latitud/longitud
   const handlePositionUpdate = useCallback((pos: any) => {
-    if (pos.lat && pos.lng) {
+    if (pos && isValidCoordinatePair(pos.lat, pos.lng)) {
       const current = userPositionRef.current;
-      if (current?.lat !== pos.lat || current?.lng !== pos.lng) {
+      if (!current || current.lat !== pos.lat || current.lng !== pos.lng) {
         setUserPosition({
           ...current,
           lat: pos.lat,
           lng: pos.lng,
-        } as any);
+        } as Position);
       }
     }
   }, [setUserPosition]);
@@ -288,12 +291,19 @@ const PasajeroView: React.FC = () => {
     });
   }, [destinationAddress, destinationQuery, userPosition?.email]);
 
+  // 🛡️ Búsqueda con AbortController para prevenir Race Conditions
   const geocodificarDestino = useCallback(async (query: string) => {
     const cleanQuery = query.trim();
     if (!cleanQuery) {
       toast.error("Escribe un destino primero.");
       return;
     }
+
+    if (searchAbortControllerRef.current) {
+      searchAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    searchAbortControllerRef.current = controller;
 
     setIsSearchingDestination(true);
     try {
@@ -304,7 +314,11 @@ const PasajeroView: React.FC = () => {
       url.searchParams.set("addressdetails", "1");
       url.searchParams.set("countrycodes", "mx");
 
-      const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      const response = await fetch(url.toString(), {
+        headers: { Accept: "application/json" },
+        signal: controller.signal
+      });
+
       if (!response.ok) throw new Error("No se pudo buscar la dirección");
 
       const results = await response.json();
@@ -317,7 +331,7 @@ const PasajeroView: React.FC = () => {
       const latNum = Number(match.lat);
       const lngNum = Number(match.lon);
 
-      if (Number.isNaN(latNum) || Number.isNaN(lngNum)) {
+      if (!isValidCoordinatePair(latNum, lngNum)) {
         toast.error("La ubicación encontrada no es válida.");
         return;
       }
@@ -329,13 +343,16 @@ const PasajeroView: React.FC = () => {
       setDestinationQuery(nextAddress);
       setRutaDestinoPreview([]);
       setRutaDestinoEnCurso([]);
+
       if (estado === "encurso" || estado === "encamino" || estado === "asignado") {
         actualizarDestinoEnServidor(latNum, lngNum, nextAddress);
       }
       toast.success("Destino ubicado en el mapa.");
-    } catch (error) {
-      console.warn("Error buscando destino:", error);
-      toast.error("No pude buscar el destino en este momento.");
+    } catch (error: any) {
+      if (error.name !== "AbortError") {
+        console.warn("Error buscando destino:", error);
+        toast.error("No pude buscar el destino en este momento.");
+      }
     } finally {
       setIsSearchingDestination(false);
     }
@@ -419,7 +436,7 @@ const PasajeroView: React.FC = () => {
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("socket-session-replaced", handleSessionReplaced as EventListener);
     };
-  }, [chatBubbleX, clampBubbleX]);
+  }, [chatBubbleX, clampBubbleX, setTaxiPos]);
 
   const handleChatBubblePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
@@ -472,13 +489,13 @@ const PasajeroView: React.FC = () => {
     typeof window !== "undefined" && chatBubbleX !== null
       ? chatBubbleX + CHAT_BUBBLE_SIZE / 2 < window.innerWidth / 2
       : false;
-
   // ============================================================
-  // ­ LISTENERS DE SOCKET - SIN DEPENDENCIAS VOLÁTILES
+  // LISTENERS DE SOCKET - SIN DEPENDENCIAS VOLÁTILES + CLEANUP
   // ============================================================
   useEffect(() => {
     if (!socket) return;
 
+    // HANDLER: Actualización de Destino
     const handleTripDestinationUpdated = (data: any) => {
       const passengerEmail = userPositionRef.current?.email?.toLowerCase().trim();
       const incomingEmail = String(data?.pasajeroEmail || "").toLowerCase().trim();
@@ -499,9 +516,9 @@ const PasajeroView: React.FC = () => {
       }
     };
 
-    // ACEPTACIÓN DEL TAXI (sin setTimeout innecesario)
-    socket.on("response_from_taxi", (data) => {
-      console.log("­Respuesta del taxi recibida:", data);
+    // HANDLER: Aceptación del Taxi
+    const handleResponseFromTaxi = (data: any) => {
+      console.log("Respuesta del taxi recibida:", data);
 
       if (data.accepted) {
         setSearchFlowActivo(false);
@@ -521,7 +538,7 @@ const PasajeroView: React.FC = () => {
         setEstado(TRIP_STATES.ASIGNADO);
 
         if (data.lat && data.lng) {
-          setTaxiPos({ lat: data.lat, lng: data.lng, heading: 0 });
+          setTaxiPos({ lat: Number(data.lat), lng: Number(data.lng), heading: 0 });
         } else {
           setTaxiPos(null);
         }
@@ -532,10 +549,10 @@ const PasajeroView: React.FC = () => {
           autoClose: 5000,
         });
       }
-    });
+    };
 
-    // TAXI MOVIDO (con orientación geográfica)
-    socket.on("taxi_moved", (data: any) => {
+    // HANDLER: Movimiento del Taxi
+    const handleTaxiMoved = (data: any) => {
       const emailAsignado = taxistaAsignadoRef.current?.email?.toLowerCase().trim();
       const emailEntrante = (data.tEmail || data.email || data.taxistaEmail)?.toLowerCase().trim();
 
@@ -562,41 +579,38 @@ const PasajeroView: React.FC = () => {
           ]);
         }
       }
-    });
+    };
 
-    // ACTUALIZACIÓN DE RUTA EN CURSO
-socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
-  const latNum = Number(data.lat);
-  const lngNum = Number(data.lng);
+    // HANDLER: Ruta en Curso
+    const handleUpdateTripPath = (data: { lat: number; lng: number }) => {
+      const latNum = Number(data.lat);
+      const lngNum = Number(data.lng);
 
-  // CORRECCIÓN: Usar L.latLng() para garantizar el tipo correcto
-  setHistorialRuta((prev) => {
-    const newHistory = [...prev, L.latLng(latNum, lngNum)];
-    return newHistory.length > 500 ? newHistory.slice(-500) : newHistory;
-  });
+      setHistorialRuta((prev) => {
+        const newHistory = [...prev, L.latLng(latNum, lngNum)];
+        return newHistory.length > 500 ? newHistory.slice(-500) : newHistory;
+      });
 
-  const posAnterior = taxiPosRef.current;
-  const taxistaPos = taxistaAsignadoRef.current;
+      const posAnterior = taxiPosRef.current;
+      const taxistaPos = taxistaAsignadoRef.current;
 
-  const nuevoHeading = calcularHeading(
-    posAnterior ? { lat: posAnterior.lat, lng: posAnterior.lng } : null,
-    { lat: latNum, lng: lngNum },
-    taxistaPos ? { lat: Number(taxistaPos.lat), lng: Number(taxistaPos.lng) } : null,
-    estadoRef.current,
-    posAnterior?.heading || 0
-  );
+      const nuevoHeading = calcularHeading(
+        posAnterior ? { lat: posAnterior.lat, lng: posAnterior.lng } : null,
+        { lat: latNum, lng: lngNum },
+        taxistaPos ? { lat: Number(taxistaPos.lat), lng: Number(taxistaPos.lng) } : null,
+        estadoRef.current,
+        posAnterior?.heading || 0
+      );
 
-  setTaxiPos({ lat: latNum, lng: lngNum, heading: nuevoHeading || 0 });
+      setTaxiPos({ lat: latNum, lng: lngNum, heading: nuevoHeading || 0 });
 
-  if (estadoRef.current === "encurso") {
-    setGeometriaRuta([L.latLng(latNum, lngNum)]);
-  }
-});
+      if (estadoRef.current === "encurso") {
+        setGeometriaRuta([L.latLng(latNum, lngNum)]);
+      }
+    };
 
-    // ACTUALIZACIÓN DE ESTADO DEL VIAJE
-    socket.on("trip_destination_updated", handleTripDestinationUpdated);
-
-    socket.on("trip_status_update", (data: { estado: string; pasajeroEmail?: string }) => {
+    // HANDLER: Cambio de Estado del Viaje
+    const handleTripStatusUpdate = (data: { estado: string; pasajeroEmail?: string }) => {
       const miEmail = userPositionRef.current?.email?.toLowerCase().trim();
       const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
       const nextEstado = String(data.estado || "").toLowerCase().trim();
@@ -613,7 +627,8 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
         const taxiActual = taxiPosRef.current;
         if (taxiActual?.lat && taxiActual?.lng) {
-          setHistorialRuta([[Number(taxiActual.lat), Number(taxiActual.lng)]]);
+          // CORREGIDO: Usar L.latLng para mantener la consistencia del tipo LatLngExpression
+          setHistorialRuta([L.latLng(Number(taxiActual.lat), Number(taxiActual.lng))]);
           setGeometriaRuta([L.latLng(Number(taxiActual.lat), Number(taxiActual.lng))]);
         }
         showToastOnce("pasajero:trip-started", () => {
@@ -622,9 +637,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       }
 
       if (nextEstado === "finalizado") {
-        if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
-          return;
-        }
+        if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) return;
         setSearchFlowActivo(false);
         setEstado(TRIP_STATES.PENDIENTE);
         setTaxistaAsignado(null);
@@ -636,7 +649,6 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         }, { cooldownMs: 4000 });
       }
 
-      // Escudo contra saltos accidentales
       if (["encurso", "finalizado"].includes(estadoRef.current) && nextEstado === "buscando") {
         console.warn("Ignorado salto a 'buscando' porque el viaje ya está cerrado o en curso.");
         return;
@@ -655,17 +667,14 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         setEstado(nextEstado as ViajeEstado);
         return;
       }
+    };
 
-    });
-
-    // VIAJE TERMINADO
-    socket.on("trip_finished", (data: { pasajeroEmail: string }) => {
+    // HANDLER: Viaje Terminado
+    const handleTripFinished = (data: { pasajeroEmail: string }) => {
       const miEmail = userPositionRef.current?.email?.toLowerCase().trim();
       const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
 
-      if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
-        return;
-      }
+      if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) return;
 
       if (emailRecibido === miEmail || !data.pasajeroEmail) {
         setSearchFlowActivo(false);
@@ -681,12 +690,12 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
           });
         }, { cooldownMs: 4000 });
       }
-    });
+    };
 
-    // TAXI RECHAZÓ LA SOLICITUD
-    socket.on("taxi_rejected_request", () => {
+    // HANDLER: Rechazo por Taxista
+    const handleTaxiRejectedRequest = () => {
       if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
-        console.warn("🛡️ taxi_rejected_request ignorado: la solicitud ya no está activa o el viaje terminó.");
+        console.warn("🛡️ taxi_rejected_request ignorado: la solicitud ya no está activa.");
         return;
       }
       setSearchFlowActivo(true);
@@ -694,9 +703,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       setTaxiPos(null);
       setEstado(TRIP_STATES.BUSCANDO);
       toast.info("Buscando otra unidad cercana...");
-    });
+    };
 
-    socket.on("no_taxis_available", (payload?: { message?: string }) => {
+    // HANDLER: No hay Taxis
+    const handleNoTaxisAvailable = (payload?: { message?: string }) => {
       if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
         console.warn("🛡️ no_taxis_available ignorado: la solicitud ya no está activa.");
         return;
@@ -710,9 +720,34 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
           toast.info(payload.message, { autoClose: 2500 });
         }, { cooldownMs: 3000 });
       }
-    });
+    };
 
-    socket.on("dispatch_error", (payload?: { message?: string }) => {
+    // Registrar Eventos
+    socket.on("trip_destination_updated", handleTripDestinationUpdated);
+    socket.on("response_from_taxi", handleResponseFromTaxi);
+    socket.on("taxi_moved", handleTaxiMoved);
+    socket.on("update_trip_path", handleUpdateTripPath);
+    socket.on("trip_status_update", handleTripStatusUpdate);
+    socket.on("trip_finished", handleTripFinished);
+    socket.on("taxi_rejected_request", handleTaxiRejectedRequest);
+    socket.on("no_taxis_available", handleNoTaxisAvailable);
+
+    // 🛡️ CLEANUP FUNCTION: Esencial para evitar listeners duplicados
+    return () => {
+      socket.off("trip_destination_updated", handleTripDestinationUpdated);
+      socket.off("response_from_taxi", handleResponseFromTaxi);
+      socket.off("taxi_moved", handleTaxiMoved);
+      socket.off("update_trip_path", handleUpdateTripPath);
+      socket.off("trip_status_update", handleTripStatusUpdate);
+      socket.off("trip_finished", handleTripFinished);
+      socket.off("taxi_rejected_request", handleTaxiRejectedRequest);
+      socket.off("no_taxis_available", handleNoTaxisAvailable);
+    };
+  }, []);
+
+  // 🛡️ Listener separado para dispatch_error (socket es una instancia estable)
+  useEffect(() => {
+    const handleDispatchError = (payload?: { message?: string }) => {
       if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
         console.warn("🛡️ dispatch_error ignorado: la solicitud ya no está activa.");
         return;
@@ -724,18 +759,12 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
           toast.warn(payload.message, { autoClose: 2500 });
         }, { cooldownMs: 3000 });
       }
-    });
+    };
+
+    socket.on("dispatch_error", handleDispatchError);
 
     return () => {
-      socket.off("taxi_moved");
-      socket.off("update_trip_path");
-      socket.off("response_from_taxi");
-      socket.off("trip_destination_updated");
-      socket.off("trip_status_update");
-      socket.off("trip_finished");
-      socket.off("taxi_rejected_request");
-      socket.off("no_taxis_available");
-      socket.off("dispatch_error");
+      socket.off("dispatch_error", handleDispatchError);
     };
   }, [socket]); //  SOLO depende de socket - nunca se re-registra por cambios de posición
 
