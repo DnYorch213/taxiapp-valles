@@ -1,36 +1,48 @@
-// src/controllers/pushController.ts
-import { Request, Response } from "express";
+import { Response } from "express";
 import { User } from "../models/User";
 import { Position } from "../models/Position";
+import { AuthenticatedRequest } from "../middleware/authMiddleware";
 
-// 🎯 1. CONTROLADOR PARA GUARDAR SUSCRIPCIÓN PUSH (ESENCIAL)
-// Este es el único endpoint HTTP que necesitamos para el sistema de notificaciones.
-export const handleSaveSubscription = async (req: Request, res: Response) => {
-    const { email, subscription } = req.body;
+/**
+ * 🎯 Guardar o actualizar la suscripción Web Push para un usuario autenticado
+ */
+export const handleSaveSubscription = async (req: AuthenticatedRequest, res: Response) => {
+    const { subscription } = req.body;
 
-    if (!email || !subscription) {
-        return res.status(400).json({ message: "Faltan datos obligatorios para registrar el Push" });
+    // 🔐 Priorizar el email del token JWT autenticado
+    const cleanEmail = (req.user?.email || req.body?.email)?.toLowerCase().trim();
+
+    if (!cleanEmail || !subscription) {
+        return res.status(400).json({
+            message: "Faltan datos obligatorios para registrar la suscripción Web Push"
+        });
     }
 
     try {
-        const cleanEmail = email.toLowerCase().trim();
+        // 1. Actualizar el perfil global del usuario
+        const userUpdate = await User.findOneAndUpdate(
+            { email: cleanEmail },
+            { $set: { pushSubscription: subscription } },
+            { new: true }
+        );
 
-        // Guardamos las llaves de suscripción en los perfiles de MongoDB
-        await User.findOneAndUpdate({ email: cleanEmail }, { $set: { pushSubscription: subscription } });
-        await Position.findOneAndUpdate({ email: cleanEmail }, { $set: { pushSubscription: subscription } }, { upsert: true });
+        if (!userUpdate) {
+            return res.status(404).json({ message: "Usuario no encontrado" });
+        }
 
-        console.log(`✅ [Push Sync] Token Web-Push sincronizado en Atlas para: ${cleanEmail}`);
+        // 2. Actualizar Position SOLO si el documento ya existe (evita crear registros corruptos)
+        await Position.updateOne(
+            { email: cleanEmail },
+            { $set: { pushSubscription: subscription } }
+        );
+
+        console.log(`✅ [Push Sync] Token Web-Push sincronizado para: ${cleanEmail}`);
         return res.status(200).json({ message: "Suscripción guardada con éxito" });
+
     } catch (err) {
         console.error("❌ Error en handleSaveSubscription:", err);
-        return res.status(500).json({ message: "Error interno del servidor al guardar token" });
+        return res.status(500).json({
+            message: "Error interno del servidor al guardar token Web Push"
+        });
     }
 };
-
-// 🚫 2. CONTROLADORES DE ACEPTAR/RECHAZAR VÍA HTTP (ELIMINADOS)
-// Nota para el desarrollador:
-// Dado que el Service Worker (sw.js) ya no incluye botones de acción y solo abre la app,
-// la aceptación y el rechazo se manejan 100% a través de WebSockets en el frontend
-// (TaxistaView.tsx -> socket.emit("taxi_response")).
-// Se eliminaron handleAcceptTripPush y handleRejectTripPush para evitar código muerto
-// y prevenir conflictos de estado por peticiones HTTP rezagadas (stale requests).

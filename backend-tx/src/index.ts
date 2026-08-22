@@ -1,4 +1,3 @@
-// src/server.ts
 import * as dotenv from "dotenv";
 import express from "express";
 import http from "http";
@@ -7,7 +6,6 @@ import cors from "cors";
 import { connectDB } from "./db";
 import adminRoutes from "./routes/adminRoutes";
 import authRoutes from "./routes/authRoutes";
-// 🎯 SOLO importamos lo que realmente usamos (eliminamos accept/reject)
 import { handleSaveSubscription } from "./controllers/pushController";
 import { initSocketEngine } from "./socket/socketEngine";
 import { verifyToken } from "./middleware/authMiddleware";
@@ -23,6 +21,7 @@ const isDev = process.env.NODE_ENV === 'development';
 
 const allowedOrigins = [
   process.env.FRONTEND_URL,
+  "https://taxiapp-valles.vercel.app", // 👈 Aseguramos el dominio de producción explícitamente
   "http://localhost:5173",
   "http://127.0.0.1:5173"
 ].filter((origin): origin is string => Boolean(origin));
@@ -31,22 +30,23 @@ if (process.env.NODE_ENV !== "production" && allowedOrigins.length === 0) {
   console.warn("⚠️ FRONTEND_URL no configurado. Solo orígenes de desarrollo permitidos.");
 }
 
+// Función centralizada para validación de CORS
+const checkOrigin = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+  // Permite solicitudes sin origen (mobile apps, Postman, curl, PWA instalada)
+  if (!origin || isDev) {
+    return callback(null, true);
+  }
+
+  if (allowedOrigins.some((o) => origin.startsWith(o))) {
+    return callback(null, true);
+  }
+
+  console.warn(`🚫 Bloqueado por CORS: ${origin}`);
+  return callback(new Error("🚫 Bloqueado por seguridad de Red Taxi"));
+};
+
 const corsOptions = {
-  origin: (origin: string | undefined, callback: any) => {
-    if (!origin) {
-      callback(null, true);
-      return;
-    }
-    if (isDev) {
-      callback(null, true);
-      return;
-    }
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-      return;
-    }
-    callback(new Error("🚫 Bloqueado por seguridad de Red Taxi"));
-  },
+  origin: checkOrigin,
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 };
@@ -54,19 +54,19 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-// Configuración robusta de Socket.io
+// 🚀 Configuración de Socket.io corregida
 const io = new Server(server, {
   cors: {
-    origin: (origin: string | undefined) => {
-      if (!origin) return false;
-      if (isDev) return true;
-      if (allowedOrigins.includes(origin)) return true;
-      return false;
+    origin: (origin, callback) => {
+      // Si no hay origin (p. ej. cliente socket directo), permitimos la conexión
+      if (!origin) return callback(null, true);
+      return checkOrigin(origin, callback);
     },
     credentials: true,
     methods: ["GET", "POST"]
   },
-  transports: ['websocket', 'polling'],
+  // 💡 CRÍTICO: Primero 'polling', luego upgrade a 'websocket'
+  transports: ['polling', 'websocket'],
   allowEIO3: true,
   pingInterval: 25000,
   pingTimeout: 120000,
@@ -77,9 +77,6 @@ const io = new Server(server, {
 app.use("/api/admin", adminRoutes);
 app.use("/api/auth", authRoutes);
 
-// 🔐 Endpoints delegados a controladores (PROTEGIDOS)
-// 🚫 ELIMINADOS: /api/accept-trip-push y /api/reject-trip-push 
-// (Ahora se manejan 100% vía WebSockets para evitar conflictos de estado)
 app.post("/api/save-subscription", verifyToken, handleSaveSubscription);
 
 // 🔐 Historial de viajes (PROTEGIDO)
@@ -88,7 +85,6 @@ app.get("/api/history/:email", verifyToken, async (req: any, res) => {
     const paramEmail = req.params.email.toLowerCase().trim();
     const userEmail = req.user?.email?.toLowerCase().trim();
 
-    // 🛡️ El usuario solo puede ver su propio historial, excepto si es admin
     if (userEmail !== paramEmail && req.user?.role !== 'admin') {
       return res.status(403).json({
         message: "❌ No puedes ver el historial de otro usuario"

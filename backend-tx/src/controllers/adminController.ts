@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import { User } from '../models/User';
 import { Trip } from '../models/Trip';
 import { TRIP_STATES } from '../constants/states';
@@ -9,19 +10,24 @@ export const getPendingTaxistas = async (req: Request, res: Response) => {
         const pending = await User.find({
             role: 'taxista',
             adminApproval: 'pendiente'
-        }).select('-password').sort({ createdAt: -1 }); // Ordenamos por los más recientes
+        }).select('-password').sort({ createdAt: -1 });
 
-        res.json(pending);
+        return res.json(pending);
     } catch (error) {
-        res.status(500).json({ message: "Error al obtener taxistas pendientes", error });
+        return res.status(500).json({ message: "Error al obtener taxistas pendientes", error });
     }
 };
 
-// 2. Actualización de estatus
+// 2. Actualización de estatus del taxista (Aprobar / Rechazar / Suspender)
 export const updateTaxistaStatus = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         const { action } = req.body;
+
+        // 🛡️ Validar que el ID sea un ObjectId válido de Mongoose
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ message: "ID de taxista no válido" });
+        }
 
         // 🛡️ Mapeo de acciones a estados reales de la DB
         const actionMap: Record<string, any> = {
@@ -33,10 +39,9 @@ export const updateTaxistaStatus = async (req: Request, res: Response) => {
         const updateData = actionMap[action];
 
         if (!updateData) {
-            return res.status(400).json({ message: "Acción no válida" });
+            return res.status(400).json({ message: "Acción no válida. Opciones: aprobar, rechazar, suspender" });
         }
 
-        // Usamos findByIdAndUpdate con runValidators para asegurar que el enum sea correcto
         const user = await User.findByIdAndUpdate(
             id,
             { $set: updateData },
@@ -49,14 +54,14 @@ export const updateTaxistaStatus = async (req: Request, res: Response) => {
 
         console.log(`🛡️ ADMIN: Taxista ${user.email} -> [${user.adminApproval.toUpperCase()}]`);
 
-        res.json({
+        return res.json({
             message: `Taxista ${action} con éxito`,
             user
         });
 
     } catch (error) {
         console.error("❌ Error en updateTaxistaStatus:", error);
-        res.status(500).json({ message: "Error al actualizar estatus", error });
+        return res.status(500).json({ message: "Error al actualizar estatus del taxista", error });
     }
 };
 
@@ -65,40 +70,48 @@ export const getVerifiedTaxistas = async (req: Request, res: Response) => {
     try {
         const verified = await User.find({
             role: 'taxista',
-            adminApproval: 'aprobado' // Solo los que ya pasaron el filtro
+            adminApproval: 'aprobado'
         }).select('-password').sort({ updatedAt: -1 });
 
-        res.json(verified);
+        return res.json(verified);
     } catch (error) {
-        res.status(500).json({ message: "Error al obtener historial", error });
+        return res.status(500).json({ message: "Error al obtener historial de taxistas", error });
     }
 };
 
-// 4. Obtener todos los viajes finalizados (Historial General)
+// 4. Obtener todos los viajes finalizados (Historial General con Límite de Seguridad)
 export const getAllTripsHistory = async (req: Request, res: Response) => {
     try {
-        // Cambiamos 'status' por 'estado'
-        const trips = await Trip.find({ estado: TRIP_STATES.FINALIZADO })
-            .sort({ fecha: -1 }); // También cambiamos 'endDate' por 'fecha' aquí
+        const limitParam = Math.max(1, Math.min(Number(req.query.limit) || 100, 500));
 
-        res.json(trips);
+        const trips = await Trip.find({ estado: TRIP_STATES.FINALIZADO })
+            .sort({ fecha: -1 })
+            .limit(limitParam)
+            .lean();
+
+        return res.json(trips);
     } catch (error) {
-        res.status(500).json({ message: "Error al obtener historial", error });
+        return res.status(500).json({ message: "Error al obtener historial de viajes", error });
     }
 };
 
-// 5. Obtener viajes de un taxista específico (Filtro por Unidad)
+// 5. Obtener viajes de un taxista específico (Filtro por Unidad con Límite)
 export const getTripsByDriver = async (req: Request, res: Response) => {
     try {
         const email = req.params.email.toLowerCase().trim();
+        const limitParam = Math.max(1, Math.min(Number(req.query.limit) || 50, 200));
+
         const trips = await Trip.find({
             taxistaEmail: email,
             estado: TRIP_STATES.FINALIZADO
-        }).sort({ fecha: -1 });
+        })
+            .sort({ fecha: -1 })
+            .limit(limitParam)
+            .lean();
 
-        res.json(trips);
+        return res.json(trips);
     } catch (error) {
-        res.status(500).json({ message: "Error al filtrar viajes", error });
+        return res.status(500).json({ message: "Error al filtrar viajes del taxista", error });
     }
 };
 
@@ -148,7 +161,7 @@ export const getPassengerControlStats = async (req: Request, res: Response) => {
                 .lean(),
         ]);
 
-        res.json({
+        return res.json({
             totalRegistered,
             registeredLast7Days,
             registeredLast30Days,
@@ -162,6 +175,6 @@ export const getPassengerControlStats = async (req: Request, res: Response) => {
             generatedAt: now.toISOString(),
         });
     } catch (error) {
-        res.status(500).json({ message: 'Error al obtener control de pasajeros', error });
+        return res.status(500).json({ message: 'Error al obtener control de pasajeros', error });
     }
 };

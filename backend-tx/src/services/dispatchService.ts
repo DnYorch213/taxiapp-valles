@@ -200,10 +200,10 @@ const runDispatchWithRetry = async (
     attempt: number = 1,
     transactionAttempt: number = 1
 ) => {
-        if (!isAutoMode || !pasajeroData || !pasajeroData.email) {
-            unlockDispatchCycle(pasajeroData.requestId || "");
-            return;
-        }
+    if (!isAutoMode || !pasajeroData || !pasajeroData.email) {
+        unlockDispatchCycle(pasajeroData.requestId || "");
+        return;
+    }
 
     const pEmail = pasajeroData.email.toLowerCase().trim();
     const currentExcluidos = [...new Set(excludedEmails.map(e => e.toLowerCase().trim()))];
