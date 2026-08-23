@@ -1,16 +1,16 @@
-import { Response } from "express";
+import { Request, Response } from "express";
 import { User } from "../models/User";
 import { Position } from "../models/Position";
-import { AuthenticatedRequest } from "../middleware/authMiddleware";
 
 /**
  * 🎯 Guardar o actualizar la suscripción Web Push para un usuario autenticado
  */
-export const handleSaveSubscription = async (req: AuthenticatedRequest, res: Response) => {
+export const handleSaveSubscription = async (req: Request, res: Response) => {
     const { subscription } = req.body;
 
-    // 🔐 Priorizar el email del token JWT autenticado
-    const cleanEmail = (req.user?.email || req.body?.email)?.toLowerCase().trim();
+    // 🔐 Casteamos 'req' a 'any' para leer 'user' sin bloqueos del compilador TS
+    const userEmail = (req as any).user?.email;
+    const cleanEmail = (userEmail || req.body?.email)?.toLowerCase().trim();
 
     if (!cleanEmail || !subscription) {
         return res.status(400).json({
@@ -30,7 +30,7 @@ export const handleSaveSubscription = async (req: AuthenticatedRequest, res: Res
             return res.status(404).json({ message: "Usuario no encontrado" });
         }
 
-        // 2. Actualizar Position SOLO si el documento ya existe (evita crear registros corruptos)
+        // 2. Actualizar Position SOLO si el documento ya existe
         await Position.updateOne(
             { email: cleanEmail },
             { $set: { pushSubscription: subscription } }
