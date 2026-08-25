@@ -60,15 +60,52 @@ const clearLocalSocketTimeouts = (email: string) => {
  * Helper para gestionar la reconexión y notificación dentro de la sala de viaje.
  */
 const handleTripReconnection = async (socket: Socket, io: Server, currentPos: any, email: string) => {
-    const requestId = currentPos.requestId || currentPos.activeRequestId;
+    let requestId = currentPos.requestId || currentPos.activeRequestId;
+
+    if (requestId && requestId.startsWith("legacy_")) {
+        requestId = null;
+    }
+
+    if (!requestId && currentPos.pasajeroAsignado) {
+        try {
+            const passenger = await Position.findOne({ email: currentPos.pasajeroAsignado }).lean();
+            if (passenger && passenger.taxistaAsignado === email && passenger.requestId && !String(passenger.requestId).startsWith("legacy_")) {
+                requestId = passenger.requestId;
+            }
+        } catch (err) {
+            logMotor("socket_reconnect", `Error buscando requestId del pasajero para ${email}: ${err}`, "WARN");
+        }
+    }
 
     if (requestId) {
-        // 1. Unir socket a la sala del viaje
         joinTripRoom(socket, requestId, email);
 
-        // 2. Notificar al compañero de viaje
         const who: "pasajero" | "taxista" = currentPos.role === "taxista" ? "taxista" : "pasajero";
         notifyPeerReconnection(io, requestId, who, email);
+
+        let passengerData: any = null;
+        if (currentPos.role === "taxista" && currentPos.pasajeroAsignado) {
+            try {
+                passengerData = await Position.findOne({ email: currentPos.pasajeroAsignado }).lean();
+            } catch (err) {
+                logMotor("socket_reconnect", `Error obteniendo datos del pasajero para ${email}: ${err}`, "WARN");
+            }
+        }
+
+        socket.emit("trip_rehydrate_success", {
+            requestId,
+            status: currentPos.estado,
+            passenger: passengerData ? {
+                email: passengerData.email,
+                name: passengerData.name,
+                lat: passengerData.lat,
+                lng: passengerData.lng,
+                pickupAddress: passengerData.pickupAddress,
+                destinationAddress: passengerData.destinationAddress,
+                destinationLat: passengerData.destinationLat,
+                destinationLng: passengerData.destinationLng
+            } : null
+        });
     }
 };
 

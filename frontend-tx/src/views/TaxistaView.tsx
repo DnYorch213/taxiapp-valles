@@ -230,6 +230,7 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [vistaActual, setVistaActual] = useState('mapa'); // 'mapa' o 'historial'
   const [isAccepting, setIsAccepting] = useState(false);
+  const [isRehydrating, setIsRehydrating] = useState(false);
 
     // 🚨 MENSAJES ROTATIVOS PARA EL ESTADO ACTIVO
   const mensajesEspera = [
@@ -1001,7 +1002,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       return;
     }
 
-    const nextState = String(data?.estado || "").toLowerCase().trim();
+    const nextState = String(data.estado || "").toLowerCase().trim();
     const isInactiveTrip = ["activo", "pendiente", "buscando", "cancelado", "finalizado"].includes(nextState);
 
     if (isInactiveTrip || !data?.pasajero) {
@@ -1018,6 +1019,39 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     showToastOnce("taxista:rehydrated", () => {
       toast.success("¡Viaje rehidratado con éxito!");
     }, { cooldownMs: 4000 });
+  });
+
+  socket.on("trip_rehydrate_success", (data) => {
+    if (!data?.requestId || !data?.status) {
+      setIsRehydrating(false);
+      return;
+    }
+
+    setIsRehydrating(true);
+
+    const nextState = String(data.status).toLowerCase().trim();
+    const passengerPayload = data.passenger
+      ? {
+          ...data.passenger,
+          email: data.passenger.email,
+          name: data.passenger.name,
+          lat: data.passenger.lat,
+          lng: data.passenger.lng,
+          pickupAddress: data.passenger.pickupAddress || "Calculando ubicación...",
+          destinationAddress: data.passenger.destinationAddress || "Rumbo al destino...",
+          destinationLat: data.passenger.destinationLat ?? null,
+          destinationLng: data.passenger.destinationLng ?? null,
+        }
+      : null;
+
+    setEstado(nextState as PositionState);
+    setPasajeroAsignado(passengerPayload);
+    tripSessionActiveRef.current = true;
+    setIsRehydrating(false);
+
+    showToastOnce("taxista:trip-rehydrated", () => {
+      toast.success("Sesión de viaje recuperada.");
+    }, { cooldownMs: 3000 });
   });
 
     socket.on("dispatch_timeout", () => {
@@ -1092,6 +1126,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       socket.off("push_late");
       socket.off("trip_already_taken");
       socket.off("rehydrate_trip_result");
+      socket.off("trip_rehydrate_success");
       socket.off("trip_destination_updated");
       socket.off("trip_cancelled_by_passenger");
       socket.off("trip_finished");
@@ -1558,6 +1593,14 @@ const finalizarViaje = () => {
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1004] transition-opacity"
           onClick={() => setIsMenuOpen(false)}
         />
+      )}
+
+      {/* OVERLAY DE REHIDRATACIÓN */}
+      {isRehydrating && (
+        <div className="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-md z-[3000] flex flex-col items-center justify-center gap-4">
+          <div className="w-12 h-12 border-4 border-[#22c55e] border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-white font-black uppercase tracking-widest text-sm">Recuperando viaje...</p>
+        </div>
       )}
 
       {/* MENÚ LATERAL */}

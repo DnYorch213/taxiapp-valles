@@ -14,6 +14,10 @@ async function main() {
             { requestId: { $exists: false } },
             { requestId: null },
             { requestId: "" }
+        ],
+        $nor: [
+            { taxistaAsignado: { $ne: null } },
+            { pasajeroAsignado: { $ne: null } }
         ]
     }).select("_id email").lean();
 

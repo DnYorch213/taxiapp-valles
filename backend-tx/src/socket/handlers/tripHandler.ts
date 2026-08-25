@@ -252,7 +252,14 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             // A) Asegurar que el taxista quede liberado en la BD si estaba atrapado
             await Position.updateOne(
                 { email: tEmail },
-                { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } }
+                {
+                    $set: {
+                        estado: POSITION_STATES.ACTIVO,
+                        pasajeroAsignado: null,
+                        requestId: null,
+                        updatedAt: new Date()
+                    }
+                }
             );
 
             // B) Notificar a la app del taxista para que cierre inmediatamente la alerta/modal
@@ -292,7 +299,14 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             // Liberar al taxista
             await Position.updateOne(
                 { email: tEmail },
-                { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } }
+                {
+                    $set: {
+                        estado: POSITION_STATES.ACTIVO,
+                        pasajeroAsignado: null,
+                        requestId: null,
+                        updatedAt: new Date()
+                    }
+                }
             );
 
             // Volver a poner al pasajero en estado BUSCANDO
@@ -405,6 +419,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                         $set: {
                             estado: POSITION_STATES.ENCAMINO,
                             pasajeroAsignado: pEmail,
+                            requestId: pPosActualizado.requestId,
                             updatedAt: new Date()
                         }
                     },
@@ -704,6 +719,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                             $set: {
                                 estado: "activo",
                                 pasajeroAsignado: null,
+                                requestId: null,
                                 updatedAt: new Date()
                             }
                         },
@@ -893,6 +909,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                         $set: {
                             estado: "activo",
                             pasajeroAsignado: null,
+                            requestId: null,
                             updatedAt: new Date()
                         }
                     },

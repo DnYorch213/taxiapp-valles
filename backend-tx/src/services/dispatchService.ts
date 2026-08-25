@@ -245,7 +245,7 @@ const runDispatchWithRetry = async (
         if ([POSITION_STATES.CANCELADO, POSITION_STATES.FINALIZADO].includes(pStatusCheck.estado as any)) {
             await Position.updateMany(
                 { role: "taxista", estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail },
-                { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } }
+                { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, requestId: null, updatedAt: new Date() } }
             );
         }
 
@@ -336,7 +336,7 @@ const runDispatchWithRetry = async (
         try {
             const taxistaActualizado = await Position.findOneAndUpdate(
                 { email: tEmail, estado: POSITION_STATES.ACTIVO },
-                { $set: { estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail, updatedAt: new Date() } },
+                { $set: { estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail, requestId: reqId, updatedAt: new Date() } },
                 { session, returnDocument: "after" }
             );
 
@@ -364,7 +364,7 @@ const runDispatchWithRetry = async (
             if (!pasajeroPreasignado.modifiedCount) {
                 await Position.updateOne(
                     { email: tEmail, estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail },
-                    { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } },
+                    { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, requestId: null, updatedAt: new Date() } },
                     { session }
                 );
                 await session.abortTransaction();
@@ -499,7 +499,7 @@ const runDispatchWithRetry = async (
 
                 await Position.updateOne(
                     { email: tEmail, estado: POSITION_STATES.ASIGNADO, pasajeroAsignado: pEmail },
-                    { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, updatedAt: new Date() } }
+                    { $set: { estado: POSITION_STATES.ACTIVO, pasajeroAsignado: null, requestId: null, updatedAt: new Date() } }
                 );
 
                 io.to(tEmail).emit("dispatch_timeout", {
