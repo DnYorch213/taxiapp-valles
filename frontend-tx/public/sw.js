@@ -14,6 +14,7 @@ self.addEventListener("push", function (event) {
     const rawData = event.data.json();
     const requestId = rawData.data?.requestId || "unknown";
     const title = rawData.title || "¡NUEVO VIAJE DISPONIBLE! 🚕";
+    const action = rawData.data?.action || "OPEN_TRIP_REQUEST";
 
     const options = {
       body: rawData.body || "Toca para abrir la app y aceptar el servicio.",
@@ -30,15 +31,17 @@ self.addEventListener("push", function (event) {
   }
 });
 
-// 🎯 AL TOCAR: ABRIR LA APP PARA QUE EL TAXISTA PUEDA ACEPTAR A TIEMPO
 self.addEventListener("notificationclick", (event) => {
-  // 1. Cerrar la notificación
   event.notification.close();
 
-  // 2. Definir la URL base (sin parámetros, el socket se encargará de rehidratar el estado real)
-  const targetUrl = `${self.location.origin}/taxista`;
+  const action = event.notification.data?.action || "OPEN_TRIP_REQUEST";
+  const requestId = event.notification.data?.requestId || "";
 
-  // 3. Enfocar o abrir la ventana de la app
+  let targetUrl = `${self.location.origin}/taxista`;
+  if (action === "TRIP_ACCEPTED" || action === "TRIP_STARTED" || action === "TRIP_FINISHED") {
+    targetUrl = `${self.location.origin}/pasajero`;
+  }
+
   event.waitUntil(
     clients
       .matchAll({ type: "window", includeUncontrolled: true })

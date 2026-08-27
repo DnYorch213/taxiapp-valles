@@ -8,6 +8,7 @@ import { bindPassengerRequestId, clearPassengerRequestBinding, clearPendingTimeo
 import { logMotor } from "../../utils/logger";
 import { calculateDistance } from "../../utils/distance";
 import { POSITION_STATES, TRIP_STATES } from "../../constants/states";
+import { joinTripRoom, notifyPeerReconnection } from "../../services/tripRoomService";
 
 const MAX_REQUEST_TAXI_RETRIES = 3;
 
@@ -425,6 +426,14 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                     },
                     { session }
                 );
+
+                if (pPosActualizado?.requestId) {
+                    const taxiSockets = await io.in(tEmail).fetchSockets();
+                    for (const s of taxiSockets) {
+                        joinTripRoom(s as any, pPosActualizado.requestId, tEmail);
+                    }
+                    notifyPeerReconnection(io, pPosActualizado.requestId, "taxista", tEmail);
+                }
 
                 await session.commitTransaction();
                 session.endSession();

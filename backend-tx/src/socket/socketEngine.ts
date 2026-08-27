@@ -190,6 +190,11 @@ export const initSocketEngine = (io: Server) => {
             logMotor("socket_room", `Socket ${socket.id} (${email}) se unió a la sala: ${cleanRoom}`, "INFO");
         });
 
+        socket.on("join_trip_room", (requestId: string) => {
+            if (!requestId || String(requestId).startsWith("legacy_")) return;
+            joinTripRoom(socket, requestId, email);
+        });
+
         // ============================================================
         // 🎯 4. EVENTOS DE CONTROL Y MODO AUTOMÁTICO
         // ============================================================

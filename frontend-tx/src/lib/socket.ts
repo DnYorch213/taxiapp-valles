@@ -55,6 +55,13 @@ socket.on("session_replaced", () => {
   }
 });
 
+socket.on("trip_rehydrate_success", (data: any) => {
+  if (typeof window !== "undefined" && data?.requestId) {
+    sessionStorage.setItem("trip_rehydrate_payload", JSON.stringify(data));
+    window.dispatchEvent(new CustomEvent("socket-trip-rehydrated"));
+  }
+});
+
 export const connectSocket = (email: string, role: string) => {
   if (!email || !role) return;
 

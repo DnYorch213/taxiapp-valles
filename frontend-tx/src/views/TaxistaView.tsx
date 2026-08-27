@@ -184,7 +184,7 @@ const TaxistaView: React.FC = () => {
   const CHAT_BUBBLE_MARGIN = 12;
   const CHAT_PANEL_HEIGHT = 260;
 
-  const { userPosition, taxiPos, setTaxiPos } = useTravel();
+  const { userPosition, taxiPos, setTaxiPos, requestExit, exitAttemptCount, confirmExit, cancelExit } = useTravel();
   const [estado, setEstado] = useState<PositionState>(POSITION_STATES.ACTIVO);
   const [viajeSolicitado, setViajeSolicitado] = useState<Payload | null>(null);
   const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(null);
@@ -371,13 +371,18 @@ useEffect(() => {
       return;
     }
 
-    // Verificar permiso del navegador antes de intentar suscribir
-    if (Notification.permission === 'denied') {
-      console.warn("🚫 Permisos de notificación denegados por el usuario.");
-      return;
-    }
+  // Verificar permiso del navegador antes de intentar suscribir
+      if (Notification.permission === 'denied') {
+        console.warn("🚫 Permisos de notificación denegados por el usuario.");
+        return;
+      }
 
-    try {
+      if (!VAPID_PUBLIC_KEY) {
+        console.error("❌ VAPID_PUBLIC_KEY no está definida en el build. Verifica la variable de entorno VITE_VAPID_PUBLIC_KEY en Vercel/Render.");
+        return;
+      }
+
+      try {
       const registration = await navigator.serviceWorker.ready;
       let subscription = await registration.pushManager.getSubscription();
       
@@ -628,17 +633,59 @@ useGeolocation(
       }
     };
 
+    const applyRehydratePayload = (raw: any) => {
+      if (!raw?.requestId || !raw?.status) return;
+      setIsRehydrating(true);
+      const nextState = String(raw.status).toLowerCase().trim();
+      const passengerPayload = raw.passenger
+        ? {
+            ...raw.passenger,
+            email: raw.passenger.email,
+            name: raw.passenger.name,
+            lat: raw.passenger.lat,
+            lng: raw.passenger.lng,
+            pickupAddress: raw.passenger.pickupAddress || "Calculando ubicación...",
+            destinationAddress: raw.passenger.destinationAddress || "Rumbo al destino...",
+            destinationLat: raw.passenger.destinationLat ?? null,
+            destinationLng: raw.passenger.destinationLng ?? null,
+          }
+        : null;
+      setEstado(nextState as PositionState);
+      setPasajeroAsignado(passengerPayload);
+      tripSessionActiveRef.current = true;
+      setIsRehydrating(false);
+      showToastOnce("taxista:trip-rehydrated", () => {
+        toast.success("Sesión de viaje recuperada.");
+      }, { cooldownMs: 3000 });
+    };
+
+    const onTripRehydrated = () => {
+      try {
+        const stored = sessionStorage.getItem("trip_rehydrate_payload");
+        if (!stored) return;
+        const data = JSON.parse(stored);
+        sessionStorage.removeItem("trip_rehydrate_payload");
+        applyRehydratePayload(data);
+      } catch (e) {
+        console.warn("⚠️ Error aplicando rehidratación pendiente:", e);
+      }
+    };
+
+    onTripRehydrated();
+
     checkStatus();
     onConnectRehydrate();
 
     socket.on("connect", checkStatus);
     socket.on("connect", onConnectRehydrate);
+    window.addEventListener("socket-trip-rehydrated", onTripRehydrated as EventListener);
     document.addEventListener("visibilitychange", onResume);
     window.addEventListener("focus", onResume);
 
     return () => {
       socket.off("connect", checkStatus);
       socket.off("connect", onConnectRehydrate);
+      window.removeEventListener("socket-trip-rehydrated", onTripRehydrated as EventListener);
       document.removeEventListener("visibilitychange", onResume);
       window.removeEventListener("focus", onResume);
     };
@@ -1021,39 +1068,6 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     }, { cooldownMs: 4000 });
   });
 
-  socket.on("trip_rehydrate_success", (data) => {
-    if (!data?.requestId || !data?.status) {
-      setIsRehydrating(false);
-      return;
-    }
-
-    setIsRehydrating(true);
-
-    const nextState = String(data.status).toLowerCase().trim();
-    const passengerPayload = data.passenger
-      ? {
-          ...data.passenger,
-          email: data.passenger.email,
-          name: data.passenger.name,
-          lat: data.passenger.lat,
-          lng: data.passenger.lng,
-          pickupAddress: data.passenger.pickupAddress || "Calculando ubicación...",
-          destinationAddress: data.passenger.destinationAddress || "Rumbo al destino...",
-          destinationLat: data.passenger.destinationLat ?? null,
-          destinationLng: data.passenger.destinationLng ?? null,
-        }
-      : null;
-
-    setEstado(nextState as PositionState);
-    setPasajeroAsignado(passengerPayload);
-    tripSessionActiveRef.current = true;
-    setIsRehydrating(false);
-
-    showToastOnce("taxista:trip-rehydrated", () => {
-      toast.success("Sesión de viaje recuperada.");
-    }, { cooldownMs: 3000 });
-  });
-
     socket.on("dispatch_timeout", () => {
       if (["encamino", "encurso"].includes(estadoRef.current)) {
         console.warn("🛡️ dispatch_timeout tardío ignorado: viaje ya confirmado.");
@@ -1126,7 +1140,6 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       socket.off("push_late");
       socket.off("trip_already_taken");
       socket.off("rehydrate_trip_result");
-      socket.off("trip_rehydrate_success");
       socket.off("trip_destination_updated");
       socket.off("trip_cancelled_by_passenger");
       socket.off("trip_finished");
@@ -1329,14 +1342,16 @@ const finalizarViaje = () => {
   };
 
   const handleLogout = () => {
-    socket.disconnect();
-    localStorage.removeItem("token");
-    localStorage.removeItem("email");
-    localStorage.removeItem("role");
-    localStorage.removeItem("userName");
-    localStorage.removeItem("phone");
-    localStorage.removeItem("taxiNumber");
-    window.location.href = "/login";
+    requestExit(() => {
+      socket.disconnect();
+      localStorage.removeItem("token");
+      localStorage.removeItem("email");
+      localStorage.removeItem("role");
+      localStorage.removeItem("userName");
+      localStorage.removeItem("phone");
+      localStorage.removeItem("taxiNumber");
+      window.location.href = "/login";
+    });
   };
 
   const isCompactTripPanel = ["encamino", "encurso"].includes(estado);
@@ -1600,6 +1615,35 @@ const finalizarViaje = () => {
         <div className="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-md z-[3000] flex flex-col items-center justify-center gap-4">
           <div className="w-12 h-12 border-4 border-[#22c55e] border-t-transparent rounded-full animate-spin"></div>
           <p className="text-white font-black uppercase tracking-widest text-sm">Recuperando viaje...</p>
+        </div>
+      )}
+
+      {/* MODAL DE CONFIRMACIÓN DE SALIDA */}
+      {exitAttemptCount === 1 && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[4000] flex items-center justify-center p-4">
+          <div className="bg-[#1e293b] border border-white/10 rounded-[2rem] p-6 max-w-sm w-full shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center text-2xl">⚠️</div>
+              <h3 className="text-white font-black text-lg">¿Salir de la sesión?</h3>
+            </div>
+            <p className="text-slate-300 text-sm mb-6">
+              Toca <span className="font-black text-white">SALIR</span> una vez más para cerrar sesión.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={cancelExit}
+                className="flex-1 py-3 rounded-2xl bg-slate-700 text-white font-black uppercase tracking-widest text-sm active:scale-95 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmExit}
+                className="flex-1 py-3 rounded-2xl bg-red-600 text-white font-black uppercase tracking-widest text-sm active:scale-95 transition-all"
+              >
+                Salir
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
