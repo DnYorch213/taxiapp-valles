@@ -21,11 +21,6 @@ interface TravelContextType {
   taxiPos: { lat: number; lng: number; heading?: number; taxiNumber?: string } | null;
   setTaxiPos: React.Dispatch<React.SetStateAction<{ lat: number; lng: number; heading?: number; taxiNumber?: string } | null>>;
   logout: () => void;
-  exitAttemptCount: number;
-  pendingExitAction: (() => void) | null;
-  requestExit: (action: () => void) => void;
-  confirmExit: () => void;
-  cancelExit: () => void;
 }
 
 interface DecodedToken extends JwtPayload {
@@ -137,8 +132,6 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [pasajerosActivos, setPasajerosActivos] = useState<Position[]>([]);
   const [taxiPos, setTaxiPos] = useState<{ lat: number; lng: number; heading?: number; taxiNumber?: string } | null>(null);
   const wakeLockRef = useRef<ScreenWakeLock | null>(null);
-  const [exitAttemptCount, setExitAttemptCount] = useState(0);
-  const [pendingExitAction, setPendingExitAction] = useState<(() => void) | null>(null);
 
   const tryRequestWakeLock = useCallback(async () => {
     const wakeLockNavigator = navigator as Navigator & {
@@ -312,35 +305,8 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIsTripActive(false);
     setTaxistasActivos([]);
     setPasajerosActivos([]);
-    setExitAttemptCount(0);
-    setPendingExitAction(null);
     window.location.href = "/login";
   };
-
-  const requestExit = useCallback((action: () => void) => {
-    setExitAttemptCount((prev) => {
-      const next = prev + 1;
-      if (next >= 2) {
-        action();
-        return 0;
-      }
-      setPendingExitAction(() => action);
-      return next;
-    });
-  }, []);
-
-  const confirmExit = useCallback(() => {
-    if (pendingExitAction) {
-      pendingExitAction();
-    }
-    setExitAttemptCount(0);
-    setPendingExitAction(null);
-  }, [pendingExitAction]);
-
-  const cancelExit = useCallback(() => {
-    setExitAttemptCount(0);
-    setPendingExitAction(null);
-  }, []);
 
 
   return (
@@ -359,11 +325,6 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         logout,
         taxiPos,
         setTaxiPos,
-        exitAttemptCount,
-        pendingExitAction,
-        requestExit,
-        confirmExit,
-        cancelExit,
       }}
     >
       {children}

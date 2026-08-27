@@ -1128,4 +1128,59 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
     });
 
+    socket.on("driver_explicit_logout", async ({ email }: { email: string }) => {
+        const tEmail = (email || "").toLowerCase().trim();
+        if (!tEmail) return;
+
+        try {
+            const posDoc = await Position.findOne({ email: tEmail }).lean();
+            if (!posDoc) return;
+
+            const estadoActual = String(posDoc.estado || "").toLowerCase();
+            const pasajero = posDoc.pasajeroAsignado || null;
+            const requestId = posDoc.requestId || null;
+
+            if (pasajero && requestId && ["asignado", "encamino", "encurso"].includes(estadoActual)) {
+                await Position.updateOne(
+                    { email: tEmail },
+                    {
+                        $set: {
+                            estado: POSITION_STATES.ACTIVO,
+                            pasajeroAsignado: null,
+                            requestId: null,
+                            updatedAt: new Date()
+                        }
+                    }
+                );
+
+                io.to(pasajero).emit("taxi_disconnected", {
+                    message: "El conductor cerró sesión. Buscando otra unidad..."
+                });
+
+                await clearPendingTimeouts(pasajero, "taxista cerró sesión");
+
+                if (requestId) {
+                    clearDispatchCycle(requestId, "taxista cerró sesión");
+                    clearTaxiResponseRegistry(requestId);
+                }
+            } else {
+                await Position.updateOne(
+                    { email: tEmail },
+                    {
+                        $set: {
+                            estado: POSITION_STATES.ACTIVO,
+                            pasajeroAsignado: null,
+                            requestId: null,
+                            updatedAt: new Date()
+                        }
+                    }
+                );
+            }
+
+            logMotor("logout", `Taxista ${tEmail} cerró sesión explícitamente.`, "INFO");
+        } catch (error) {
+            logMotor("logout", `Error en driver_explicit_logout para ${tEmail}: ${error}`, "ERROR");
+        }
+    });
+
 };

@@ -16,7 +16,6 @@ import { calcularHeading } from "../utils/heading";
 import { TRIP_STATES } from "../constants/states";
 import { shouldAcceptStateTransition } from "../utils/socketStateGuard";
 import { showToastOnce } from "../utils/toastGuard";
-import { useExitGuard } from "../hooks/useExitGuard";
 
 const RoutingMachine = lazy(() =>
   import("../components/RoutingMachine").then((module) => ({
@@ -66,7 +65,7 @@ const PasajeroView: React.FC = () => {
   const CHAT_BUBBLE_SIZE = 52;
   const CHAT_BUBBLE_MARGIN = 12;
 
-  const { userPosition, setUserPosition, taxiPos, setTaxiPos, logout, requestExit, exitAttemptCount, confirmExit, cancelExit } = useTravel();
+  const { userPosition, setUserPosition, taxiPos, setTaxiPos, logout } = useTravel();
   const navigate = useNavigate();
   const [estado, setEstado] = useState<ViajeEstado>(TRIP_STATES.PENDIENTE);
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
@@ -877,11 +876,9 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   };
 
   const handleLogout = () => {
-    requestExit(() => {
-      logout();
-      socket.disconnect();
-      navigate("/login");
-    });
+    logout();
+    socket.disconnect();
+    navigate("/login");
   };
 
   const enCaminoUI = ["asignado", "encamino"].includes(estado);
@@ -1368,35 +1365,6 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
             >
               Aceptar
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL DE CONFIRMACIÓN DE SALIDA */}
-      {exitAttemptCount === 1 && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[4000] flex items-center justify-center p-4">
-          <div className="bg-[#1e293b] border border-white/10 rounded-[2rem] p-6 max-w-sm w-full shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center text-2xl">⚠️</div>
-              <h3 className="text-white font-black text-lg">¿Salir de la sesión?</h3>
-            </div>
-            <p className="text-slate-300 text-sm mb-6">
-              Toca <span className="font-black text-white">SALIR</span> una vez más para cerrar sesión.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={cancelExit}
-                className="flex-1 py-3 rounded-2xl bg-slate-700 text-white font-black uppercase tracking-widest text-sm active:scale-95 transition-all"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={confirmExit}
-                className="flex-1 py-3 rounded-2xl bg-red-600 text-white font-black uppercase tracking-widest text-sm active:scale-95 transition-all"
-              >
-                Salir
-              </button>
-            </div>
           </div>
         </div>
       )}
