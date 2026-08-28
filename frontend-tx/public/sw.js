@@ -3,10 +3,19 @@ const API_BASE_URL =
     ? "http://localhost:3001"
     : "https://taxiapp-valles.onrender.com";
 
-self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (event) =>
-  event.waitUntil(self.clients.claim()),
-);
+const isStandalone = () => {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+};
+
+self.addEventListener("install", () => {
+  console.log("✅ [SW] Instalando service worker...");
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  console.log("✅ [SW] Activando service worker...");
+  event.waitUntil(self.clients.claim());
+});
 
 self.addEventListener("push", function (event) {
   if (!event.data) return;
@@ -25,6 +34,7 @@ self.addEventListener("push", function (event) {
       requireInteraction: true,
       data: rawData.data,
     };
+    console.log("🔔 [SW] Mostrando notificación:", title, "acción:", action);
     event.waitUntil(self.registration.showNotification(title, options));
   } catch (err) {
     console.error("❌ [SW] Error procesando push:", err);
@@ -41,6 +51,8 @@ self.addEventListener("notificationclick", (event) => {
   if (action === "TRIP_ACCEPTED" || action === "TRIP_STARTED" || action === "TRIP_FINISHED") {
     targetUrl = `${self.location.origin}/pasajero`;
   }
+
+  console.log("👆 [SW] Notificación clickeada, navegando a:", targetUrl, "acción:", action);
 
   event.waitUntil(
     clients
@@ -62,4 +74,10 @@ self.addEventListener("notificationclick", (event) => {
         }
       }),
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });

@@ -23,7 +23,7 @@ export const handleSaveSubscription = async (req: Request, res: Response) => {
         const userUpdate = await User.findOneAndUpdate(
             { email: cleanEmail },
             { $set: { pushSubscription: subscription } },
-            { new: true }
+            { returnDocument: "after" } // Devuelve el documento actualizado
         );
 
         if (!userUpdate) {

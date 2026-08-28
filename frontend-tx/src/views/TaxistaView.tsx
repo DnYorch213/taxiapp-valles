@@ -286,32 +286,95 @@ useEffect(() => {
 }, [taxiPos]);
 
 useEffect(() => {
-  if (!tripSessionActiveRef.current) return;
+  const isTripActive = [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(estado as any);
+
+  if (!isTripActive) {
+    return;
+  }
+
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as any).standalone === true;
+
+  const ensureHistoryEntry = () => {
+    try {
+      if (window.location.hash !== "#trip-guard") {
+        window.history.replaceState({ isTripActive: true }, '', '#trip-guard');
+      }
+      window.history.pushState({ isTripActive: true }, '', window.location.href);
+    } catch (e) {
+      console.warn("⚠️ No se pudo ajustar el historial para guard de retroceso:", e);
+    }
+  };
+
+  ensureHistoryEntry();
 
   const handlePopState = (event: PopStateEvent) => {
-    const now = Date.now();
-    if (now - lastBackPressedRef.current < 2000) {
-      window.history.pushState(null, '', window.location.href);
+    if (!tripSessionActiveRef.current) {
       return;
     }
 
-    event.preventDefault();
-    window.history.pushState(null, '', window.location.href);
-    lastBackPressedRef.current = now;
+    const now = Date.now();
+    if (now - lastBackPressedRef.current < 2000) {
+      ensureHistoryEntry();
+      return;
+    }
 
+    lastBackPressedRef.current = now;
     toast.info("Presiona atrás nuevamente para salir", {
       toastId: 'double-back-exit',
       autoClose: 2000,
     });
+
+    if (!standalone) {
+      ensureHistoryEntry();
+    }
   };
 
-  window.history.pushState(null, '', window.location.href);
   window.addEventListener('popstate', handlePopState);
 
   return () => {
     window.removeEventListener('popstate', handlePopState);
   };
-}, []);
+}, [estado]);
+
+useEffect(() => {
+  if (!tripSessionActiveRef.current) return;
+
+  let startX = 0;
+  let startY = 0;
+
+  const handleTouchStart = (event: TouchEvent) => {
+    const touch = event.touches[0];
+    startX = touch.clientX;
+    startY = touch.clientY;
+  };
+
+  const handleTouchMove = (event: TouchEvent) => {
+    if (!tripSessionActiveRef.current) return;
+
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - startX;
+    const deltaY = touch.clientY - startY;
+
+    if (startX < 25 && deltaX > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
+      const now = Date.now();
+      if (now - lastBackPressedRef.current >= 2000) {
+        lastBackPressedRef.current = now;
+        toast.info("Presiona atrás nuevamente para salir", {
+          toastId: 'double-back-exit',
+          autoClose: 2000,
+        });
+      }
+    }
+  };
+
+  window.addEventListener('touchstart', handleTouchStart, { passive: true });
+  window.addEventListener('touchmove', handleTouchMove, { passive: true });
+
+  return () => {
+    window.removeEventListener('touchstart', handleTouchStart);
+    window.removeEventListener('touchmove', handleTouchMove);
+  };
+}, [estado]);
 
 const getDestinoFinalLatLng = useCallback((payload?: Partial<Payload> | null) => {
   if (!payload) return null;
