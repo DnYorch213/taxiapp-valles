@@ -85,6 +85,8 @@ const PasajeroView: React.FC = () => {
   const [geometriaRuta, setGeometriaRuta] = useState<L.LatLngExpression[]>([]);
   const [rutaDestinoPreview, setRutaDestinoPreview] = useState<L.LatLngExpression[]>([]);
   const [rutaDestinoEnCurso, setRutaDestinoEnCurso] = useState<L.LatLngExpression[]>([]);
+  const [tarifaEstimada, setTarifaEstimada] = useState<number | null>(null);
+  const [distanciaEstimadaKm, setDistanciaEstimadaKm] = useState<number | null>(null);
 
   // REFS CENTRALIZADAS - Evitan closures obsoletos en listeners
   const taxistaAsignadoRef = useRef<Payload | null>(null);
@@ -501,7 +503,7 @@ const PasajeroView: React.FC = () => {
 
     // ACEPTACIÓN DEL TAXI (sin setTimeout innecesario)
     socket.on("response_from_taxi", (data) => {
-      console.log("­Respuesta del taxi recibida:", data);
+      console.log("Respuesta del taxi recibida:", data);
 
       if (data.accepted) {
         setSearchFlowActivo(false);
@@ -526,6 +528,13 @@ const PasajeroView: React.FC = () => {
           setTaxiPos(null);
         }
         setHistorialRuta([]);
+
+        if (typeof data.estimatedFare === "number") {
+          setTarifaEstimada(data.estimatedFare);
+        }
+        if (typeof data.estimatedDistanceKm === "number") {
+          setDistanciaEstimadaKm(data.estimatedDistanceKm);
+        }
 
         toast.success(`¡La Unidad ${data.taxiNumber} (${data.name}) va en camino!`, {
           position: "top-center",
@@ -672,6 +681,8 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         setEstado(TRIP_STATES.PENDIENTE);
         setTaxistaAsignado(null);
         setTaxiPos(null);
+        setTarifaEstimada(null);
+        setDistanciaEstimadaKm(null);
         setChatAbierto(false);
         limpiarMapaDestino();
         showToastOnce("pasajero:trip-finished-extended", () => {
@@ -823,6 +834,8 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
     setTaxistaAsignado(null);
     setTaxiPos(null);
+    setTarifaEstimada(null);
+    setDistanciaEstimadaKm(null);
     setHistorialRuta([]);
     setGeometriaRuta([]);
     setRutaDestinoEnCurso([]);
@@ -1276,6 +1289,14 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               <p className="text-center text-[10px] font-black uppercase tracking-[0.16em] text-[#22c55e]">
                 Unidad confirmada, en camino
               </p>
+            )}
+
+            {tarifaEstimada !== null && distanciaEstimadaKm !== null && ["asignado", "encamino", "encurso"].includes(estado) && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mt-2">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500 mb-1">Tarifa estimada</p>
+                <p className="text-lg font-black text-slate-900">${tarifaEstimada} MXN</p>
+                <p className="text-[10px] font-bold text-slate-500">{distanciaEstimadaKm.toFixed(1)} km</p>
+              </div>
             )}
           </div>
         </div>

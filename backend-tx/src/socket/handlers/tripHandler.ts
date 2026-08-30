@@ -7,6 +7,7 @@ import { reverseGeocode } from "../../services/geocodingService";
 import { bindPassengerRequestId, clearPassengerRequestBinding, clearPendingTimeouts, clearRequestTimeouts, dispatchWithRetry, getActiveRequestIdForPassenger, clearDispatchCycle, registerTaxiResponseForRequest, clearTaxiResponseRegistry } from "../../services/dispatchService";
 import { logMotor } from "../../utils/logger";
 import { calculateDistance } from "../../utils/distance";
+import { estimateFareByDistance } from "../../services/fareService";
 import { POSITION_STATES, TRIP_STATES } from "../../constants/states";
 import { joinTripRoom, notifyPeerReconnection } from "../../services/tripRoomService";
 
@@ -180,6 +181,13 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                         pickupAddress = "Ubicación no disponible";
                     }
 
+                    const fareEstimate = estimateFareByDistance(
+                        data.lat,
+                        data.lng,
+                        data.destinationLat || data.lat,
+                        data.destinationLng || data.lng
+                    );
+
                     const pasajeroPayload = {
                         email: pEmail,
                         name: data.name || "Pasajero",
@@ -189,7 +197,9 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                         destinationLat: data.destinationLat ?? null,
                         destinationLng: data.destinationLng ?? null,
                         destinationAddress: data.destinationAddress || "Destino no especificado",
-                        requestId: currentRequestId
+                        requestId: currentRequestId,
+                        estimatedFare: fareEstimate.estimatedPrice,
+                        estimatedDistanceKm: fareEstimate.distanceKm
                     };
 
                     logMotor("request_taxi",
@@ -449,6 +459,13 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
                 const tPos = await Position.findOne({ email: tEmail });
 
+                const fareEstimate = estimateFareByDistance(
+                    pPosActualizado.lat ?? 0,
+                    pPosActualizado.lng ?? 0,
+                    pPosActualizado.destinationLat ?? pPosActualizado.lat ?? 0,
+                    pPosActualizado.destinationLng ?? pPosActualizado.lng ?? 0
+                );
+
                 // 🚀 EMITIR EVENTOS DE ÉXITO
                 io.to(pEmail).emit("response_from_taxi", {
                     accepted: true,
@@ -469,12 +486,16 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                             tPos.lat,
                             tPos.lng
                         )
-                        : null
+                        : null,
+                    estimatedFare: fareEstimate.estimatedPrice,
+                    estimatedDistanceKm: fareEstimate.distanceKm
                 });
 
                 io.to(tEmail).emit("assignment_confirmed", {
                     success: true,
-                    pasajero: buildPayload(pPosActualizado, pPosActualizado, POSITION_STATES.ENCAMINO)
+                    pasajero: buildPayload(pPosActualizado, pPosActualizado, POSITION_STATES.ENCAMINO),
+                    estimatedFare: fareEstimate.estimatedPrice,
+                    estimatedDistanceKm: fareEstimate.distanceKm
                 });
 
                 io.to(pEmail).emit("trip_status_update", {

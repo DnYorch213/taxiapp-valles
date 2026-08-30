@@ -4,6 +4,7 @@ import { Position, IPosition } from "../models/Position";
 import { calculateDistance } from "../utils/distance";
 import { reverseGeocode } from "./geocodingService";
 import { enviarNotificacionPush } from "./pushService";
+import { estimateFareByDistance } from "./fareService";
 import { logMotor } from "../utils/logger";
 import { POSITION_STATES, STATE_GROUPS } from "../constants/states";
 import { emitToTripRoom } from "./tripRoomService";
@@ -195,7 +196,7 @@ const getDispatchCandidates = async (
 
 const runDispatchWithRetry = async (
     io: Server,
-    pasajeroData: { email: string; requestId?: string; lat?: number; lng?: number; name?: string; pickupAddress?: string },
+    pasajeroData: { email: string; requestId?: string; lat?: number; lng?: number; name?: string; pickupAddress?: string; destinationLat?: number; destinationLng?: number },
     excludedEmails: string[] = [],
     attempt: number = 1,
     transactionAttempt: number = 1
@@ -405,16 +406,25 @@ const runDispatchWithRetry = async (
             nombrePasajero = userData?.name || "Pasajero";
         }
 
+        const fareEstimate = estimateFareByDistance(
+            pasajeroData.lat ?? 0,
+            pasajeroData.lng ?? 0,
+            pasajeroData.destinationLat ?? pasajeroData.lat ?? 0,
+            pasajeroData.destinationLng ?? pasajeroData.lng ?? 0
+        );
+
         const fullPayload = {
             ...pasajeroData,
-            name: nombrePasajero, // 🎯 Forzamos que el nombre siempre esté presente y correcto
+            name: nombrePasajero,
             email: pEmail,
             pasajeroEmail: pEmail,
             taxistaEmail: tEmail,
             pickupAddress: direccion,
             attempt,
             distancia,
-            timeoutMs: calculateDynamicTimeout(distancia)
+            timeoutMs: calculateDynamicTimeout(distancia),
+            estimatedFare: fareEstimate.estimatedPrice,
+            estimatedDistanceKm: fareEstimate.distanceKm
         };
 
         // 🎯 6. EMISIÓN DE EVENTOS

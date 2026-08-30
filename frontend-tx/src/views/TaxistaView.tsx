@@ -196,6 +196,8 @@ const TaxistaView: React.FC = () => {
   const [chatBubbleY, setChatBubbleY] = useState<number | null>(null);
   const [isDraggingChatBubble, setIsDraggingChatBubble] = useState(false);
   const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
+  const [tarifaEstimada, setTarifaEstimada] = useState<number | null>(null);
+  const [distanciaEstimadaKm, setDistanciaEstimadaKm] = useState<number | null>(null);
 
   // 🚩 ESTADO PARA EL RASTRO DEL VIAJE
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
@@ -972,6 +974,13 @@ useGeolocation(
         detenerSonido();
         setIsAccepting(false);
         setViajeSolicitado(null);
+
+        if (typeof data.estimatedFare === "number") {
+          setTarifaEstimada(data.estimatedFare);
+        }
+        if (typeof data.estimatedDistanceKm === "number") {
+          setDistanciaEstimadaKm(data.estimatedDistanceKm);
+        }
 
         showToastOnce("taxista:assignment-confirmed", () => {
           toast.success("¡Viaje vinculado! Dirígete al pasajero.");
@@ -2124,6 +2133,14 @@ const finalizarViaje = () => {
                     </div>
                   </div>
                 </div>
+
+                {tarifaEstimada !== null && distanciaEstimadaKm !== null && (
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-3 mt-2">
+                    <p className="text-[8px] font-black uppercase tracking-[0.18em] text-slate-400 mb-1">Tarifa estimada</p>
+                    <p className="text-base font-black text-white">${tarifaEstimada} MXN</p>
+                    <p className="text-[10px] font-bold text-slate-400">{distanciaEstimadaKm.toFixed(1)} km</p>
+                  </div>
+                )}
               </div>
             </div>
 
