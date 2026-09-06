@@ -4,6 +4,7 @@ import { Position } from "../../models/Position";
 import { buildPayload } from "../../utils/payloadBuilder";
 import { logMotor } from "../../utils/logger";
 import { POSITION_STATES } from "../../constants/states";
+import { estimateFareByDistance } from "../../services/fareService";
 
 export const registerLocationHandlers = (io: Server, socket: Socket, email: string) => {
     socket.on("update_driver_status", async (data: { estado?: string }, callback?: (response: { success: boolean; estado?: string; message?: string }) => void) => {
@@ -93,11 +94,20 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
 
             if (!updatedPassenger) return;
 
+            const fareEstimate = estimateFareByDistance(
+                updatedPassenger.lat || 0,
+                updatedPassenger.lng || 0,
+                updatedPassenger.destinationLat,
+                updatedPassenger.destinationLng
+            );
+
             const payload = {
                 pasajeroEmail: passengerEmail,
                 destinationLat: updatedPassenger.destinationLat ?? null,
                 destinationLng: updatedPassenger.destinationLng ?? null,
                 destinationAddress: updatedPassenger.destinationAddress || "Destino no especificado",
+                estimatedFare: fareEstimate.estimatedPrice,
+                estimatedDistanceKm: fareEstimate.distanceKm,
                 timestamp: new Date().toISOString(),
             };
 

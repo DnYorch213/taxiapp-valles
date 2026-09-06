@@ -499,6 +499,13 @@ const PasajeroView: React.FC = () => {
         setDestinationAddress(String(data.destinationAddress));
         setDestinationQuery(String(data.destinationAddress));
       }
+
+      if (typeof data?.estimatedFare === "number") {
+        setTarifaEstimada(data.estimatedFare);
+      }
+      if (typeof data?.estimatedDistanceKm === "number") {
+        setDistanciaEstimadaKm(data.estimatedDistanceKm);
+      }
     };
 
     // ACEPTACIÓN DEL TAXI (sin setTimeout innecesario)

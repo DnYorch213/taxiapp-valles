@@ -934,6 +934,13 @@ useGeolocation(
       if (!sameDestination && nextLat !== null && nextLng !== null && !isInProgressTrip) {
         setRouteRefreshToken((prev) => prev + 1);
       }
+
+      if (typeof data?.estimatedFare === "number") {
+        setTarifaEstimada(data.estimatedFare);
+      }
+      if (typeof data?.estimatedDistanceKm === "number") {
+        setDistanciaEstimadaKm(data.estimatedDistanceKm);
+      }
     };
 
     // 🚨 NUEVO: Listeners de la Trip Room (Coordinación)
