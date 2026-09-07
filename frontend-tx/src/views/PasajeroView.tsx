@@ -606,6 +606,14 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
   if (estadoRef.current === "encurso") {
     setGeometriaRuta([L.latLng(latNum, lngNum)]);
+  } else if (["asignado", "encamino"].includes(estadoRef.current)) {
+    const pasajeroPos = userPositionRef.current;
+    if (pasajeroPos?.lat && pasajeroPos?.lng) {
+      setGeometriaRuta([
+        L.latLng(latNum, lngNum),
+        L.latLng(Number(pasajeroPos.lat), Number(pasajeroPos.lng)),
+      ]);
+    }
   }
 });
 
@@ -882,9 +890,6 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
     if (distanciaMinima < 45 && indiceMasCercano > 0) {
       setGeometriaRuta((prev) => prev.slice(indiceMasCercano));
-    } else if (distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS) {
-      console.log("El taxista tomó otra calle. Recalculando polilínea...");
-      setGeometriaRuta([]);
     }
   }, [taxiPos, estado, geometriaRuta.length]); //  Solo reaccionar al length, no al array completo
 
@@ -986,14 +991,16 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                   position={[userPosition.lat, userPosition.lng]}
                   icon={pasajeroIcon}
                   zIndexOffset={100}
-                />
+                >
+                  <Popup>{userPosition.name || "Pasajero"}</Popup>
+                </Marker>
               )}
 
               {(estado === "encurso" || selectorDestinoAbierto) && destinationPosition && (
                 <Marker
                   position={destinationPosition}
                   icon={destinationMarkerIcon}
-                  zIndexOffset={500}
+                  zIndexOffset={1000}
                   draggable={estado === "encurso" || selectorDestinoAbierto}
                   eventHandlers={
                     estado === "encurso" || selectorDestinoAbierto

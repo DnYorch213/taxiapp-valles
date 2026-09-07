@@ -43,37 +43,6 @@ self.addEventListener("push", function (event) {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-
-  const action = event.notification.data?.action || "OPEN_TRIP_REQUEST";
-  const requestId = event.notification.data?.requestId || "";
-
-  let targetUrl = `${self.location.origin}/taxista`;
-  if (action === "TRIP_ACCEPTED" || action === "TRIP_STARTED" || action === "TRIP_FINISHED") {
-    targetUrl = `${self.location.origin}/pasajero`;
-  }
-
-  console.log("👆 [SW] Notificación clickeada, navegando a:", targetUrl, "acción:", action);
-
-  event.waitUntil(
-    clients
-      .matchAll({ type: "window", includeUncontrolled: true })
-      .then((windowClients) => {
-        const client = windowClients.find((c) =>
-          c.url.startsWith(self.location.origin),
-        );
-
-        if (client && "focus" in client) {
-          if ("navigate" in client) {
-            client.navigate(targetUrl);
-          }
-          return client.focus();
-        }
-
-        if (clients.openWindow) {
-          return clients.openWindow(targetUrl);
-        }
-      }),
-  );
 });
 
 self.addEventListener("message", (event) => {
