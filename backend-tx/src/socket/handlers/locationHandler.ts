@@ -70,7 +70,11 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
             const passengerDoc = await Position.findOne({ email: passengerEmail, role: "pasajero" }).lean();
             if (!passengerDoc) return;
 
-            if (callerRole !== 'admin' && passengerDoc.taxistaAsignado !== email) {
+            const isAdmin = callerRole === 'admin';
+            const isPassengerOwner = email === passengerEmail;
+            const isAssignedTaxi = passengerDoc.taxistaAsignado === email;
+
+            if (!isAdmin && !isPassengerOwner && !isAssignedTaxi) {
                 logMotor("socket_security", `Intento no autorizado de actualizar destino para ${passengerEmail} por ${email}`, "WARN");
                 return;
             }
