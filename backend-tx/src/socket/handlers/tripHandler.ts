@@ -1204,4 +1204,57 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         }
     });
 
+    socket.on("request_rehydrate", async ({ email: requestEmail, role }: { email: string; role?: string }) => {
+        const targetEmail = String(requestEmail || "").toLowerCase().trim();
+        if (!targetEmail) return;
+
+        try {
+            const posDoc = await Position.findOne({ email: targetEmail }).lean();
+            if (!posDoc) {
+                socket.emit("rehydrate_trip_result", { success: false });
+                return;
+            }
+
+            const estadoActual = String(posDoc.estado || "").toLowerCase();
+            const requestId = posDoc.requestId || null;
+            const pasajeroAsignado = posDoc.pasajeroAsignado || null;
+            const taxistaAsignado = posDoc.taxistaAsignado || null;
+
+            let pasajeroPayload: any = null;
+            let estimatedFare: number | null = null;
+            let estimatedDistanceKm: number | null = null;
+
+            if (pasajeroAsignado && requestId && ["asignado", "encamino", "encurso"].includes(estadoActual)) {
+                const taxiDoc = await Position.findOne({ email: pasajeroAsignado }).lean();
+                if (taxiDoc) {
+                    const fareEstimate = estimateFareByDistance(
+                        taxiDoc.lat || 0,
+                        taxiDoc.lng || 0,
+                        taxiDoc.destinationLat ?? taxiDoc.lat ?? 0,
+                        taxiDoc.destinationLng ?? taxiDoc.lng ?? 0
+                    );
+                    pasajeroPayload = buildPayload(taxiDoc, taxiDoc, estadoActual);
+                    estimatedFare = fareEstimate.estimatedPrice;
+                    estimatedDistanceKm = fareEstimate.distanceKm;
+                }
+            }
+
+            const isActiveTrip = ["asignado", "encamino", "encurso"].includes(estadoActual);
+
+            socket.emit("rehydrate_trip_result", {
+                success: true,
+                estado: estadoActual,
+                requestId,
+                pasajero: pasajeroPayload,
+                estimatedFare,
+                estimatedDistanceKm,
+                hasActiveTrip: isActiveTrip,
+                taxistaAsignado: role === "taxista" ? taxistaAsignado : null
+            });
+        } catch (error) {
+            logMotor("rehydrate", `Error en request_rehydrate para ${targetEmail}: ${error}`, "ERROR");
+            socket.emit("rehydrate_trip_result", { success: false });
+        }
+    });
+
 };

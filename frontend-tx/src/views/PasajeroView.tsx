@@ -16,6 +16,7 @@ import { calcularHeading } from "../utils/heading";
 import { TRIP_STATES } from "../constants/states";
 import { shouldAcceptStateTransition } from "../utils/socketStateGuard";
 import { showToastOnce } from "../utils/toastGuard";
+import { getDistanceKm } from "../helpers/getDistanceKm";
 
 const RoutingMachine = lazy(() =>
   import("../components/RoutingMachine").then((module) => ({
@@ -28,6 +29,19 @@ const ROUTE_RECALC_THRESHOLD_METERS = 120;
 const PREVIEW_ORIGIN_RECALC_METERS = 25;
 const PREVIEW_DEST_RECALC_METERS = 6;
 const DESTINATION_STORAGE_TTL_MS = 12 * 60 * 60 * 1000;
+
+const calcularTarifaPorDistancia = (distanciaKm: number): number => {
+  if (!distanciaKm || distanciaKm <= 0) return 50;
+  if (distanciaKm <= 1.0) return 50;
+  if (distanciaKm <= 2.0) return 75;
+  if (distanciaKm <= 3.0) return 80;
+  if (distanciaKm <= 4.0) return 90;
+  if (distanciaKm <= 5.0) return 100;
+  if (distanciaKm <= 6.0) return 105;
+  const kmExtra = distanciaKm - 6.0;
+  const tarifaCalculada = 105 + Math.ceil(kmExtra) * 12;
+  return Math.ceil(tarifaCalculada / 5) * 5;
+};
 
 const isValidCoordinatePair = (lat: number, lng: number) => {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
@@ -87,6 +101,7 @@ const PasajeroView: React.FC = () => {
   const [rutaDestinoEnCurso, setRutaDestinoEnCurso] = useState<L.LatLngExpression[]>([]);
   const [tarifaEstimada, setTarifaEstimada] = useState<number | null>(null);
   const [distanciaEstimadaKm, setDistanciaEstimadaKm] = useState<number | null>(null);
+  const [isRehydrating, setIsRehydrating] = useState(false);
 
   // REFS CENTRALIZADAS - Evitan closures obsoletos en listeners
   const taxistaAsignadoRef = useRef<Payload | null>(null);
@@ -187,6 +202,28 @@ const PasajeroView: React.FC = () => {
     if (destinationLat === null || destinationLng === null) return null;
     return [destinationLat, destinationLng];
   }, [destinationLat, destinationLng]);
+
+  useEffect(() => {
+    if (estado !== "pendiente") return;
+    if (!userPosition?.lat || !userPosition?.lng) return;
+    if (!destinationPosition) {
+      setTarifaEstimada(null);
+      setDistanciaEstimadaKm(null);
+      return;
+    }
+
+    const distanciaKm = getDistanceKm(
+      Number(userPosition.lat),
+      Number(userPosition.lng),
+      destinationPosition[0],
+      destinationPosition[1]
+    );
+
+    const tarifa = calcularTarifaPorDistancia(distanciaKm);
+
+    setDistanciaEstimadaKm(distanciaKm);
+    setTarifaEstimada(tarifa);
+  }, [estado, userPosition?.lat, userPosition?.lng, destinationPosition]);
 
   useEffect(() => {
     if (hasSeededDestinationRef.current) return;
@@ -766,6 +803,104 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }, [socket]); //  SOLO depende de socket - nunca se re-registra por cambios de posición
 
   // ============================================================
+  //  REHIDRATACIÓN DE VIAJE ACTIVO AL RECONECTAR / VOLVER DE SEGUNDO PLANO
+  // ============================================================
+  useEffect(() => {
+    if (!socket) return;
+
+    const miEmail = userPosition?.email?.toLowerCase().trim() || localStorage.getItem("email")?.toLowerCase().trim();
+    if (!miEmail) return;
+
+    const requestRehydrate = () => {
+      if (!socket.connected) return;
+      socket.emit("request_rehydrate", { email: miEmail, role: "pasajero" });
+      setIsRehydrating(true);
+    };
+
+    const handleRehydrateSuccess = (data: any) => {
+      if (!data?.success || !data?.pasajero) {
+        setIsRehydrating(false);
+        return;
+      }
+
+      const nextEstado = String(data.estado || "").toLowerCase().trim();
+      const isInactiveTrip = ["activo", "pendiente", "buscando", "cancelado", "finalizado"].includes(nextEstado);
+
+      if (isInactiveTrip || !data?.pasajero) {
+        setIsRehydrating(false);
+        return;
+      }
+
+      setEstado(nextEstado as ViajeEstado);
+      setTaxistaAsignado(data.pasajero);
+      setTarifaEstimada(data.estimatedFare ?? null);
+      setDistanciaEstimadaKm(data.estimatedDistanceKm ?? null);
+
+      if (data.pasajero.lat && data.pasajero.lng) {
+        setTaxiPos({ lat: Number(data.pasajero.lat), lng: Number(data.pasajero.lng), heading: 0 });
+      }
+
+      setIsRehydrating(false);
+    };
+
+    const handleTripRehydrateSuccess = (data: any) => {
+      if (!data?.requestId || !data?.status) {
+        setIsRehydrating(false);
+        return;
+      }
+
+      const nextEstado = String(data.status).toLowerCase().trim();
+      const passengerPayload = data.passenger
+        ? {
+            ...data.passenger,
+            email: data.passenger.email,
+            name: data.passenger.name,
+            lat: data.passenger.lat,
+            lng: data.passenger.lng,
+            pickupAddress: data.passenger.pickupAddress || "Calculando ubicación...",
+            destinationAddress: data.passenger.destinationAddress || "Rumbo al destino...",
+            destinationLat: data.passenger.destinationLat ?? null,
+            destinationLng: data.passenger.destinationLng ?? null,
+          }
+        : null;
+
+      setEstado(nextEstado as ViajeEstado);
+      setTaxistaAsignado(passengerPayload);
+      setTarifaEstimada(data.estimatedFare ?? null);
+      setDistanciaEstimadaKm(data.estimatedDistanceKm ?? null);
+
+      if (passengerPayload?.lat && passengerPayload?.lng) {
+        setTaxiPos({ lat: Number(passengerPayload.lat), lng: Number(passengerPayload.lng), heading: 0 });
+      }
+
+      setIsRehydrating(false);
+    };
+
+    socket.on("connect", requestRehydrate);
+    socket.on("rehydrate_trip_result", handleRehydrateSuccess);
+    socket.on("trip_rehydrate_success", handleTripRehydrateSuccess);
+
+    const onResume = () => {
+      if (document.visibilityState === "visible") {
+        requestRehydrate();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onResume);
+    window.addEventListener("focus", onResume);
+
+    requestRehydrate();
+
+    return () => {
+      socket.off("connect", requestRehydrate);
+      socket.off("rehydrate_trip_result", handleRehydrateSuccess);
+      socket.off("trip_rehydrate_success", handleTripRehydrateSuccess);
+      document.removeEventListener("visibilitychange", onResume);
+      window.removeEventListener("focus", onResume);
+    };
+  }, [socket, userPosition?.email]);
+
+  // ============================================================
   //  HEARTBEAT OPTIMIZADO - No se re-crea en cada cambio de posición
   // ============================================================
   useEffect(() => {
@@ -1183,6 +1318,16 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 </button>
               </div>
 
+              {tarifaEstimada !== null && distanciaEstimadaKm !== null && (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-2 space-y-1">
+                  <p className="text-[8px] font-black uppercase tracking-[0.18em] text-slate-500">Tarifa estimada</p>
+                  <p className="text-base font-black text-slate-900">${tarifaEstimada} MXN</p>
+                  <p className="text-[10px] font-bold text-slate-500">
+                    {distanciaEstimadaKm.toFixed(1)} km · ~{Math.max(5, Math.round((distanciaEstimadaKm / 30) * 60))} min
+                  </p>
+                </div>
+              )}
+
               <p className="text-[8px] font-bold text-slate-400 uppercase tracking-[0.18em]">
                 Arrastra el pin verde para ajustar la ubicación exacta.
               </p>
@@ -1401,6 +1546,14 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
               Aceptar
             </button>
           </div>
+        </div>
+      )}
+
+      {/* OVERLAY DE REHIDRATACIÓN */}
+      {isRehydrating && (
+        <div className="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-md z-[3000] flex flex-col items-center justify-center gap-4">
+          <div className="w-12 h-12 border-4 border-[#22c55e] border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-white font-black uppercase tracking-widest text-sm">Recuperando viaje...</p>
         </div>
       )}
     </div>
