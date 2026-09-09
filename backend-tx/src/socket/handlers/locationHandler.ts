@@ -1,4 +1,3 @@
-// src/socket/handlers/locationHandler.ts
 import { Server, Socket } from "socket.io";
 import { Position } from "../../models/Position";
 import { buildPayload } from "../../utils/payloadBuilder";
@@ -7,6 +6,7 @@ import { POSITION_STATES } from "../../constants/states";
 import { estimateFareByDistance } from "../../services/fareService";
 
 export const registerLocationHandlers = (io: Server, socket: Socket, email: string) => {
+
     socket.on("update_driver_status", async (data: { estado?: string }, callback?: (response: { success: boolean; estado?: string; message?: string }) => void) => {
         try {
             const nextState = String(data?.estado || "").toLowerCase().trim();
@@ -15,6 +15,7 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                 return;
             }
 
+            // ✅ Usa el 'email' del cierre léxico (autenticado), no del payload
             const currentDoc = await Position.findOne({ email, role: "taxista" });
             if (!currentDoc) {
                 callback?.({ success: false, message: "Taxista no encontrado" });
@@ -28,12 +29,7 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
 
             const updatedDoc = await Position.findOneAndUpdate(
                 { email, role: "taxista" },
-                {
-                    $set: {
-                        estado: nextState,
-                        updatedAt: new Date(),
-                    }
-                },
+                { $set: { estado: nextState, updatedAt: new Date() } },
                 { returnDocument: "after" }
             );
 
@@ -71,7 +67,7 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
             if (!passengerDoc) return;
 
             const isAdmin = callerRole === 'admin';
-            const isPassengerOwner = email === passengerEmail;
+            const isPassengerOwner = email === passengerEmail; // ✅ Compara con el email autenticado
             const isAssignedTaxi = passengerDoc.taxistaAsignado === email;
 
             if (!isAdmin && !isPassengerOwner && !isAssignedTaxi) {
@@ -79,9 +75,7 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                 return;
             }
 
-            const updatePayload: Record<string, any> = {
-                updatedAt: new Date(),
-            };
+            const updatePayload: Record<string, any> = { updatedAt: new Date() };
 
             if (destinationLat !== undefined && destinationLat !== null) updatePayload.destinationLat = Number(destinationLat);
             if (destinationLng !== undefined && destinationLng !== null) updatePayload.destinationLng = Number(destinationLng);
@@ -127,68 +121,86 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
         }
     });
 
+    // ============================================================
+    // 🎯 CORRECCIÓN CRÍTICA: Evento "position" blindado
+    // ============================================================
     socket.on("position", async (data: any) => {
-        if (!data.email) return;
-        if (data.email !== email) {
-            logMotor("socket_security", `Intento de spoofing de posición: ${data.email} vs ${email}`, "WARN");
-            return;
-        }
         try {
-            const currentDoc = await Position.findOne({ email: data.email });
-            const finalName = (data.name && !data.name.includes('@')) ? data.name : (currentDoc?.name || data.name);
-            const explicitState = typeof data.estado === "string" && data.estado.trim()
-                ? data.estado.toLowerCase().trim()
-                : null;
+            // 1. Extraer SOLO datos geográficos. IGNORAR por completo data.email
+            const { lat, lng, name, estado, role } = data;
+
+            // 2. Validación básica de coordenadas (descartar silenciosamente datos basura)
+            if (typeof lat !== "number" || typeof lng !== "number") {
+                return;
+            }
+
+            // 3. Usar SIEMPRE el email autenticado del contexto del socket (parámetro 'email')
+            const currentDoc = await Position.findOne({ email });
+
+            const finalName = (name && !name.includes('@')) ? name : (currentDoc?.name || name || "Usuario");
+
+            const explicitState = typeof estado === "string" && estado.trim() ? estado.toLowerCase().trim() : null;
+
             const shouldPreserveState = Boolean(
                 currentDoc?.estado &&
                 ![POSITION_STATES.CANCELADO, POSITION_STATES.DESCONECTADO].includes(currentDoc.estado as any)
             );
+
             const resolvedEstado = explicitState && [POSITION_STATES.ACTIVO, POSITION_STATES.OCUPADO, POSITION_STATES.INACTIVO, POSITION_STATES.BUSCANDO, POSITION_STATES.PENDIENTE].includes(explicitState as any)
                 ? explicitState
                 : (shouldPreserveState
                     ? currentDoc!.estado
-                    : (data.role === "taxista" ? POSITION_STATES.ACTIVO : POSITION_STATES.BUSCANDO));
+                    : (role === "taxista" ? POSITION_STATES.ACTIVO : POSITION_STATES.BUSCANDO));
 
+            // 4. Actualizar usando el email confiable (NO data.email)
             const updated = await Position.findOneAndUpdate(
-                { email: data.email },
+                { email }, // <--- AQUÍ ESTÁ EL CAMBIO CLAVE
                 {
                     $set: {
-                        lat: data.lat,
-                        lng: data.lng,
+                        lat,
+                        lng,
                         name: finalName,
                         estado: resolvedEstado,
-                        location: (typeof data.lat === "number" && typeof data.lng === "number")
-                            ? { type: "Point", coordinates: [data.lng, data.lat] }
-                            : undefined,
+                        location: { type: "Point", coordinates: [lng, lat] },
                         updatedAt: new Date()
                     }
                 },
                 { upsert: true, returnDocument: "after" }
             );
-            if (updated) io.emit("panel_update", buildPayload(updated, updated, updated.estado));
+
+            if (updated) {
+                io.emit("panel_update", buildPayload(updated, updated, updated.estado));
+            }
         } catch (error) {
-            logMotor("Error en Update Position", `Error al actualizar la posición para ${data.email}: ${error}`, "ERROR");
+            logMotor("position_update", `Error al actualizar la posición para ${email}: ${error}`, "ERROR");
         }
     });
 
+    // ============================================================
+    // 🎯 CORRECCIÓN SECUNDARIA: Evento "taxi_moved" blindado
+    // ============================================================
     socket.on("taxi_moved", async (data) => {
-        const { email } = data;
-        const tPos = await Position.findOne({ email });
-        if (!tPos) return;
+        try {
+            // Ignorar data.email, usar el email autenticado del socket
+            const tPos = await Position.findOne({ email });
+            if (!tPos) return;
 
-        const pasajeroRelacionado = await Position.findOne({
-            taxistaAsignado: email,
-            estado: { $in: [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCURSO, POSITION_STATES.ENCAMINO] }
-        });
-
-        if (pasajeroRelacionado) {
-            io.to(pasajeroRelacionado.email).emit("taxi_moved", {
-                lat: tPos.lat,
-                lng: tPos.lng,
-                tEmail: email,
-                taxiNumber: tPos.taxiNumber || "S/N",
-                estado: pasajeroRelacionado.estado
+            const pasajeroRelacionado = await Position.findOne({
+                taxistaAsignado: email, // <--- Usar email confiable
+                estado: { $in: [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCURSO, POSITION_STATES.ENCAMINO] }
             });
+
+            if (pasajeroRelacionado) {
+                io.to(pasajeroRelacionado.email).emit("taxi_moved", {
+                    lat: tPos.lat,
+                    lng: tPos.lng,
+                    tEmail: email, // <--- Usar email confiable
+                    taxiNumber: tPos.taxiNumber || "S/N",
+                    estado: pasajeroRelacionado.estado
+                });
+            }
+        } catch (error) {
+            logMotor("taxi_moved", `Error en taxi_moved para ${email}: ${error}`, "ERROR");
         }
     });
 };
