@@ -62,6 +62,8 @@ socket.on("trip_rehydrate_success", (data: any) => {
   }
 });
 
+let isConnecting = false;
+
 export const connectSocket = (email: string, role: string) => {
   if (!email || !role) return;
 
@@ -73,12 +75,26 @@ export const connectSocket = (email: string, role: string) => {
     localStorage.setItem("role", role);
   }
 
-  // Si ya está totalmente conectado con la misma identidad, no hacer nada
+  // Si ya está totalmente conectado, no hacer nada
   if (socket.connected) {
     return;
   }
 
-  // Forzar reconexión limpia
+  // Evitar llamadas concurrentes a connect() durante el proceso de conexión
+  if (isConnecting || (socket as any).connecting) {
+    return;
+  }
+
+  isConnecting = true;
+
   socket.connect();
   console.log(`🚀 Iniciando conexión Socket para: ${normalizedEmail} (${role}) en ${SOCKET_BASE_URL}`);
+
+  socket.once("connect", () => {
+    isConnecting = false;
+  });
+
+  socket.once("connect_error", () => {
+    isConnecting = false;
+  });
 };

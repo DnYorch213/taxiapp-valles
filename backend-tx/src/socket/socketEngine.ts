@@ -23,7 +23,7 @@ import {
 // ============================================================
 // 📦 1. ESTADO DEL MÓDULO & HELPER FUNCTIONS
 // ============================================================
-const MICRODROP_TIMEOUT_MS = 15000; // 15 segundos de tolerancia
+const MICRODROP_TIMEOUT_MS = 30000;
 const activeConnections = new Map<string, Set<string>>();
 const microdropTimers = new Map<string, NodeJS.Timeout>();
 const rehydrationTimers = new Map<string, NodeJS.Timeout>();
@@ -78,6 +78,38 @@ const handleTripReconnection = async (socket: Socket, io: Server, currentPos: an
     }
 
     if (requestId) {
+        // 🛡️ Verificar que ambos participantes siguen en un estado activo del viaje.
+        // Si la relación fue cancelada/nullificada en la BD, no unir a la sala ni notificar.
+        let isTripStillValid = Boolean(currentPos.requestId) || Boolean(currentPos.pasajeroAsignado || currentPos.taxistaAsignado);
+
+        if (isTripStillValid) {
+            if (currentPos.pasajeroAsignado) {
+                try {
+                    const passengerCheck = await Position.findOne({ email: currentPos.pasajeroAsignado }).lean();
+                    if (passengerCheck && passengerCheck.taxistaAsignado !== email) {
+                        isTripStillValid = false;
+                    }
+                } catch (err) {
+                    isTripStillValid = false;
+                }
+            }
+            if (currentPos.taxistaAsignado && isTripStillValid) {
+                try {
+                    const taxiCheck = await Position.findOne({ email: currentPos.taxistaAsignado }).lean();
+                    if (taxiCheck && taxiCheck.pasajeroAsignado !== email) {
+                        isTripStillValid = false;
+                    }
+                } catch (err) {
+                    isTripStillValid = false;
+                }
+            }
+        }
+
+        if (!isTripStillValid) {
+            logMotor("socket_reconnect", `Ignorando reconexión de viaje para ${email}: relación cancelada o inválida`, "INFO");
+            return;
+        }
+
         joinTripRoom(socket, requestId, email);
 
         const who: "pasajero" | "taxista" = currentPos.role === "taxista" ? "taxista" : "pasajero";
