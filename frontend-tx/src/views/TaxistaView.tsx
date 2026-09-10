@@ -1149,32 +1149,52 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }
 });
 
+ // 🚩 Listener de rehidratación CORREGIDO
+socket.on("rehydrate_trip_result", (data) => {
+  if (!data?.success) {
+    resetSolicitudActiva();
+    return;
+  }
 
-    // 🚩 Listener de rehidratación
-  socket.on("rehydrate_trip_result", (data) => {
-    if (!data?.success) {
-      resetSolicitudActiva();
-      return;
-    }
+  const nextState = String(data.estado || "").toLowerCase().trim();
+  
+  // Definimos qué estados se consideran un viaje REALMENTE activo
+  const activeStates = ["asignado", "encamino", "encurso", "preasignado"];
+  const hasActiveTrip = activeStates.includes(nextState) && data?.pasajero;
 
-    const nextState = String(data.estado || "").toLowerCase().trim();
-    const isInactiveTrip = ["activo", "pendiente", "buscando", "cancelado", "finalizado"].includes(nextState);
-
-    if (isInactiveTrip || !data?.pasajero) {
-      resetSolicitudActiva();
-      showToastOnce("taxista:rehydrated-cancelled", () => {
-        toast.info("La solicitud ya no está activa. Quedaste disponible.");
-      }, { cooldownMs: 4000 });
-      return;
-    }
-
+  if (hasActiveTrip) {
+    // ✅ CASO 1: Hay un viaje activo legítimo. Restauramos la UI.
     setEstado(nextState as PositionState);
     setPasajeroAsignado(data.pasajero);
     tripSessionActiveRef.current = true;
+    
     showToastOnce("taxista:rehydrated", () => {
-      toast.success("¡Viaje rehidratado con éxito!");
+      toast.success("¡Viaje recuperado con éxito!");
     }, { cooldownMs: 4000 });
-  });
+    
+  } else {
+    // ✅ CASO 2: No hay viaje activo según el backend.
+    // Pregunta clave: ¿El frontend CREÍA que tenía un viaje activo antes de esto?
+    const teniaViajeActivoLocalmente = tripSessionActiveRef.current || 
+                                       ["asignado", "encamino", "encurso"].includes(estado); // Asumiendo que 'estado' es tu variable de estado local
+
+    if (teniaViajeActivoLocalmente) {
+      // Sí teníamos un viaje, pero el backend dice que ya no. ¡Aquí SÍ mostramos el toast!
+      resetSolicitudActiva();
+      setEstado("activo" as PositionState);
+      
+      showToastOnce("taxista:rehydrated-cancelled", () => {
+        toast.info("La solicitud ya no está activa. Quedaste disponible.");
+      }, { cooldownMs: 4000 });
+    } else {
+      // No teníamos viaje, y seguimos sin tenerlo. Estado normal. 
+      // ¡NO MOSTRAMOS NADA! Solo limpiamos y aseguramos el estado base.
+      resetSolicitudActiva();
+      setEstado("activo" as PositionState);
+      // Silencio total. El usuario solo ve su pantalla normal de "Disponible".
+    }
+  }
+});
 
     socket.on("dispatch_timeout", () => {
       if (["encamino", "encurso"].includes(estadoRef.current)) {
