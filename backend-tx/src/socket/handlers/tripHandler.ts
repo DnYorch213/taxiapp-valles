@@ -186,7 +186,8 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                         data.lat,
                         data.lng,
                         data.destinationLat || data.lat,
-                        data.destinationLng || data.lng
+                        data.destinationLng || data.lng,
+                        data.destinationAddress
                     );
 
                     const pasajeroPayload = {
@@ -435,11 +436,13 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
                 const tPos = await Position.findOne({ email: tEmail });
 
+                // ✅ DESPUÉS (100% Consistente con la lógica inteligente)
                 const fareEstimate = estimateFareByDistance(
                     pPosActualizado.lat ?? 0,
                     pPosActualizado.lng ?? 0,
                     pPosActualizado.destinationLat ?? pPosActualizado.lat ?? 0,
-                    pPosActualizado.destinationLng ?? pPosActualizado.lng ?? 0
+                    pPosActualizado.destinationLng ?? pPosActualizado.lng ?? 0,
+                    pPosActualizado.destinationAddress || undefined // <-- Agregado para consistencia total
                 );
 
                 io.to(pEmail).emit("response_from_taxi", {
@@ -1057,10 +1060,10 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
     });
 
     // ============================================================
-    // 🎯 REHIDRATACIÓN DE SESIÓN - BLINDADO CONTRA SPOOFING
+    // 🎯 REHIDRATACIÓN DE SESIÓN - BLINDADO CONTRA SPOOFING Y CON TARIFA INTELIGENTE
     // ============================================================
     socket.on("request_rehydrate", async ({ role }: { role?: string }) => {
-        // ✅ CORRECCIÓN: Forzar el uso del email autenticado del socket, ignorar el payload
+        // ✅ CORRECCIÓN: Forzar el uso del email autenticado del socket
         const targetEmail = email.toLowerCase().trim();
 
         try {
@@ -1075,22 +1078,43 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             const pasajeroAsignado = posDoc.pasajeroAsignado || null;
             const taxistaAsignado = posDoc.taxistaAsignado || null;
 
-            let pasajeroPayload: any = null;
+            let counterpartPayload: any = null;
             let estimatedFare: number | null = null;
             let estimatedDistanceKm: number | null = null;
 
-            if (pasajeroAsignado && requestId && [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(estadoActual as any)) {
-                const taxiDoc = await Position.findOne({ email: pasajeroAsignado }).lean();
-                if (taxiDoc) {
-                    const fareEstimate = estimateFareByDistance(
-                        taxiDoc.lat || 0,
-                        taxiDoc.lng || 0,
-                        taxiDoc.destinationLat ?? taxiDoc.lat ?? 0,
-                        taxiDoc.destinationLng ?? taxiDoc.lng ?? 0
-                    );
-                    pasajeroPayload = buildPayload(taxiDoc, taxiDoc, estadoActual);
-                    estimatedFare = fareEstimate.estimatedPrice;
-                    estimatedDistanceKm = fareEstimate.distanceKm;
+            // 🚀 Si hay un viaje activo, recuperamos los datos completos de AMBAS partes
+            if (requestId && [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(estadoActual as any)) {
+
+                // Determinar quién es quién en este viaje, sin importar si quien reconecta es el taxista o el pasajero
+                const isPassenger = posDoc.role === "pasajero";
+                const passengerEmail = isPassenger ? targetEmail : pasajeroAsignado;
+                const taxiEmail = isPassenger ? taxistaAsignado : targetEmail;
+
+                if (passengerEmail && taxiEmail) {
+                    // Obtenemos ambos documentos en paralelo para máxima eficiencia
+                    const [pDoc, tDoc] = await Promise.all([
+                        Position.findOne({ email: passengerEmail }).lean(),
+                        Position.findOne({ email: taxiEmail }).lean()
+                    ]);
+
+                    if (pDoc && tDoc) {
+                        // 🌟 CÁLCULO DE TARIFA CON EL 5º PARÁMETRO (destinationAddress)
+                        // Esto activa la lógica de "Lugares Conocidos" (ej. Walmart = $75) al reconectar
+                        const fareEstimate = estimateFareByDistance(
+                            tDoc.lat || pDoc.lat || 0, // Origen: ubicación actual del taxista (o del pasajero como fallback)
+                            tDoc.lng || pDoc.lng || 0,
+                            pDoc.destinationLat ?? pDoc.lat ?? 0, // Destino: siempre basado en el documento del pasajero
+                            pDoc.destinationLng ?? pDoc.lng ?? 0,
+                            pDoc.destinationAddress || undefined // ¡CLAVE! Activa las tarifas por nombre de lugar
+                        );
+
+                        // Preparamos el payload de la "otra parte" para enviarlo al que reconecta
+                        const counterpartDoc = isPassenger ? tDoc : pDoc;
+                        counterpartPayload = buildPayload(counterpartDoc, counterpartDoc, estadoActual);
+
+                        estimatedFare = fareEstimate.estimatedPrice;
+                        estimatedDistanceKm = fareEstimate.distanceKm;
+                    }
                 }
             }
 
@@ -1100,7 +1124,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 success: true,
                 estado: estadoActual,
                 requestId,
-                pasajero: pasajeroPayload,
+                counterpart: counterpartPayload, // Renombrado para ser más claro (es el "otro" usuario)
                 estimatedFare,
                 estimatedDistanceKm,
                 hasActiveTrip: isActiveTrip,
