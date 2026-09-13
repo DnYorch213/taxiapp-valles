@@ -908,7 +908,143 @@ useGeolocation(
   useEffect(() => {
     if (!socket) return;
 
-    // Listener para actualización de destino
+    // 🔄 LISTENER DE CAMBIO DE ESTADO (BLINDADO)
+    const handleTripStatusUpdate = (data: any) => {
+    console.log("🔄 [Socket Test] Cambio de estado recibido:", data);
+
+    const nextEstado = String(data.estado || "").toLowerCase().trim();
+    const normalizedNextEstado = nextEstado === "buscando" ? POSITION_STATES.ACTIVO : nextEstado;
+
+    if (!tripSessionActiveRef.current && ["encamino", "encurso", "asignado"].includes(normalizedNextEstado)) {
+      console.warn("🛡️ trip_status_update ignorado: la sesión local ya fue cerrada.", { nextEstado });
+      return;
+    }
+
+    if (!shouldAcceptStateTransition(estadoRef.current, normalizedNextEstado as PositionState)) {
+      console.warn("🛡️ Estado del taxista ignorado por guard de sincronización:", { current: estadoRef.current, next: normalizedNextEstado });
+      return;
+    }
+
+    if (["encurso", "finalizado", "pendiente"].includes(estadoRef.current) && normalizedNextEstado === POSITION_STATES.ACTIVO) {
+      console.warn("🛡️ Ignorado salto a activo porque el viaje ya está cerrado o en curso.");
+      return;
+    }
+
+    if (normalizedNextEstado) {
+      setEstado(normalizedNextEstado as PositionState);
+    }
+
+    if (data.estado === "encamino") {
+      setPasajeroAsignado((prev: any) => {
+        if (data.pasajeroAsignado?.pickupAddress && data.pasajeroAsignado.pickupAddress !== "Calculando ubicación...") {
+          return data.pasajeroAsignado;
+        }
+        if (prev?.pickupAddress && prev.pickupAddress !== "Calculando ubicación...") {
+          return { ...prev, ...data.pasajeroAsignado, pickupAddress: prev.pickupAddress };
+        }
+        return prev;
+      });
+    }
+
+    if (data.estado === "encurso") {
+      detenerSonido();
+      setChatAbierto(false);
+
+      const pasajeroConDestinoReal = data.pasajeroAsignado || pasajeroAsignadoRef.current;
+      const destinoFinal = hasRealFinalDestination(pasajeroConDestinoReal)
+        ? getDestinoFinalLatLng(pasajeroConDestinoReal)
+        : null;
+
+      setPasajeroAsignado((prev: any) => ({
+        ...prev,
+        pickupAddress: prev?.pickupAddress && prev.pickupAddress !== "Calculando ubicación..."
+          ? prev.pickupAddress
+          : "Pasajero a bordo",
+        destinationAddress: data.destinationAddress || data.pasajeroAsignado?.destinationAddress || prev?.destinationAddress || "Rumbo al destino..."
+      }));
+
+      showToastOnce("taxista:trip-started", () => {
+        toast.info("¡Viaje iniciado! Rumbo al destino final.");
+      }, { cooldownMs: 4000 });
+
+      if (data.estimatedFare != null) {
+        setTarifaEstimada(data.estimatedFare);
+      }
+      if (data.estimatedDistanceKm != null) {
+        setDistanciaEstimadaKm(data.estimatedDistanceKm);
+      }
+    }
+    };
+
+    const handleUpdateTripPath = (data: { lat: number; lng: number }) => {
+      const nuevaCoord = L.latLng(data.lat, data.lng);
+      setHistorialRuta((prev) => [...prev, nuevaCoord]);
+
+      setTaxiPos((prev) => ({
+        lat: data.lat,
+        lng: data.lng,
+        heading: prev?.heading || 0,
+      }));
+
+      if (estadoRef.current === POSITION_STATES.ENCURSO) {
+        const destinoFinal = hasRealFinalDestination(pasajeroAsignadoRef.current)
+          ? getDestinoFinalLatLng(pasajeroAsignadoRef.current)
+          : null;
+
+        if (!destinoFinal) {
+          setRutaDestinoFinal([]);
+          return;
+        }
+
+        if (rutaDestinoFinal.length === 0) {
+          setRouteRefreshToken((prev) => prev + 1);
+        }
+      }
+    };
+
+    // 🚩 LISTENER DE REHIDRATACIÓN
+    const handleRehydrateTripResult = (data: any) => {
+      if (!data?.success) {
+        resetSolicitudActiva();
+        return;
+      }
+
+      const nextState = String(data.estado || "").toLowerCase().trim();
+
+      const activeStates = ["asignado", "encamino", "encurso", "preasignado"];
+      // Backend sends the passenger/taxi data as "counterpart"
+      const counterpart = data.counterpart || data.pasajero || data;
+      const hasActiveTrip = activeStates.includes(nextState) && counterpart;
+
+      if (hasActiveTrip) {
+        setEstado(nextState as PositionState);
+        setPasajeroAsignado(counterpart);
+        tripSessionActiveRef.current = true;
+        setTarifaEstimada(data.estimatedFare ?? null);
+        setDistanciaEstimadaKm(data.estimatedDistanceKm ?? null);
+
+        showToastOnce("taxista:rehydrated", () => {
+          toast.success("¡Viaje recuperado con éxito!");
+        }, { cooldownMs: 4000 });
+
+      } else {
+        const teniaViajeActivoLocalmente = tripSessionActiveRef.current ||
+          ["asignado", "encamino", "encurso"].includes(estadoRef.current);
+
+        resetSolicitudActiva();
+        setEstado("activo" as PositionState);
+
+        if (teniaViajeActivoLocalmente) {
+          showToastOnce("taxista:rehydrated-cancelled", () => {
+            toast.info("La solicitud ya no está activa. Quedaste disponible.");
+          }, { cooldownMs: 4000 });
+        }
+      }
+
+      setIsRehydrating(false);
+    };
+
+    // 🚩 LISTENER DE ACTUALIZACIÓN DE DESTINO
     const handleTripDestinationUpdated = (data: any) => {
       const passengerEmail = pasajeroAsignadoRef.current?.email?.toLowerCase().trim();
       const incomingEmail = String(data?.pasajeroEmail || "").toLowerCase().trim();
@@ -1037,164 +1173,15 @@ useGeolocation(
       resetSolicitudActiva();
     };
 
-    // 🚨 Listeners de oferta/asignación de viaje (faltaban: sin esto nunca abre el modal)
-    socket.on("pasajero_asignado", handleAsignacion);
-    socket.on("assignment_confirmed", handleAssignmentConfirmed);
-    socket.on("trip_destination_updated", handleTripDestinationUpdated);
-
-    socket.on("trip_already_taken", handleLateOffer);
-    socket.on("push_late", handleLateOffer);
-    socket.on("reset_estado_taxista", handleResetTaxistaState);
-     // Listeners de la Trip Room
-    socket.on("trip_peer_reconnected", handlePeerReconnected);
-    socket.on("trip_boarding_confirmed", handleBoardingConfirmed);
-    socket.on("trip_finished_coordinated", handleTripFinished);
+        
 
 
-// 2. 🔄 LISTENER DE CAMBIO DE ESTADO (BLINDADO)
-socket.on("trip_status_update", (data: any) => {
-  console.log("🔄 [Socket Test] Cambio de estado recibido:", data);
 
-  const nextEstado = String(data.estado || "").toLowerCase().trim();
-  const normalizedNextEstado = nextEstado === "buscando" ? POSITION_STATES.ACTIVO : nextEstado;
-
-  if (!tripSessionActiveRef.current && ["encamino", "encurso", "asignado"].includes(normalizedNextEstado)) {
-    console.warn("🛡️ trip_status_update ignorado: la sesión local ya fue cerrada.", { nextEstado });
-    return;
-  }
-
-  if (!shouldAcceptStateTransition(estadoRef.current, normalizedNextEstado as PositionState)) {
-    console.warn("🛡️ Estado del taxista ignorado por guard de sincronización:", { current: estadoRef.current, next: normalizedNextEstado });
-    return;
-  }
-
-    // 🛡️ Escudo: ignorar 'buscando' si ya estamos en encurso/finalizado/pendiente
-  if (["encurso", "finalizado", "pendiente"].includes(estadoRef.current) && normalizedNextEstado === POSITION_STATES.ACTIVO) {
-    console.warn("🛡️ Ignorado salto a activo porque el viaje ya está cerrado o en curso.");
-    return;
-  }
-  
-  if (normalizedNextEstado) {
-    setEstado(normalizedNextEstado as PositionState);
-  }
-
-  // 🚖 CASO A: EL TAXISTA VA EN CAMINO A RECOGER AL PASAJERO
-  if (data.estado === "encamino") {
-    setPasajeroAsignado((prev: any) => {
-      // Prioridad 1: Si el backend por fin mandó los datos limpios en el evento
-      if (data.pasajeroAsignado?.pickupAddress && data.pasajeroAsignado.pickupAddress !== "Calculando ubicación...") {
-        return data.pasajeroAsignado;
-      }
-      // Prioridad 2: Si el estado previo tiene la dirección real viva, la retenemos completa
-      if (prev?.pickupAddress && prev.pickupAddress !== "Calculando ubicación...") {
-        return { ...prev, ...data.pasajeroAsignado, pickupAddress: prev.pickupAddress };
-      }
-      // Prioridad 3: Si todo falla, buscamos en el historial del objeto de la alerta
-      return prev;
-    });
-  }
-
-  // 🏁 CASO B: EL PASAJERO YA SUBIÓ Y EL VIAJE ESTÁ EN CURSO
-  if (data.estado === "encurso") {
-    detenerSonido();
-    setChatAbierto(false);
-
-    const pasajeroConDestinoReal = data.pasajeroAsignado || pasajeroAsignadoRef.current;
-    const destinoFinal = hasRealFinalDestination(pasajeroConDestinoReal)
-      ? getDestinoFinalLatLng(pasajeroConDestinoReal)
-      : null;
-
-    setPasajeroAsignado((prev: any) => ({
-      ...prev,
-      pickupAddress: prev?.pickupAddress && prev.pickupAddress !== "Calculando ubicación..." 
-        ? prev.pickupAddress 
-        : "Pasajero a bordo",
-      destinationAddress: data.destinationAddress || data.pasajeroAsignado?.destinationAddress || prev?.destinationAddress || "Rumbo al destino..."
-    }));
-
-    showToastOnce("taxista:trip-started", () => {
-      toast.info("¡Viaje iniciado! Rumbo al destino final.");
-    }, { cooldownMs: 4000 });
-  }
-});
-
-// Reemplaza el listener update_trip_path con este:
-socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
-  // 🎯 CORRECCIÓN TIPO: Usar L.latLng para evitar el error de TypeScript
-  const nuevaCoord = L.latLng(data.lat, data.lng);
-  setHistorialRuta((prev) => [...prev, nuevaCoord]);
-
-  // 🎯 CORRECCIÓN LÓGICA: Preservar el heading calculado por useGeolocation
-  // No lo sobrescribas con 0, o el ícono del taxi perderá su orientación real
-  setTaxiPos((prev) => ({
-    lat: data.lat,
-    lng: data.lng,
-    heading: prev?.heading || 0, 
-  }));
-
-  if (estadoRef.current === POSITION_STATES.ENCURSO) {
-    const destinoFinal = hasRealFinalDestination(pasajeroAsignadoRef.current)
-      ? getDestinoFinalLatLng(pasajeroAsignadoRef.current)
-      : null;
-      
-    if (!destinoFinal) {
-      setRutaDestinoFinal([]);
-      return;
-    }
-
-    // 🎯 CORRECCIÓN CRÍTICA: Si la ruta está vacía, hay que forzar el recálculo
-    if (rutaDestinoFinal.length === 0) {
-      setRouteRefreshToken((prev) => prev + 1); // Esto activa el RoutingMachine
-    }
-  }
-});
-
- // 🚩 Listener de rehidratación CORREGIDO
-socket.on("rehydrate_trip_result", (data) => {
-  if (!data?.success) {
-    resetSolicitudActiva();
-    return;
-  }
-
-  const nextState = String(data.estado || "").toLowerCase().trim();
-  
-  // Definimos qué estados se consideran un viaje REALMENTE activo
-  const activeStates = ["asignado", "encamino", "encurso", "preasignado"];
-  const hasActiveTrip = activeStates.includes(nextState) && data?.pasajero;
-
-  if (hasActiveTrip) {
-    // ✅ CASO 1: Hay un viaje activo legítimo. Restauramos la UI.
-    setEstado(nextState as PositionState);
-    setPasajeroAsignado(data.pasajero);
-    tripSessionActiveRef.current = true;
-    
-    showToastOnce("taxista:rehydrated", () => {
-      toast.success("¡Viaje recuperado con éxito!");
-    }, { cooldownMs: 4000 });
-    
-  } else {
-    // ✅ CASO 2: No hay viaje activo según el backend.
-    // Pregunta clave: ¿El frontend CREÍA que tenía un viaje activo antes de esto?
-    const teniaViajeActivoLocalmente = tripSessionActiveRef.current || 
-                                       ["asignado", "encamino", "encurso"].includes(estado); // Asumiendo que 'estado' es tu variable de estado local
-
-    if (teniaViajeActivoLocalmente) {
-      // Sí teníamos un viaje, pero el backend dice que ya no. ¡Aquí SÍ mostramos el toast!
-      resetSolicitudActiva();
-      setEstado("activo" as PositionState);
-      
-      showToastOnce("taxista:rehydrated-cancelled", () => {
-        toast.info("La solicitud ya no está activa. Quedaste disponible.");
-      }, { cooldownMs: 4000 });
-    } else {
-      // No teníamos viaje, y seguimos sin tenerlo. Estado normal. 
-      // ¡NO MOSTRAMOS NADA! Solo limpiamos y aseguramos el estado base.
-      resetSolicitudActiva();
-      setEstado("activo" as PositionState);
-      // Silencio total. El usuario solo ve su pantalla normal de "Disponible".
-    }
-  }
-});
+     socket.on("trip_destination_updated", handleTripDestinationUpdated);
+     // 🔄 LISTENERS DE ESTADO Y RUTA
+     socket.on("trip_status_update", handleTripStatusUpdate);
+     socket.on("update_trip_path", handleUpdateTripPath);
+     socket.on("rehydrate_trip_result", handleRehydrateTripResult);
 
     socket.on("dispatch_timeout", () => {
       if (["encamino", "encurso"].includes(estadoRef.current)) {
