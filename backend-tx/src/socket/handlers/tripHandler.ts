@@ -1021,7 +1021,6 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                     { email: tEmail },
                     {
                         $set: {
-                            role: "pasajero",
                             estado: POSITION_STATES.INACTIVO,
                             pasajeroAsignado: null,
                             requestId: null,
@@ -1045,7 +1044,6 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                     { email: tEmail },
                     {
                         $set: {
-                            role: "pasajero",
                             estado: POSITION_STATES.INACTIVO,
                             pasajeroAsignado: null,
                             requestId: null,
