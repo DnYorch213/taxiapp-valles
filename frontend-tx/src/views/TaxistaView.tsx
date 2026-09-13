@@ -1178,10 +1178,12 @@ useGeolocation(
 
 
      socket.on("trip_destination_updated", handleTripDestinationUpdated);
-     // 🔄 LISTENERS DE ESTADO Y RUTA
-     socket.on("trip_status_update", handleTripStatusUpdate);
-     socket.on("update_trip_path", handleUpdateTripPath);
-     socket.on("rehydrate_trip_result", handleRehydrateTripResult);
+      // 🔄 LISTENERS DE ESTADO Y RUTA
+      socket.on("trip_status_update", handleTripStatusUpdate);
+      socket.on("update_trip_path", handleUpdateTripPath);
+      socket.on("rehydrate_trip_result", handleRehydrateTripResult);
+      socket.on("pasajero_asignado", handleAsignacion);
+      socket.on("assignment_confirmed", handleAssignmentConfirmed);
 
     socket.on("dispatch_timeout", () => {
       if (["encamino", "encurso"].includes(estadoRef.current)) {
