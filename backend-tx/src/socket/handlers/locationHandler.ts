@@ -122,23 +122,24 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
     });
 
     // ============================================================
-    // 🎯 CORRECCIÓN CRÍTICA: Evento "position" blindado
+    // 🎯 CORRECCIÓN DEFINITIVA: Evento "position" blindado por ROL
     // ============================================================
     socket.on("position", async (data: any) => {
         try {
-            // 1. Extraer SOLO datos geográficos. IGNORAR por completo data.email
-            const { lat, lng, name, estado, role } = data;
+            // 1. Extraer datos geográficos del cliente
+            const { lat, lng, name, estado } = data;
 
-            // 2. Validación básica de coordenadas (descartar silenciosamente datos basura)
             if (typeof lat !== "number" || typeof lng !== "number") {
                 return;
             }
 
-            // 3. Usar SIEMPRE el email autenticado del contexto del socket (parámetro 'email')
-            const currentDoc = await Position.findOne({ email });
+            // 2. OBTENER ROL REAL DEL JWT / SOCKET (NUNCA DEL CLIENTE NI DE DATA)
+            const realRole = socket.data.role || "taxista"; // 🔒 Rol inyectado desde el middleware JWT
+
+            // 3. Buscar la posición EXISTENTE correspondiente A SU ROL REAL
+            const currentDoc = await Position.findOne({ email, role: realRole });
 
             const finalName = (name && !name.includes('@')) ? name : (currentDoc?.name || name || "Usuario");
-
             const explicitState = typeof estado === "string" && estado.trim() ? estado.toLowerCase().trim() : null;
 
             const shouldPreserveState = Boolean(
@@ -146,17 +147,26 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                 ![POSITION_STATES.CANCELADO, POSITION_STATES.DESCONECTADO].includes(currentDoc.estado as any)
             );
 
-            const resolvedEstado = explicitState && [POSITION_STATES.ACTIVO, POSITION_STATES.OCUPADO, POSITION_STATES.INACTIVO, POSITION_STATES.BUSCANDO, POSITION_STATES.PENDIENTE].includes(explicitState as any)
-                ? explicitState
-                : (shouldPreserveState
-                    ? currentDoc!.estado
-                    : (role === "taxista" ? POSITION_STATES.ACTIVO : POSITION_STATES.BUSCANDO));
+            // Si es taxista, su estado por defecto debe ser ACTIVO, NUNCA 'buscando'
+            const defaultStateByRole = realRole === "taxista" ? POSITION_STATES.ACTIVO : POSITION_STATES.BUSCANDO;
 
-            // 4. Actualizar usando el email confiable (NO data.email)
+            const resolvedEstado = explicitState && [
+                POSITION_STATES.ACTIVO,
+                POSITION_STATES.OCUPADO,
+                POSITION_STATES.INACTIVO,
+                POSITION_STATES.BUSCANDO,
+                POSITION_STATES.PENDIENTE
+            ].includes(explicitState as any)
+                ? explicitState
+                : (shouldPreserveState ? currentDoc!.estado : defaultStateByRole);
+
+            // 4. Actualizar SOBREESCRIBIENDO SIEMPRE EL ROL CON EL REAL
             const updated = await Position.findOneAndUpdate(
-                { email }, // <--- AQUÍ ESTÁ EL CAMBIO CLAVE
+                { email, role: realRole }, // <--- FORZAR BÚSQUEDA POR EMAIL Y ROL REAL
                 {
                     $set: {
+                        email,
+                        role: realRole, // 🚨 GARANTIZA QUE EN MONGO QUEDE GUARDADO COMO "taxista"
                         lat,
                         lng,
                         name: finalName,

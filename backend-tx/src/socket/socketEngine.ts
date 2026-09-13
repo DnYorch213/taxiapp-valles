@@ -87,7 +87,17 @@ const handleTripReconnection = async (socket: Socket, io: Server, currentPos: an
                 try {
                     const passengerCheck = await Position.findOne({ email: currentPos.pasajeroAsignado }).lean();
                     if (passengerCheck && passengerCheck.taxistaAsignado !== email) {
-                        isTripStillValid = false;
+                        // 🚨 Si el requestId coincide, es una relación desincronizada (no cancelada).
+                        // Reestablecer la relación en lugar de descartar el viaje por completo.
+                        if (passengerCheck.requestId === requestId) {
+                            logMotor("socket_reconnect", `Reconstruyendo relación de viaje para ${email}: requestId coincide pero taxistaAsignado estaba desincronizado`, "WARN");
+                            await Position.updateOne(
+                                { email: currentPos.pasajeroAsignado },
+                                { $set: { taxistaAsignado: email, updatedAt: new Date() } }
+                            );
+                        } else {
+                            isTripStillValid = false;
+                        }
                     }
                 } catch (err) {
                     isTripStillValid = false;
@@ -97,7 +107,16 @@ const handleTripReconnection = async (socket: Socket, io: Server, currentPos: an
                 try {
                     const taxiCheck = await Position.findOne({ email: currentPos.taxistaAsignado }).lean();
                     if (taxiCheck && taxiCheck.pasajeroAsignado !== email) {
-                        isTripStillValid = false;
+                        // 🚨 Misma lógica: si el requestId coincide, reconstruir la relación
+                        if (taxiCheck.requestId === requestId) {
+                            logMotor("socket_reconnect", `Reconstruyendo relación de viaje para ${email}: requestId coincide pero pasajeroAsignado estaba desincronizado`, "WARN");
+                            await Position.updateOne(
+                                { email: currentPos.taxistaAsignado },
+                                { $set: { pasajeroAsignado: email, updatedAt: new Date() } }
+                            );
+                        } else {
+                            isTripStillValid = false;
+                        }
                     }
                 } catch (err) {
                     isTripStillValid = false;
