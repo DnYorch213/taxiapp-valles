@@ -1021,7 +1021,8 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                     { email: tEmail },
                     {
                         $set: {
-                            estado: POSITION_STATES.ACTIVO,
+                            role: "pasajero",
+                            estado: POSITION_STATES.INACTIVO,
                             pasajeroAsignado: null,
                             requestId: null,
                             updatedAt: new Date()
@@ -1044,13 +1045,16 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                     { email: tEmail },
                     {
                         $set: {
-                            estado: POSITION_STATES.ACTIVO,
+                            role: "pasajero",
+                            estado: POSITION_STATES.INACTIVO,
                             pasajeroAsignado: null,
                             requestId: null,
                             updatedAt: new Date()
                         }
                     }
                 );
+
+                io.emit("panel_update", { email: tEmail, estado: POSITION_STATES.INACTIVO });
             }
 
             logMotor("logout", `Taxista ${tEmail} cerró sesión explícitamente.`, "INFO");
