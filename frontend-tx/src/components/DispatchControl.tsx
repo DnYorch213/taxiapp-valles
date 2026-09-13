@@ -19,6 +19,9 @@ const DispatchControl: React.FC = () => {
     };
 
     socket.on("dispatch_mode_changed", handleDispatchModeChanged);
+    socket.on("auto_mode_changed", (data: { enabled: boolean }) => {
+      setIsAuto(Boolean(data.enabled));
+    });
     socket.on("connect", syncDispatchMode);
 
     syncDispatchMode();
@@ -36,7 +39,7 @@ const DispatchControl: React.FC = () => {
     }
 
     const nextMode = !isAuto;
-    socket.emit("toggle_dispatch_mode", { auto: nextMode });
+    socket.emit("toggle_auto_mode", { enabled: nextMode });
     
     if (nextMode) {
       toast.success("🤖 MODO AUTOMÁTICO: Algoritmo de cercanía activo.");

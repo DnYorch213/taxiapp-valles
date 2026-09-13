@@ -247,6 +247,11 @@ export const initSocketEngine = (io: Server) => {
             }
         });
 
+        socket.on("request_dispatch_mode", () => {
+            io.to(email).emit("dispatch_mode_changed", { auto: isAutoMode });
+            logMotor("socket_admin", `Estado de dispatch solicitado por ${email}: auto=${isAutoMode}`, "INFO");
+        });
+
         // ============================================================
         // 🎯 5. RECONEXIÓN EXPLICITA Y REHIDRATACIÓN
         // ============================================================
