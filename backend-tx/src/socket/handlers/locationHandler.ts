@@ -126,63 +126,92 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
     // ============================================================
     socket.on("position", async (data: any) => {
         try {
-            // 1. Extraer datos geográficos del cliente
             const { lat, lng, name, estado } = data;
 
             if (typeof lat !== "number" || typeof lng !== "number") {
                 return;
             }
 
-            // 2. OBTENER ROL REAL DEL JWT / SOCKET (NUNCA DEL CLIENTE NI DE DATA)
-            const realRole = socket.data.role || "taxista"; // 🔒 Rol inyectado desde el middleware JWT
+            const realRole = socket.data.role || "taxista";
 
-            // 3. Buscar la posición EXISTENTE correspondiente A SU ROL REAL
-            const currentDoc = await Position.findOne({ email, role: realRole });
+            // Buscar por EMAIL porque email es único en Position
+            const currentDoc = await Position.findOne({ email });
 
-            const finalName = (name && !name.includes('@')) ? name : (currentDoc?.name || name || "Usuario");
-            const explicitState = typeof estado === "string" && estado.trim() ? estado.toLowerCase().trim() : null;
+            const finalName =
+                (name && !name.includes('@'))
+                    ? name
+                    : (currentDoc?.name || name || "Usuario");
+
+            const explicitState =
+                typeof estado === "string" && estado.trim()
+                    ? estado.toLowerCase().trim()
+                    : null;
 
             const shouldPreserveState = Boolean(
                 currentDoc?.estado &&
-                ![POSITION_STATES.CANCELADO, POSITION_STATES.DESCONECTADO].includes(currentDoc.estado as any)
+                ![
+                    POSITION_STATES.CANCELADO,
+                    POSITION_STATES.DESCONECTADO
+                ].includes(currentDoc.estado as any)
             );
 
-            // Si es taxista, su estado por defecto debe ser ACTIVO, NUNCA 'buscando'
-            const defaultStateByRole = realRole === "taxista" ? POSITION_STATES.ACTIVO : POSITION_STATES.BUSCANDO;
+            const defaultStateByRole =
+                realRole === "taxista"
+                    ? POSITION_STATES.ACTIVO
+                    : POSITION_STATES.BUSCANDO;
 
-            const resolvedEstado = explicitState && [
-                POSITION_STATES.ACTIVO,
-                POSITION_STATES.OCUPADO,
-                POSITION_STATES.INACTIVO,
-                POSITION_STATES.BUSCANDO,
-                POSITION_STATES.PENDIENTE
-            ].includes(explicitState as any)
-                ? explicitState
-                : (shouldPreserveState ? currentDoc!.estado : defaultStateByRole);
+            const resolvedEstado =
+                explicitState &&
+                    [
+                        POSITION_STATES.ACTIVO,
+                        POSITION_STATES.OCUPADO,
+                        POSITION_STATES.INACTIVO,
+                        POSITION_STATES.BUSCANDO,
+                        POSITION_STATES.PENDIENTE
+                    ].includes(explicitState as any)
+                    ? explicitState
+                    : (
+                        shouldPreserveState
+                            ? currentDoc!.estado
+                            : defaultStateByRole
+                    );
 
-            // 4. Actualizar SOBREESCRIBIENDO SIEMPRE EL ROL CON EL REAL
             const updated = await Position.findOneAndUpdate(
-                { email, role: realRole }, // <--- FORZAR BÚSQUEDA POR EMAIL Y ROL REAL
+                { email }, // ✅ buscar SOLO por email
                 {
                     $set: {
                         email,
-                        role: realRole, // 🚨 GARANTIZA QUE EN MONGO QUEDE GUARDADO COMO "taxista"
+                        role: realRole, // ✅ corrige/agrega el rol
                         lat,
                         lng,
                         name: finalName,
                         estado: resolvedEstado,
-                        location: { type: "Point", coordinates: [lng, lat] },
+                        location: {
+                            type: "Point",
+                            coordinates: [lng, lat]
+                        },
                         updatedAt: new Date()
                     }
                 },
-                { upsert: true, returnDocument: "after" }
+                {
+                    upsert: true,
+                    returnDocument: "after"
+                }
             );
 
             if (updated) {
-                io.emit("panel_update", buildPayload(updated, updated, updated.estado));
+                io.emit(
+                    "panel_update",
+                    buildPayload(updated, updated, updated.estado)
+                );
             }
+
         } catch (error) {
-            logMotor("position_update", `Error al actualizar la posición para ${email}: ${error}`, "ERROR");
+            logMotor(
+                "position_update",
+                `Error al actualizar la posición para ${email}: ${error}`,
+                "ERROR"
+            );
         }
     });
 
