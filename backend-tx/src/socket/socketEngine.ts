@@ -191,41 +191,130 @@ export const initSocketEngine = (io: Server) => {
             return;
         }
 
-        logMotor("socket_connect", `Cliente conectado | Email: ${email} | Socket: ${socket.id}`, "INFO");
+        logMotor(
+            "socket_connect",
+            `Cliente conectado | Email: ${email} | Socket: ${socket.id}`,
+            "INFO"
+        );
 
         if (handshakingUsers.has(email)) {
-            logMotor("socket_connect", `Handshake omitido (en proceso) para ${email}`, "WARN");
+            logMotor(
+                "socket_connect",
+                `Handshake omitido (en proceso) para ${email}`,
+                "WARN"
+            );
             return;
         }
+
         handshakingUsers.add(email);
 
         try {
             clearLocalSocketTimeouts(email);
             clearPendingTimeouts(email, "reconnect");
 
-            if (!activeConnections.has(email)) activeConnections.set(email, new Set());
+            if (!activeConnections.has(email)) {
+                activeConnections.set(email, new Set());
+            }
+
             activeConnections.get(email)!.add(socket.id);
 
             socket.join(email);
 
+            // ========================================================
+            // 📍 OBTENER POSICIÓN ACTUAL
+            // ========================================================
             let currentPos = await Position.findOne({ email }).lean();
 
             if (currentPos) {
-                if (currentPos.pasajeroAsignado || currentPos.taxistaAsignado) {
-                    await handleTripReconnection(socket, io, currentPos, email);
+
+                // ====================================================
+                // 🚕 SINCRONIZAR NÚMERO DE UNIDAD
+                // User.taxiNumber → Position.taxiNumber
+                // ====================================================
+                if (role === "taxista") {
+                    const user = await User.findOne({ email })
+                        .select("taxiNumber")
+                        .lean();
+
+                    if (user?.taxiNumber && currentPos.taxiNumber !== user.taxiNumber) {
+
+                        await Position.updateOne(
+                            { email },
+                            {
+                                $set: {
+                                    taxiNumber: user.taxiNumber,
+                                    updatedAt: new Date()
+                                }
+                            }
+                        );
+
+                        // Actualizamos también la copia local
+                        // para que el resto del flujo de esta conexión
+                        // utilice inmediatamente el número correcto.
+                        currentPos.taxiNumber = user.taxiNumber;
+
+                        logMotor(
+                            "socket_connect",
+                            `Número de unidad sincronizado | ${email} | Unidad: ${user.taxiNumber}`,
+                            "INFO"
+                        );
+                    }
                 }
 
+                // ====================================================
+                // 🔄 RECONEXIÓN DE VIAJE
+                // ====================================================
+                if (
+                    currentPos.pasajeroAsignado ||
+                    currentPos.taxistaAsignado
+                ) {
+                    await handleTripReconnection(
+                        socket,
+                        io,
+                        currentPos,
+                        email
+                    );
+                }
+
+                // ====================================================
+                // 🔌 ACTUALIZAR SOCKET ACTIVO
+                // ====================================================
                 await Position.updateOne(
                     { email },
-                    { $set: { socketId: socket.id, updatedAt: new Date(), lastSeenAt: new Date() } }
+                    {
+                        $set: {
+                            socketId: socket.id,
+                            updatedAt: new Date(),
+                            lastSeenAt: new Date()
+                        }
+                    }
                 );
             }
 
-            registerLocationHandlers(io, socket, email);
-            registerTripHandlers(io, socket, email);
+            // ========================================================
+            // 📍 REGISTRAR HANDLERS DE UBICACIÓN
+            // ========================================================
+            registerLocationHandlers(
+                io,
+                socket,
+                email
+            );
+
+            // ========================================================
+            // 🚕 REGISTRAR HANDLERS DE VIAJE
+            // ========================================================
+            registerTripHandlers(
+                io,
+                socket,
+                email
+            );
 
         } catch (error) {
-            logMotor("socket_connect", `Error en inicialización de cliente ${email}: ${error}`, "ERROR");
+            logMotor(
+                "socket_connect",
+                `Error en inicialización de cliente ${email}: ${error}`,
+                "ERROR"
+            );
         } finally {
             handshakingUsers.delete(email);
         }
