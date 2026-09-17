@@ -162,6 +162,7 @@ const getDispatchCandidates = async (
             const geoCandidates = await Position.find({
                 role: "taxista",
                 estado: POSITION_STATES.ACTIVO,
+                socketId: { $exists: true, $nin: [null, ""] },
                 email: { $nin: Array.from(excluded) },
                 location: {
                     $near: {
@@ -182,6 +183,7 @@ const getDispatchCandidates = async (
     const dbCandidates = await Position.find({
         role: "taxista",
         estado: POSITION_STATES.ACTIVO,
+        socketId: { $exists: true, $nin: [null, ""] },
         email: { $nin: Array.from(excluded) },
         lat: { $exists: true, $ne: null, $gt: 0 },
         lng: { $exists: true, $ne: null, $nin: [null, 0] },
