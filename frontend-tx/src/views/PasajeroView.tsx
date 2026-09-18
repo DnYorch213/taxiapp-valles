@@ -687,7 +687,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
           return;
         }
         setSearchFlowActivo(false);
-        setEstado(TRIP_STATES.PENDIENTE);
+        setEstado(TRIP_STATES.FINALIZADO);
         setTaxistaAsignado(null);
         setTaxiPos(null);
         setChatAbierto(false);
@@ -728,16 +728,20 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         return;
       }
 
-      if (emailRecibido === miEmail || !data.pasajeroEmail) {
-        setSearchFlowActivo(false);
-        setEstado(TRIP_STATES.PENDIENTE);
-        setTaxistaAsignado(null);
-        setTaxiPos(null);
-        setTarifaEstimada(null);
-        setDistanciaEstimadaKm(null);
-        setChatAbierto(false);
-        limpiarMapaDestino();
-        showToastOnce("pasajero:trip-finished-extended", () => {
+     if (emailRecibido === miEmail || !data.pasajeroEmail) {
+  setSearchFlowActivo(false);
+
+  // El viaje terminó realmente en el servidor.
+  // Conservamos "finalizado" para mostrar la pantalla de cierre.
+  setEstado(TRIP_STATES.FINALIZADO);
+
+  setTaxistaAsignado(null);
+  setTaxiPos(null);
+  setTarifaEstimada(null);
+  setDistanciaEstimadaKm(null);
+  setChatAbierto(false);
+  limpiarMapaDestino();
+          showToastOnce("pasajero:trip-finished-extended", () => {
           toast.success("¡Viaje finalizado! Gracias por viajar con nosotros.", {
             position: "top-center",
             autoClose: 4000,
@@ -759,21 +763,28 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       toast.info("Buscando otra unidad cercana...");
     });
 
-    socket.on("no_taxis_available", (payload?: { message?: string }) => {
-      if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
-        console.warn("🛡️ no_taxis_available ignorado: la solicitud ya no está activa.");
-        return;
-      }
-      setSearchFlowActivo(true);
-      setTaxistaAsignado(null);
-      setTaxiPos(null);
-      setEstado(TRIP_STATES.BUSCANDO);
-      if (payload?.message) {
-        showToastOnce(`pasajero:${payload.message || "dispatch-info"}`, () => {
-          toast.info(payload.message, { autoClose: 2500 });
-        }, { cooldownMs: 3000 });
-      }
+   socket.on("no_taxis_available", (payload?: { message?: string }) => {
+  // El servidor terminó todos los intentos y no encontró una unidad.
+  // Si seguimos buscando, ya no hay una solicitud activa que mantener.
+  if (["encurso", "finalizado"].includes(estadoRef.current)) {
+    console.warn("🛡️ no_taxis_available ignorado: el viaje ya está cerrado.", {
+      estado: estadoRef.current,
     });
+    return;
+  }
+
+  setSearchFlowActivo(false);
+  setTaxistaAsignado(null);
+  setTaxiPos(null);
+  setEstado(TRIP_STATES.PENDIENTE);
+
+  showToastOnce("pasajero:no-taxis-available", () => {
+    toast.info(
+      payload?.message || "No hay taxistas disponibles en este momento.",
+      { autoClose: 3000 }
+    );
+  }, { cooldownMs: 3000 });
+});
 
     socket.on("dispatch_error", (payload?: { message?: string }) => {
       if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
