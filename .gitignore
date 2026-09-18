@@ -56,3 +56,4 @@ pnpm-debug.log*
 
 # Extensión Continue / VS Code configs
 .continue/
+.vercel

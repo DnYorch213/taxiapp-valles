@@ -4,7 +4,11 @@ import { io } from "socket.io-client";
 // 1. Limpieza de URL: remueve slashes finales y el sufijo /api si está presente
 const RAW_URL = (import.meta.env.VITE_API_URL || "http://localhost:3001").replace(/\/+$/, '');
 const SOCKET_BASE_URL = RAW_URL.endsWith('/api') ? RAW_URL.slice(0, -4) : RAW_URL;
-
+console.log("🌐 CONFIGURACIÓN SOCKET:", {
+  VITE_API_URL: import.meta.env.VITE_API_URL,
+  RAW_URL,
+  SOCKET_BASE_URL,
+});
 const getDeviceId = () => {
   if (typeof window === "undefined") return undefined;
   let id = sessionStorage.getItem("deviceId");
@@ -69,6 +73,16 @@ export const connectSocket = (email: string, role: string) => {
 
   const normalizedEmail = email.toLowerCase().trim();
 
+  console.log("🔎 connectSocket() llamado", {
+    email,
+    role,
+    connected: socket.connected,
+    active: socket.active,
+    isConnecting,
+    socketId: socket.id,
+    time: new Date().toISOString(),
+  });
+
   // Guardar en localStorage para garantizar persistencia
   if (typeof window !== "undefined") {
     localStorage.setItem("email", normalizedEmail);
@@ -80,15 +94,18 @@ export const connectSocket = (email: string, role: string) => {
     return;
   }
 
-  // Evitar llamadas concurrentes a connect() durante el proceso de conexión
-  if (isConnecting || (socket as any).connecting) {
+  // Evitar llamadas concurrentes a connect()
+  if (isConnecting || socket.active) {
     return;
   }
 
   isConnecting = true;
 
   socket.connect();
-  console.log(`🚀 Iniciando conexión Socket para: ${normalizedEmail} (${role}) en ${SOCKET_BASE_URL}`);
+
+  console.log(
+    `🚀 Iniciando conexión Socket para: ${normalizedEmail} (${role}) en ${SOCKET_BASE_URL}`
+  );
 
   socket.once("connect", () => {
     isConnecting = false;

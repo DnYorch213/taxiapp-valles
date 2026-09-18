@@ -71,6 +71,13 @@ const restoreSessionFromStorage = (): Position | null => {
 };
 
 const keepSessionAlive = async () => {
+
+  console.log("🟣 keepSessionAlive() llamado", {
+    connected: socket.connected,
+    active: socket.active,
+    socketId: socket.id,
+  });
+  
   const token = localStorage.getItem("token");
   const email = localStorage.getItem("email");
   const role = localStorage.getItem("role") as Rol | null;
@@ -164,6 +171,13 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, []);
 
   const reconnectIfNeeded = useCallback(() => {
+
+     console.log("🟡 reconnectIfNeeded() llamado", {
+    connected: socket.connected,
+    active: socket.active,
+    socketId: socket.id,
+  });
+
     const email = userPosition?.email || localStorage.getItem("email");
     const role = userPosition?.role || (localStorage.getItem("role") as Rol | null);
     const token = localStorage.getItem("token");
@@ -197,14 +211,19 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [taxiPos?.lat, taxiPos?.lng, userPosition]);
 
-  useEffect(() => {
-    const email = userPosition?.email || localStorage.getItem("email");
-    const role = userPosition?.role || (localStorage.getItem("role") as Rol | null);
+ useEffect(() => {
+  const email = userPosition?.email || localStorage.getItem("email");
+  const role = userPosition?.role || (localStorage.getItem("role") as Rol | null);
 
-    if (!email || !role) return;
+  if (!email || !role) return;
 
-    connectSocket(email, role);
-  }, [userPosition?.email, userPosition?.role]);
+  console.log("🔵 CONEXIÓN INICIAL TravelContext", {
+    email,
+    role,
+  });
+
+  connectSocket(email, role);
+}, [userPosition?.email, userPosition?.role]);
 
   // 🛰️ EFECTO "DESPERTADOR": Revive la app cuando el usuario regresa tras mucho tiempo
   useEffect(() => {
