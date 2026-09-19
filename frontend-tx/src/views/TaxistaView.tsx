@@ -1877,7 +1877,7 @@ const finalizarViaje = () => {
                         L.latLng(taxiPos.lat, taxiPos.lng),
                         L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng)
                       ]}
-                      onRouteFound={(coords: L.LatLng[]) => {
+                      onRouteFound={({coords}) => {
                         setGeometriaRuta(sanitizeRouteTail(coords));
                       }}
                     />
@@ -1912,7 +1912,7 @@ const finalizarViaje = () => {
                           routeOriginForDestination as L.LatLng,
                           getDestinoFinalLatLng(pasajeroAsignado) as L.LatLng,
                         ]}
-                        onRouteFound={(coords: L.LatLng[]) => {
+                        onRouteFound={({coords}) => {
                           setRutaDestinoFinal(sanitizeRouteTail(coords));
                         }}
                       />

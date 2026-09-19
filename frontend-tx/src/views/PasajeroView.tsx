@@ -101,6 +101,7 @@ const PasajeroView: React.FC = () => {
   const [rutaDestinoEnCurso, setRutaDestinoEnCurso] = useState<L.LatLngExpression[]>([]);
   const [tarifaEstimada, setTarifaEstimada] = useState<number | null>(null);
   const [distanciaEstimadaKm, setDistanciaEstimadaKm] = useState<number | null>(null);
+  const [distanciaRutaMapboxKm, setDistanciaRutaMapboxKm] =  useState<number | null>(null);
   const [isRehydrating, setIsRehydrating] = useState(false);
 
   // REFS CENTRALIZADAS - Evitan closures obsoletos en listeners
@@ -203,15 +204,20 @@ const PasajeroView: React.FC = () => {
     return [destinationLat, destinationLng];
   }, [destinationLat, destinationLng]);
 
-  useEffect(() => {
-    if (estado !== "pendiente") return;
-    if (!userPosition?.lat || !userPosition?.lng) return;
-    if (!destinationPosition) {
-      setTarifaEstimada(null);
-      setDistanciaEstimadaKm(null);
-      return;
-    }
+ useEffect(() => {
+  if (estado !== "pendiente") return;
+  if (!userPosition?.lat || !userPosition?.lng) return;
 
+  if (!destinationPosition) {
+    setDistanciaRutaMapboxKm(null);
+    setTarifaEstimada(null);
+    setDistanciaEstimadaKm(null);
+    return;
+  }
+
+  // Mientras Mapbox todavía no responde,
+  // usamos la distancia geométrica únicamente como valor provisional.
+  if (distanciaRutaMapboxKm === null) {
     const distanciaKm = getDistanceKm(
       Number(userPosition.lat),
       Number(userPosition.lng),
@@ -223,8 +229,14 @@ const PasajeroView: React.FC = () => {
 
     setDistanciaEstimadaKm(distanciaKm);
     setTarifaEstimada(tarifa);
-  }, [estado, userPosition?.lat, userPosition?.lng, destinationPosition]);
-
+  }
+}, [
+  estado,
+  userPosition?.lat,
+  userPosition?.lng,
+  destinationPosition,
+  distanciaRutaMapboxKm,
+]);
   useEffect(() => {
     if (hasSeededDestinationRef.current) return;
     if (destinationLat !== null && destinationLng !== null) {
@@ -1090,71 +1102,138 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     return [] as L.LatLngExpression[];
   }, [estado, rutaDestinoEnCurso, taxiPos?.lat, taxiPos?.lng, destinationPosition?.[0], destinationPosition?.[1]]);
 
-  return (
-    <div className="h-dvh bg-slate-50 flex flex-col items-center font-sans relative overflow-hidden">
-      <ToastContainer theme="light" />
-      <div className="absolute top-0 left-0 w-full h-1 bg-[#22c55e] z-[2001]"></div>
+  
+return (
+  <div className="h-dvh bg-slate-50 flex flex-col items-center font-sans relative overflow-hidden">
+    <ToastContainer theme="light" />
 
-      {/* MAIN */}
-      <main className="w-full max-w-md bg-white rounded-t-[2.5rem] shadow-2xl overflow-hidden border border-slate-100 relative flex flex-col flex-1 min-h-0">
-        <div className="absolute top-4 left-4 right-4 z-[1002] flex items-center justify-between pointer-events-none">
-          <h1 className="text-sm font-black text-white tracking-tighter uppercase italic drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
+    {/* Barra superior */}
+    <div className="absolute top-0 left-0 w-full h-1 bg-[#22c55e] z-[2001]" />
+
+    <main className="w-full max-w-md bg-white rounded-t-[2.5rem] shadow-2xl overflow-hidden border border-slate-100 relative flex flex-col flex-1 min-h-0">
+
+      {/* =========================================================
+          HEADER SOBRE EL MAPA
+      ========================================================= */}
+      <div className="absolute top-4 left-4 right-4 z-[1002] flex items-center justify-between pointer-events-none">
+
+        <div className="bg-slate-900/75 backdrop-blur-md px-3 py-1.5 rounded-full shadow-lg">
+          <h1 className="text-[11px] font-black text-white tracking-tight uppercase italic">
             VALLES<span className="text-[#22c55e]">VIAJE</span>
           </h1>
-          <div className="flex items-center gap-2 bg-white/95 px-3 py-1 rounded-full border border-slate-200 shadow-sm backdrop-blur-sm">
-            <div
-              className={`h-1.5 w-1.5 rounded-full ${
-                userPosition?.lat ? "bg-[#22c55e]" : "bg-red-500 animate-pulse"
-              }`}
-            ></div>
-            <span className="text-[8px] font-black text-slate-500 uppercase">GPS</span>
-          </div>
         </div>
 
-        <div className="absolute top-8 left-4 z-[1002]">
-          <button
-            onClick={handleLogout}
-            className="bg-red-600 text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-lg active:scale-95"
+        <div className="flex items-center gap-2 bg-white/95 px-3 py-1.5 rounded-full border border-slate-200 shadow-lg backdrop-blur-sm">
+          <div
+            className={`h-2 w-2 rounded-full ${
+              userPosition?.lat && userPosition?.lng
+                ? "bg-[#22c55e]"
+                : "bg-red-500 animate-pulse"
+            }`}
+          />
+
+          <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">
+            GPS
+          </span>
+        </div>
+      </div>
+
+      {/* =========================================================
+          BOTÓN SALIR
+      ========================================================= */}
+      <div className="absolute top-[4.5rem] left-4 z-[1002]">
+        <button
+          onClick={handleLogout}
+          className="bg-white/95 backdrop-blur-md text-slate-500 border border-slate-200 px-3 py-1.5 rounded-full text-[8px] font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all"
+        >
+          Salir
+        </button>
+      </div>
+
+      {/* =========================================================
+          BADGE DE ESTADO
+      ========================================================= */}
+      <div className="absolute top-[4.5rem] right-4 z-[1002]">
+        <div
+          className={`px-3 py-1.5 rounded-full text-[8px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg backdrop-blur-md transition-all duration-500 ${
+            estado === "encurso"
+              ? "bg-slate-900/85 text-white"
+              : estado === "buscando"
+              ? "bg-amber-500 text-white animate-pulse"
+              : estado === "encamino"
+              ? "bg-[#22c55e] text-white"
+              : estado === "asignado"
+              ? "bg-[#22c55e] text-white"
+              : "bg-white/95 text-slate-600"
+          }`}
+        >
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              estado === "buscando"
+                ? "bg-white animate-ping"
+                : estado === "encurso"
+                ? "bg-[#22c55e]"
+                : "bg-white"
+            }`}
+          />
+
+          {obtenerTextoEstado()}
+        </div>
+      </div>
+
+      {/* =========================================================
+          MAPA
+      ========================================================= */}
+      <div className="flex-1 min-h-[250px] w-full relative bg-slate-100">
+
+        {userPosition?.lat && userPosition?.lng ? (
+          <MapContainer
+            center={[userPosition.lat, userPosition.lng]}
+            zoom={15}
+            className="h-full w-full"
+            zoomControl={false}
           >
-            Salir
-          </button>
-        </div>
 
-        {/* MAPA */}
-        <div className="flex-1 min-h-[200px] w-full relative bg-slate-100">
-          {userPosition?.lat && userPosition?.lng ? (
-            <>
-            <MapContainer
-              center={[userPosition.lat, userPosition.lng]}
-              zoom={15}
-              className="h-full w-full"
-              zoomControl={false}
-            >
-              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-              {estado !== "encurso" && (
-                <Marker
-                  position={[userPosition.lat, userPosition.lng]}
-                  icon={pasajeroIcon}
-                  zIndexOffset={100}
-                >
-                  <Popup>{userPosition.name || "Pasajero"}</Popup>
-                </Marker>
-              )}
+            {/* -----------------------------------------------------
+                PASAJERO
+            ----------------------------------------------------- */}
+            {estado !== "encurso" && (
+              <Marker
+                position={[userPosition.lat, userPosition.lng]}
+                icon={pasajeroIcon}
+                zIndexOffset={100}
+              >
+                <Popup>
+                  {userPosition.name || "Tu ubicación"}
+                </Popup>
+              </Marker>
+            )}
 
-              {(estado === "encurso" || selectorDestinoAbierto) && destinationPosition && (
+            {/* -----------------------------------------------------
+                DESTINO
+            ----------------------------------------------------- */}
+            {(estado === "encurso" || selectorDestinoAbierto) &&
+              destinationPosition && (
                 <Marker
                   position={destinationPosition}
                   icon={destinationMarkerIcon}
                   zIndexOffset={1000}
-                  draggable={estado === "encurso" || selectorDestinoAbierto}
+                  draggable={
+                    estado === "encurso" || selectorDestinoAbierto
+                  }
                   eventHandlers={
                     estado === "encurso" || selectorDestinoAbierto
                       ? {
                           dragend: (event) => {
                             const marker = event.target as L.Marker;
                             const next = marker.getLatLng();
-                            void actualizarDestinoDesdeMarker(next.lat, next.lng);
+
+                            void actualizarDestinoDesdeMarker(
+                              next.lat,
+                              next.lng
+                            );
                           },
                         }
                       : undefined
@@ -1164,7 +1243,13 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 </Marker>
               )}
 
-              {selectorDestinoAbierto && destinationPosition && estado !== "encurso" && rutaDestinoPreview.length > 0 && (
+            {/* -----------------------------------------------------
+                PREVIEW DE DESTINO
+            ----------------------------------------------------- */}
+            {selectorDestinoAbierto &&
+              destinationPosition &&
+              estado !== "encurso" &&
+              rutaDestinoPreview.length > 0 && (
                 <Polyline
                   positions={rutaDestinoPreview}
                   pathOptions={{
@@ -1177,37 +1262,71 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 />
               )}
 
-              {selectorDestinoAbierto && destinationPosition &&
-                estado !== "encurso" &&
-                userPosition?.lat &&
-                userPosition?.lng &&
-                rutaDestinoPreview.length === 0 && (
-                  <Suspense fallback={null}>
-                    <RoutingMachine
-                      key={`${userPosition.lat}-${userPosition.lng}-${destinationPosition[0]}-${destinationPosition[1]}-${estado}-${selectorDestinoAbierto}`}
-                      waypoints={[
-                        L.latLng(Number(userPosition.lat), Number(userPosition.lng)),
-                        L.latLng(destinationPosition[0], destinationPosition[1]),
-                      ]}
-                      onRouteFound={(coords: L.LatLng[]) => {
-                        setRutaDestinoPreview(sanitizeRouteTail(coords));
-                      }}
-                    />
-                  </Suspense>
-                )}
+            {/* -----------------------------------------------------
+                ROUTING DESTINO PREVIEW
+            ----------------------------------------------------- */}
+            {selectorDestinoAbierto &&
+              destinationPosition &&
+              estado !== "encurso" &&
+              userPosition?.lat &&
+              userPosition?.lng &&
+              rutaDestinoPreview.length === 0 && (
+                <Suspense fallback={null}>
+                  <RoutingMachine
+                    key={`${userPosition.lat}-${userPosition.lng}-${destinationPosition[0]}-${destinationPosition[1]}-${estado}-${selectorDestinoAbierto}`}
+                    waypoints={[
+                      L.latLng(
+                        Number(userPosition.lat),
+                        Number(userPosition.lng)
+                      ),
+                      L.latLng(
+                        destinationPosition[0],
+                        destinationPosition[1]
+                      ),
+                    ]}
+                   onRouteFound={({ coords, distanceKm, durationMin }) => {
+  setRutaDestinoPreview(
+    sanitizeRouteTail(coords)
+  );
 
-              {taxiPos && ["asignado", "encamino", "encurso"].includes(estado) && (
+  if (distanceKm !== null) {
+    setDistanciaRutaMapboxKm(distanceKm);
+    setDistanciaEstimadaKm(distanceKm);
+    setTarifaEstimada(
+      calcularTarifaPorDistancia(distanceKm)
+    );
+  }
+
+  console.log("📏 Distancia vial destino:", {
+    distanceKm,
+    durationMin,
+  });
+}}
+                  />
+                </Suspense>
+              )}
+
+            {/* -----------------------------------------------------
+                TAXI
+            ----------------------------------------------------- */}
+            {taxiPos &&
+              ["asignado", "encamino", "encurso"].includes(estado) && (
                 <RotatedMarker
                   position={[taxiPos.lat, taxiPos.lng]}
                   icon={taxistaIcon}
                   rotationAngle={taxiPos.heading || 0}
                 >
-                  <Popup>Unidad {taxistaAsignado?.taxiNumber}</Popup>
+                  <Popup>
+                    Unidad {taxistaAsignado?.taxiNumber}
+                  </Popup>
                 </RotatedMarker>
               )}
 
-              {/* LÍNEA 1: Ruta de aproximación */}
-              {["asignado", "encamino"].includes(estado) && geometriaRuta.length > 0 && (
+            {/* -----------------------------------------------------
+                RUTA DE APROXIMACIÓN
+            ----------------------------------------------------- */}
+            {["asignado", "encamino"].includes(estado) &&
+              geometriaRuta.length > 0 && (
                 <Polyline
                   positions={geometriaRuta}
                   pathOptions={{
@@ -1219,320 +1338,664 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
                 />
               )}
 
-              {/* CONTROL DE ENRUTAMIENTO */}
-              {taxiPos?.lat &&
-                taxiPos?.lng &&
-                userPosition?.lat &&
-                userPosition?.lng &&
-                ["asignado", "encamino"].includes(estado) &&
-                geometriaRuta.length === 0 && (
-                  <Suspense fallback={null}>
-                    <RoutingMachine
-                      waypoints={[
-                        L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
-                        L.latLng(Number(userPosition.lat), Number(userPosition.lng)),
-                      ]}
-                      onRouteFound={(coords: L.LatLng[]) => {
-                        console.log("­Nueva trayectoria trazada. Puntos:", coords.length);
-                        setGeometriaRuta(sanitizeRouteTail(coords));
-                      }}
-                    />
-                  </Suspense>
-                )}
-
-              {/* LÍNEA 2: Rastro del viaje */}
-              {estado === "encurso" && historialRuta.length > 0 && (
-                <Polyline
-                  positions={historialRuta}
-                  pathOptions={{ color: "#22c55e", weight: 4, lineJoin: "round" }}
-                />
-              )}
-
-              {estado === "encurso" && taxiPos?.lat && taxiPos?.lng && destinationPosition && rutaDestinoEnCurso.length === 0 && (
+            {/* -----------------------------------------------------
+                ROUTING TAXI → PASAJERO
+            ----------------------------------------------------- */}
+            {taxiPos?.lat &&
+              taxiPos?.lng &&
+              userPosition?.lat &&
+              userPosition?.lng &&
+              ["asignado", "encamino"].includes(estado) &&
+              geometriaRuta.length === 0 && (
                 <Suspense fallback={null}>
                   <RoutingMachine
-                    key={`${taxiPos.lat}-${taxiPos.lng}-${destinationPosition[0]}-${destinationPosition[1]}-${estado}`}
                     waypoints={[
-                      L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
-                      L.latLng(destinationPosition[0], destinationPosition[1]),
+                      L.latLng(
+                        Number(taxiPos.lat),
+                        Number(taxiPos.lng)
+                      ),
+                      L.latLng(
+                        Number(userPosition.lat),
+                        Number(userPosition.lng)
+                      ),
                     ]}
-                    onRouteFound={(coords: L.LatLng[]) => {
-                      setRutaDestinoEnCurso(sanitizeRouteTail(coords));
-                    }}
+                    onRouteFound={({ coords }) => {
+  console.log(
+    "Nueva trayectoria trazada. Puntos:",
+    coords.length
+  );
+
+  setGeometriaRuta(
+    sanitizeRouteTail(coords)
+  );
+}}
                   />
                 </Suspense>
               )}
 
-              {/* LÍNEA 3: Rumbo al destino */}
-              {estado === "encurso" && routePositionsEnCurso.length > 0 && (
+            {/* -----------------------------------------------------
+                RASTRO DEL VIAJE
+            ----------------------------------------------------- */}
+            {estado === "encurso" &&
+              historialRuta.length > 0 && (
+                <Polyline
+                  positions={historialRuta}
+                  pathOptions={{
+                    color: "#22c55e",
+                    weight: 4,
+                    lineJoin: "round",
+                  }}
+                />
+              )}
+
+            {/* -----------------------------------------------------
+                ROUTING AL DESTINO
+            ----------------------------------------------------- */}
+            {estado === "encurso" &&
+              taxiPos?.lat &&
+              taxiPos?.lng &&
+              destinationPosition &&
+              rutaDestinoEnCurso.length === 0 && (
+                <Suspense fallback={null}>
+                  <RoutingMachine
+                    key={`${taxiPos.lat}-${taxiPos.lng}-${destinationPosition[0]}-${destinationPosition[1]}-${estado}`}
+                    waypoints={[
+                      L.latLng(
+                        Number(taxiPos.lat),
+                        Number(taxiPos.lng)
+                      ),
+                      L.latLng(
+                        destinationPosition[0],
+                        destinationPosition[1]
+                      ),
+                    ]}
+                    onRouteFound={({ coords }) => {
+  setRutaDestinoEnCurso(
+    sanitizeRouteTail(coords)
+  );
+}}
+                  />
+                </Suspense>
+              )}
+
+            {/* -----------------------------------------------------
+                LÍNEA AL DESTINO
+            ----------------------------------------------------- */}
+            {estado === "encurso" &&
+              routePositionsEnCurso.length > 0 && (
                 <Polyline
                   positions={routePositionsEnCurso}
-                  pathOptions={{ color: "#22c55e", weight: 4, lineJoin: "round" }}
+                  pathOptions={{
+                    color: "#22c55e",
+                    weight: 5,
+                    lineJoin: "round",
+                    lineCap: "round",
+                  }}
                 />
               )}
-            </MapContainer>
+          </MapContainer>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full gap-3">
+            <div className="h-10 w-10 rounded-full border-4 border-slate-200 border-t-[#22c55e] animate-spin" />
 
-            {selectorDestinoAbierto && !destinoColapsado && estado !== "encurso" && (
-            <div className="absolute left-3 right-3 bottom-1 z-[1100] bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl p-3 transition-all duration-300 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400">Destino</p>
-                  <p className="text-[10px] font-bold text-slate-700 truncate max-w-[220px]">
-                    {destinationAddress || "Elige una dirección o mueve el pin"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {enCaminoUI ? (
-                    <button
-                      type="button"
-                      onClick={() => setDestinoColapsado(true)}
-                      className="text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700"
-                    >
-                      Colapsar
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectorDestinoAbierto(false);
-                        setDestinoColapsado(false);
-                      }}
-                      className="text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700"
-                    >
-                      Cerrar
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={limpiarDestino}
-                    className="text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700"
-                  >
-                    Limpiar
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <input
-                  value={destinationQuery}
-                  onChange={(e) => setDestinationQuery(e.target.value)}
-                  placeholder="Escribe tu destino"
-                  className="flex-1 min-w-0 bg-slate-100 border border-slate-200 rounded-xl px-3 py-3 text-sm font-medium text-slate-800 outline-none focus:ring-2 focus:ring-[#22c55e]/30 disabled:opacity-60"
-                />
-                <button
-                  type="button"
-                  onClick={() => void geocodificarDestino(destinationQuery)}
-                  disabled={isSearchingDestination || !destinationQuery.trim()}
-                  className="px-4 rounded-xl bg-[#22c55e] text-[#0f172a] font-black text-[9px] uppercase tracking-widest disabled:opacity-60 active:scale-95"
-                >
-                  {isSearchingDestination ? "..." : "Buscar"}
-                </button>
-              </div>
-
-              {tarifaEstimada !== null && distanciaEstimadaKm !== null && (
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-2 space-y-1">
-                  <p className="text-[8px] font-black uppercase tracking-[0.18em] text-slate-500">Tarifa estimada</p>
-                  <p className="text-base font-black text-slate-900">${tarifaEstimada} MXN</p>
-                  <p className="text-[10px] font-bold text-slate-500">
-                    {distanciaEstimadaKm.toFixed(1)} km · ~{Math.max(5, Math.round((distanciaEstimadaKm / 30) * 60))} min
-                  </p>
-                </div>
-              )}
-
-              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-[0.18em]">
-                Arrastra el pin verde para ajustar la ubicación exacta.
-              </p>
-            </div>
-            )}
-            </>
-          ) : (
-            <div className="flex items-center justify-center h-full text-slate-400 font-black text-[10px] uppercase tracking-widest animate-pulse">
+            <p className="text-slate-400 font-black text-[9px] uppercase tracking-widest">
               Buscando tu ubicación...
-            </div>
-          )}
-        </div>
-
-        {/* Badge de estado */}
-        <div className="absolute top-12 right-4 z-[1000]">
-          <div
-            className={`px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg transition-all duration-500 ${
-              estado === "encurso"
-                ? "bg-slate-800/80 text-slate-100 backdrop-blur-md"
-                : estado === "buscando"
-                ? "bg-amber-500 text-white animate-pulse"
-                : "bg-[#22c55e] text-white animate-pulse"
-            }`}
-          >
-            {obtenerTextoEstado()}
-          </div>
-        </div>
-
-        {/* CARD DEL TAXISTA */}
-        {taxistaAsignado && (
-          <div className={`mx-4 ${enCaminoUI ? "mt-3" : "mt-4"} relative z-[1001] px-3 py-2 bg-white/98 border border-slate-200 rounded-2xl flex items-center gap-2 shadow-md transition-all duration-300`}>
-            <div className="h-7 w-7 bg-green-50 rounded-lg flex items-center justify-center text-sm">
-              🚖
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-black text-slate-800 leading-tight truncate uppercase">
-                {taxistaAsignado.name || "Unidad asignada"}
-              </p>
-              <p className="text-[10px] font-black text-[#22c55e] tracking-wide truncate">
-                TAXI {taxistaAsignado.taxiNumber || "ECO"}
-              </p>
-            </div>
-            <span className="text-[8px] font-black uppercase tracking-widest text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-1">
-              {estado === "encamino" ? "En camino" : "Asignado"}
-            </span>
+            </p>
           </div>
         )}
 
-        {/* BOTONES */}
-        <div className={`${compactoInferior ? "px-4 pt-3 pb-12" : "px-5 pt-4 pb-14"} flex flex-col shrink-0 bg-white transition-all duration-300`}>
-          {enCaminoUI && destinoColapsado && (
-            <div className={`${compactoInferior ? "mb-2 p-2.5" : "mb-3 p-3"} rounded-2xl border border-slate-200 bg-slate-50`}>
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className={`${compactoInferior ? "text-[7px]" : "text-[8px]"} font-black uppercase tracking-[0.2em] text-slate-400 mb-1`}>Destino</p>
-                  <p className={`${compactoInferior ? "text-[9px]" : "text-[10px]"} font-bold text-slate-700 truncate`}>
-                    {destinationAddress || "Sin destino especificado"}
+        {/* =======================================================
+            PANEL BUSCANDO
+        ======================================================= */}
+        {estado === "buscando" && (
+          <div className="absolute left-4 right-4 bottom-4 z-[1200]">
+            <div className="bg-white/95 backdrop-blur-md border border-slate-200 rounded-3xl shadow-2xl p-4">
+
+              <div className="flex items-center gap-3">
+                <div className="relative h-11 w-11 flex items-center justify-center">
+                  <div className="absolute inset-0 rounded-full bg-amber-400/20 animate-ping" />
+                  <div className="relative h-10 w-10 rounded-full bg-amber-500 flex items-center justify-center text-white text-lg">
+                    🚕
+                  </div>
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <p className="text-[9px] font-black uppercase tracking-[0.18em] text-amber-500">
+                    VallesViaje
+                  </p>
+
+                  <h3 className="text-base font-black text-slate-900 leading-tight">
+                    Buscando tu taxi
+                  </h3>
+
+                  <p className="text-[9px] text-slate-400 font-medium mt-0.5">
+                    Buscando la unidad disponible más cercana
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setDestinoColapsado(false)}
-                  className="text-[8px] font-black uppercase tracking-widest text-[#22c55e]"
-                >
-                  Expandir
-                </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* =======================================================
+            SELECTOR DE DESTINO
+        ======================================================= */}
+        {selectorDestinoAbierto &&
+          !destinoColapsado &&
+          estado !== "encurso" && (
+            <div className="absolute left-3 right-3 bottom-3 z-[1300] bg-white/97 backdrop-blur-md border border-slate-200 rounded-3xl shadow-2xl p-4 space-y-3">
+
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[8px] font-black uppercase tracking-[0.2em] text-[#22c55e]">
+                    Destino
+                  </p>
+
+                  <p className="text-[11px] font-bold text-slate-700 truncate">
+                    {destinationAddress ||
+                      "¿A dónde quieres ir?"}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectorDestinoAbierto(false);
+                    setDestinoColapsado(false);
+                  }}
+                  className="text-[8px] font-black uppercase tracking-widest text-slate-400"
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <div className="flex gap-2">
+                <div className="flex-1 relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm">
+                    📍
+                  </span>
+
+                  <input
+                    value={destinationQuery}
+                    onChange={(e) =>
+                      setDestinationQuery(e.target.value)
+                    }
+                    placeholder="Calle, colonia o lugar"
+                    className="w-full bg-slate-100 border border-slate-200 rounded-2xl pl-9 pr-3 py-3 text-sm font-medium text-slate-800 outline-none focus:ring-2 focus:ring-[#22c55e]/30"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    void geocodificarDestino(
+                      destinationQuery
+                    )
+                  }
+                  disabled={
+                    isSearchingDestination ||
+                    !destinationQuery.trim()
+                  }
+                  className="px-4 rounded-2xl bg-[#22c55e] text-white font-black text-[9px] uppercase tracking-widest disabled:opacity-50 active:scale-95 transition-all"
+                >
+                  {isSearchingDestination
+                    ? "..."
+                    : "Buscar"}
+                </button>
+              </div>
+
+              {tarifaEstimada !== null &&
+                distanciaEstimadaKm !== null && (
+                  <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2.5">
+                    <div>
+                      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                        Distancia
+                      </p>
+
+                      <p className="text-sm font-black text-slate-800">
+                        {distanciaEstimadaKm.toFixed(1)} km
+                      </p>
+                    </div>
+
+                    <div className="text-right">
+                      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                        Tarifa estimada
+                      </p>
+
+                      <p className="text-sm font-black text-slate-800">
+                        ${tarifaEstimada} MXN
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+              <p className="text-[7px] font-bold text-slate-400 uppercase tracking-[0.16em] text-center">
+                Arrastra el pin verde para ajustar la ubicación
+              </p>
+            </div>
+          )}
+      </div>
+
+      {/* =========================================================
+          TARJETA DEL TAXISTA
+      ========================================================= */}
+      {taxistaAsignado &&
+        ["asignado", "encamino"].includes(estado) && (
+          <div className="relative z-[1100] mx-4 -mt-5">
+
+            <div className="bg-white border border-slate-200 rounded-3xl shadow-xl px-4 py-3">
+
+              <div className="flex items-center gap-3">
+
+                <div className="h-11 w-11 shrink-0 bg-green-50 rounded-2xl flex items-center justify-center text-xl">
+                  🚕
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <p className="text-[7px] font-black uppercase tracking-[0.18em] text-slate-400">
+                    Tu unidad
+                  </p>
+
+                  <p className="text-[12px] font-black text-slate-800 truncate">
+                    {taxistaAsignado.name ||
+                      "Unidad asignada"}
+                  </p>
+
+                  <p className="text-[9px] font-black text-[#22c55e] uppercase tracking-widest">
+                    TAXI{" "}
+                    {taxistaAsignado.taxiNumber ||
+                      "ECO"}
+                  </p>
+                </div>
+
+                <div className="text-right">
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#22c55e] animate-pulse" />
+
+                    <span className="text-[8px] font-black text-[#22c55e] uppercase tracking-widest">
+                      {estado === "encamino"
+                        ? "En camino"
+                        : "Asignado"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {estado === "encamino" && (
+                <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
+
+                  <div>
+                    <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                      Estado
+                    </p>
+
+                    <p className="text-[10px] font-bold text-slate-700">
+                      Tu taxi se dirige hacia ti
+                    </p>
+                  </div>
+
+                  <div className="text-right">
+                    <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                      GPS
+                    </p>
+
+                    <p className="text-[9px] font-black text-[#22c55e]">
+                      EN VIVO
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+      {/* =========================================================
+          PANEL INFERIOR
+      ========================================================= */}
+      <div
+        className={`${
+          compactoInferior
+            ? "px-4 pt-3 pb-10"
+            : "px-5 pt-4 pb-12"
+        } flex flex-col shrink-0 bg-white transition-all duration-300`}
+      >
+
+        {/* -------------------------------------------------------
+            DESTINO COLAPSADO
+        ------------------------------------------------------- */}
+        {enCaminoUI &&
+          destinoColapsado && (
+            <button
+              type="button"
+              onClick={() =>
+                setDestinoColapsado(false)
+              }
+              className="mb-3 flex items-center gap-3 w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 text-left"
+            >
+              <div className="h-8 w-8 rounded-xl bg-green-50 flex items-center justify-center">
+                📍
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                  Destino
+                </p>
+
+                <p className="text-[10px] font-bold text-slate-700 truncate">
+                  {destinationAddress ||
+                    "Sin destino especificado"}
+                </p>
+              </div>
+
+              <span className="text-[8px] font-black uppercase tracking-widest text-[#22c55e]">
+                Ver
+              </span>
+            </button>
           )}
 
-          <div className={`${compactoInferior ? "mb-1.5" : "mb-2.5"}`}>
-            <p className={`${compactoInferior ? "text-[7px]" : "text-[8px]"} font-black text-slate-400 uppercase tracking-[0.2em] mb-1`}>
-              Servicio Valles
-            </p>
-            <h2 className={`${compactoInferior ? "text-base" : "text-lg"} font-black text-slate-900 tracking-tighter leading-tight`}>
-              {estado === "pendiente" && "A donde vamos hoy?"}
-              {estado === "buscando" && "Buscando unidad..."}
-              {["asignado", "encamino"].includes(estado) && "Tu taxi viene en camino"}
-              {estado === "encurso" && "Buen viaje por Valles!"}
-            </h2>
-            {estado === "pendiente" && (
+        {/* -------------------------------------------------------
+            PENDIENTE
+        ------------------------------------------------------- */}
+        {estado === "pendiente" && (
+          <div className="space-y-3">
+
+            <div>
+              <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                Servicio Valles
+              </p>
+
+              <h2 className="text-xl font-black text-slate-900 tracking-tight">
+                ¿A dónde vamos hoy?
+              </h2>
+
+              <p className="text-[10px] text-slate-400 mt-1">
+                Solicita una unidad cercana en segundos.
+              </p>
+            </div>
+
+            {!selectorDestinoAbierto && (
               <button
                 type="button"
                 onClick={abrirSelectorDestino}
-                className="mt-1 text-left text-[10px] font-black uppercase tracking-[0.16em] text-[#22c55e] hover:text-[#15803d]"
+                className="w-full text-left bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-3 active:scale-[0.99] transition-all"
               >
-                Selecciona tu Destino (Opcional)
+                <div className="h-9 w-9 bg-white rounded-xl flex items-center justify-center shadow-sm">
+                  📍
+                </div>
+
+                <div className="flex-1">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
+                    Destino opcional
+                  </p>
+
+                  <p className="text-[10px] font-bold text-slate-600">
+                    Selecciona tu destino
+                  </p>
+                </div>
+
+                <span className="text-[#22c55e] font-black">
+                  →
+                </span>
               </button>
             )}
-          </div>
 
-          <div className={`${compactoInferior ? "space-y-2 pt-1" : "space-y-3 pt-2"}`}>
-            {estado === "pendiente" && !searchFlowActivo && (
+            {!searchFlowActivo && (
               <button
                 onClick={solicitarTaxi}
-                className={`${compactoInferior ? "py-4 text-[11px]" : "py-5 text-xs"} w-full rounded-[1.2rem] font-black transition-all transform active:scale-95 shadow-xl tracking-widest bg-[#22c55e] text-white shadow-green-900/20 hover:bg-[#16a34a]`}
+                className="w-full py-4 rounded-2xl font-black text-[11px] tracking-widest bg-[#22c55e] text-white shadow-xl shadow-green-900/20 hover:bg-[#16a34a] active:scale-[0.98] transition-all"
               >
                 SOLICITAR TRANSPORTE
               </button>
             )}
+          </div>
+        )}
 
-            {(searchFlowActivo || ["buscando", "preasignado", "asignado", "encamino"].includes(estado)) && (
+        {/* -------------------------------------------------------
+            BUSCANDO
+        ------------------------------------------------------- */}
+        {estado === "buscando" && (
+          <div className="space-y-3">
+
+            <div>
+              <p className="text-[8px] font-black text-amber-500 uppercase tracking-[0.2em]">
+                Solicitud activa
+              </p>
+
+              <h2 className="text-lg font-black text-slate-900">
+                Buscando una unidad...
+              </h2>
+
+              <p className="text-[9px] text-slate-400 mt-1">
+                Te avisaremos cuando un taxista acepte.
+              </p>
+            </div>
+
+            <button
+              onClick={cancelarSolicitud}
+              className="w-full py-3 rounded-2xl bg-red-50 text-red-500 border border-red-100 font-black text-[9px] uppercase tracking-widest active:bg-red-100 transition-all"
+            >
+              Cancelar solicitud
+            </button>
+          </div>
+        )}
+
+        {/* -------------------------------------------------------
+            ASIGNADO / EN CAMINO
+        ------------------------------------------------------- */}
+        {["asignado", "encamino"].includes(estado) &&
+          taxistaAsignado && (
+            <div className="space-y-3">
+
+              <div>
+                <p className="text-[8px] font-black text-[#22c55e] uppercase tracking-[0.2em]">
+                  {estado === "encamino"
+                    ? "Unidad en camino"
+                    : "Unidad confirmada"}
+                </p>
+
+                <h2 className="text-lg font-black text-slate-900">
+                  {estado === "encamino"
+                    ? "Tu taxi viene en camino"
+                    : "Tu taxi ha sido asignado"}
+                </h2>
+              </div>
+
+              {tarifaEstimada !== null &&
+                distanciaEstimadaKm !== null && (
+                  <div className="grid grid-cols-2 gap-2">
+
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                        Distancia
+                      </p>
+
+                      <p className="text-base font-black text-slate-800">
+                        {distanciaEstimadaKm.toFixed(1)} km
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                        Tarifa
+                      </p>
+
+                      <p className="text-base font-black text-slate-800">
+                        ${tarifaEstimada} MXN
+                      </p>
+                    </div>
+
+                  </div>
+                )}
+
               <button
                 onClick={cancelarSolicitud}
-                className={`${compactoInferior ? "py-2.5 text-[9px]" : "py-3 text-[8px]"} w-full bg-red-50 text-red-500 rounded-[1.2rem] font-bold uppercase border border-red-100 active:bg-red-100`}
+                className="w-full py-2.5 rounded-2xl bg-red-50 text-red-500 border border-red-100 font-black text-[8px] uppercase tracking-widest active:bg-red-100"
               >
-                Cancelar Solicitud
+                Cancelar solicitud
               </button>
-            )}
+            </div>
+          )}
 
-            {mostrarTextoBuscando && (
-              <p className="text-center text-[10px] font-black uppercase tracking-[0.16em] text-amber-500 animate-pulse">
-                Buscando unidad...
+        {/* -------------------------------------------------------
+            EN CURSO
+        ------------------------------------------------------- */}
+        {estado === "encurso" && (
+          <div className="space-y-3">
+
+            <div>
+              <p className="text-[8px] font-black text-[#22c55e] uppercase tracking-[0.2em]">
+                Viaje en curso
               </p>
-            )}
 
-            {(taxistaAsignado && ["asignado", "encamino"].includes(estado)) && (
-              <p className="text-center text-[10px] font-black uppercase tracking-[0.16em] text-[#22c55e]">
-                Unidad confirmada, en camino
+              <h2 className="text-lg font-black text-slate-900">
+                Buen viaje por Valles
+              </h2>
+
+              <p className="text-[9px] text-slate-400 mt-1">
+                Tu ruta hacia el destino está activa.
               </p>
-            )}
+            </div>
 
-            {tarifaEstimada !== null && distanciaEstimadaKm !== null && ["asignado", "encamino", "encurso"].includes(estado) && (
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mt-2">
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500 mb-1">Tarifa estimada</p>
-                <p className="text-lg font-black text-slate-900">${tarifaEstimada} MXN</p>
-                <p className="text-[10px] font-bold text-slate-500">{distanciaEstimadaKm.toFixed(1)} km</p>
+            {destinationAddress && (
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-3">
+                <div className="h-9 w-9 rounded-xl bg-green-50 flex items-center justify-center">
+                  📍
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                    Destino
+                  </p>
+
+                  <p className="text-[10px] font-bold text-slate-700 truncate">
+                    {destinationAddress}
+                  </p>
+                </div>
               </div>
             )}
-          </div>
-        </div>
-      </main>
 
-      {/* CHAT FLOTANTE */}
-      {taxistaAsignado?.email && ["asignado", "encamino"].includes(estado) && (
+            {tarifaEstimada !== null &&
+              distanciaEstimadaKm !== null && (
+                <div className="grid grid-cols-2 gap-2">
+
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                    <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                      Distancia
+                    </p>
+
+                    <p className="text-base font-black text-slate-800">
+                      {distanciaEstimadaKm.toFixed(1)} km
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                    <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                      Tarifa estimada
+                    </p>
+
+                    <p className="text-base font-black text-slate-800">
+                      ${tarifaEstimada} MXN
+                    </p>
+                  </div>
+
+                </div>
+              )}
+          </div>
+        )}
+      </div>
+    </main>
+
+    {/* ===========================================================
+        CHAT
+    =========================================================== */}
+    {taxistaAsignado?.email &&
+      ["asignado", "encamino"].includes(estado) && (
         <>
+          {/* Panel */}
           <div
-            className={`fixed z-[2000] bottom-24 ${chatPanelOnLeft ? "left-3 sm:left-4" : "right-3 sm:right-4"} left-3 sm:left-auto sm:w-[340px] bg-white border border-slate-100 rounded-2xl shadow-2xl overflow-hidden transition-opacity duration-150 ${
-              chatAbierto ? "opacity-100 visible" : "opacity-0 invisible pointer-events-none"
+            className={`fixed z-[2000] bottom-24 ${
+              chatPanelOnLeft
+                ? "left-3 sm:left-4"
+                : "right-3 sm:right-4"
+            } left-3 sm:left-auto sm:w-[340px] bg-white border border-slate-100 rounded-3xl shadow-2xl overflow-hidden transition-all duration-200 ${
+              chatAbierto
+                ? "opacity-100 visible scale-100"
+                : "opacity-0 invisible pointer-events-none scale-95"
             }`}
           >
-            <div className="h-11 px-4 flex items-center justify-between bg-white border-b border-slate-100">
+            <div className="h-12 px-4 flex items-center justify-between bg-white border-b border-slate-100">
+
               <div className="flex items-center gap-2">
                 <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
                 </span>
-                <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Chat con Unidad</span>
+
+                <span className="text-[9px] font-black text-slate-800 uppercase tracking-widest">
+                  Chat con unidad
+                </span>
               </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setChatAbierto(false)}
-                  className="text-slate-500 hover:text-slate-800 text-xs font-black uppercase tracking-widest"
-                >
-                  Minimizar
-                </button>
-                <button
-                  onClick={() => setChatAbierto(false)}
-                  className="text-slate-500 hover:text-slate-800 text-sm font-black"
-                  aria-label="Cerrar chat"
-                >
-                  x
-                </button>
-              </div>
+
+              <button
+                onClick={() => setChatAbierto(false)}
+                className="text-slate-400 hover:text-slate-800 text-xs font-black"
+              >
+                ✕
+              </button>
             </div>
+
             <div className="h-[280px] bg-white">
               <ChatBox
-                toEmail={taxistaAsignado.email || (taxistaAsignado as any).taxistaEmail || ""}
-                userName={userPosition?.name || "Pasajero"}
+                toEmail={
+                  taxistaAsignado.email ||
+                  (taxistaAsignado as any)
+                    .taxistaEmail ||
+                  ""
+                }
+                userName={
+                  userPosition?.name || "Pasajero"
+                }
                 onIncomingMessage={() => {
                   if (!chatAbierto) {
-                    setUnreadChatCount((prev) => Math.min(prev + 1, 99));
+                    setUnreadChatCount((prev) =>
+                      Math.min(prev + 1, 99)
+                    );
                   }
                 }}
               />
             </div>
           </div>
 
+          {/* Burbuja */}
           {!chatAbierto && (
             <button
               onPointerDown={handleChatBubblePointerDown}
               onPointerMove={handleChatBubblePointerMove}
               onPointerUp={finishChatBubbleDrag}
               onPointerCancel={finishChatBubbleDrag}
-              style={{ left: `${chatBubbleX ?? CHAT_BUBBLE_MARGIN}px` }}
-              className={`fixed z-[2000] bottom-24 h-[52px] w-[52px] bg-[#22c55e] text-white rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-lg flex items-center justify-center active:translate-y-1 select-none ${unreadChatCount > 0 ? "animate-pulse ring-4 ring-[#22c55e]/45" : ""}`}
+              style={{
+                left: `${chatBubbleX ?? CHAT_BUBBLE_MARGIN}px`,
+              }}
+              className={`fixed z-[2000] bottom-24 h-[54px] w-[54px] bg-[#22c55e] text-white rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-lg flex items-center justify-center active:translate-y-1 select-none transition-all ${
+                unreadChatCount > 0
+                  ? "animate-pulse ring-4 ring-[#22c55e]/40"
+                  : ""
+              }`}
               title="Chat con unidad"
               aria-label="Abrir chat con unidad"
-              data-dragging={isDraggingChatBubble ? "true" : "false"}
+              data-dragging={
+                isDraggingChatBubble
+                  ? "true"
+                  : "false"
+              }
             >
               💬
+
               {unreadChatCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 border-2 border-white text-[9px] leading-none font-black flex items-center justify-center text-white">
-                  {unreadChatCount > 9 ? "9+" : unreadChatCount}
+                <span className="absolute -top-1 -right-1 min-w-[19px] h-[19px] px-1 rounded-full bg-red-500 border-2 border-white text-[9px] leading-none font-black flex items-center justify-center text-white">
+                  {unreadChatCount > 9
+                    ? "9+"
+                    : unreadChatCount}
                 </span>
               )}
             </button>
@@ -1540,35 +2003,67 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         </>
       )}
 
-      {/* PANTALLA DE FINALIZACIÓN */}
-      {estado === "finalizado" && (
-        <div className="fixed inset-0 z-[3000] bg-[#22c55e] flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in">
-          <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center text-center max-w-xs w-full">
-            <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center text-3xl mb-4">
-              ✓
-            </div>
-            <div className="text-2xl font-black text-slate-800 tracking-tighter mb-4 uppercase leading-tight">
-              ¡Gracias por viajar con nosotros!
-            </div>
-            <button
-              onClick={resetearApp}
-              className="w-full py-4 bg-[#22c55e] text-white rounded-2xl font-black text-xs uppercase shadow-lg active:scale-95"
-            >
-              Aceptar
-            </button>
+    {/* ===========================================================
+        FINALIZACIÓN
+    =========================================================== */}
+    {estado === "finalizado" && (
+      <div className="fixed inset-0 z-[3000] bg-[#22c55e] flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in">
+
+        <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center text-center max-w-xs w-full">
+
+          <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center text-4xl mb-5">
+            ✓
+          </div>
+
+          <p className="text-[8px] font-black uppercase tracking-[0.25em] text-[#22c55e] mb-2">
+            VallesViaje
+          </p>
+
+          <div className="text-2xl font-black text-slate-800 tracking-tight mb-2">
+            ¡Viaje finalizado!
+          </div>
+
+          <p className="text-[10px] text-slate-400 font-medium mb-6">
+            Gracias por viajar con nosotros.
+          </p>
+
+          <button
+            onClick={resetearApp}
+            className="w-full py-4 bg-[#22c55e] text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all"
+          >
+            Continuar
+          </button>
+        </div>
+      </div>
+    )}
+
+    {/* ===========================================================
+        REHIDRATACIÓN
+    =========================================================== */}
+    {isRehydrating && (
+      <div className="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-md z-[3000] flex flex-col items-center justify-center gap-5">
+
+        <div className="relative">
+          <div className="w-14 h-14 border-4 border-white/20 border-t-[#22c55e] rounded-full animate-spin" />
+
+          <div className="absolute inset-0 flex items-center justify-center text-lg">
+            🚕
           </div>
         </div>
-      )}
 
-      {/* OVERLAY DE REHIDRATACIÓN */}
-      {isRehydrating && (
-        <div className="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-md z-[3000] flex flex-col items-center justify-center gap-4">
-          <div className="w-12 h-12 border-4 border-[#22c55e] border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-white font-black uppercase tracking-widest text-sm">Recuperando viaje...</p>
+        <div className="text-center">
+          <p className="text-white font-black uppercase tracking-widest text-sm">
+            Recuperando viaje
+          </p>
+
+          <p className="text-white/50 text-[8px] font-bold uppercase tracking-widest mt-1">
+            Restaurando tu conexión...
+          </p>
         </div>
-      )}
-    </div>
-  );
+      </div>
+    )}
+  </div>
+);
 };
 
 export default PasajeroView;
