@@ -1511,6 +1511,35 @@ const finalizarViaje = () => {
     return `${origen?.lat ?? "na"}-${origen?.lng ?? "na"}-${destino?.lat ?? "na"}-${destino?.lng ?? "na"}-${routeRefreshToken}`;
   }, [pasajeroAsignado?.lat, pasajeroAsignado?.lng, pasajeroAsignado?.destinationLat, pasajeroAsignado?.destinationLng, routeRefreshToken]);
 
+  const taxiToPassengerWaypoints = useMemo<L.LatLng[] | null>(() => {
+    if (
+      taxiPos?.lat == null ||
+      taxiPos?.lng == null ||
+      pasajeroAsignado?.lat == null ||
+      pasajeroAsignado?.lng == null
+    ) {
+      return null;
+    }
+
+    return [
+      L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
+      L.latLng(Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng)),
+    ];
+  }, [
+    taxiPos?.lat,
+    taxiPos?.lng,
+    pasajeroAsignado?.lat,
+    pasajeroAsignado?.lng,
+  ]);
+
+  const handleApproachRouteFound = useCallback(({ coords }: { coords: L.LatLng[] }) => {
+    setGeometriaRuta(sanitizeRouteTail(coords));
+  }, []);
+
+  const handleDestinationRouteFound = useCallback(({ coords }: { coords: L.LatLng[] }) => {
+    setRutaDestinoFinal(sanitizeRouteTail(coords));
+  }, []);
+
   const statusBadgeConfig = useMemo(() => {
     switch (estado) {
       case POSITION_STATES.ACTIVO:
@@ -1861,13 +1890,8 @@ const finalizarViaje = () => {
                 {estado === POSITION_STATES.ENCAMINO && pasajeroAsignado?.lat && pasajeroAsignado?.lng && geometriaRuta.length === 0 && (
                   <Suspense fallback={null}>
                     <RoutingMachine
-                      waypoints={[
-                        L.latLng(taxiPos.lat, taxiPos.lng),
-                        L.latLng(pasajeroAsignado.lat, pasajeroAsignado.lng)
-                      ]}
-                      onRouteFound={({coords}) => {
-                        setGeometriaRuta(sanitizeRouteTail(coords));
-                      }}
+                      waypoints={taxiToPassengerWaypoints!}
+                      onRouteFound={handleApproachRouteFound}
                     />
                   </Suspense>
                 )}
@@ -1888,24 +1912,23 @@ const finalizarViaje = () => {
                   <Polyline positions={geometriaRuta} pathOptions={{ color: 'rgb(245, 33, 65)', weight: 4, lineJoin: 'round' }} />
                 )}
 
-                {(estado === POSITION_STATES.ENCAMINO || estado === POSITION_STATES.ENCURSO) &&
-                  pasajeroAsignado?.lat &&
-                  pasajeroAsignado?.lng &&
-                  hasRealFinalDestination(pasajeroAsignado) &&
-                  getDestinoFinalLatLng(pasajeroAsignado) && (
-                    <Suspense fallback={null}>
-                      <RoutingMachine
-                        key={destinationRouteKey}
-                        waypoints={[
-                          routeOriginForDestination as L.LatLng,
-                          getDestinoFinalLatLng(pasajeroAsignado) as L.LatLng,
-                        ]}
-                        onRouteFound={({coords}) => {
-                          setRutaDestinoFinal(sanitizeRouteTail(coords));
-                        }}
-                      />
-                    </Suspense>
-                  )}
+               {(estado === POSITION_STATES.ENCAMINO || estado === POSITION_STATES.ENCURSO) &&
+  pasajeroAsignado?.lat &&
+  pasajeroAsignado?.lng &&
+  hasRealFinalDestination(pasajeroAsignado) &&
+  getDestinoFinalLatLng(pasajeroAsignado) &&
+  rutaDestinoFinal.length === 0 && (
+    <Suspense fallback={null}>
+      <RoutingMachine
+        key={destinationRouteKey}
+        waypoints={[
+          routeOriginForDestination as L.LatLng,
+          getDestinoFinalLatLng(pasajeroAsignado) as L.LatLng,
+        ]}
+        onRouteFound={handleDestinationRouteFound}
+      />
+    </Suspense>
+  )}
 
                 {(estado === POSITION_STATES.ENCAMINO || estado === POSITION_STATES.ENCURSO) && hasRealFinalDestination(pasajeroAsignado) && rutaDestinoFinal.length > 0 && (
                   <Polyline
