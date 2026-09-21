@@ -1020,8 +1020,13 @@ useGeolocation(
         setEstado(nextState as PositionState);
         setPasajeroAsignado(counterpart);
         tripSessionActiveRef.current = true;
-        setTarifaEstimada(data.estimatedFare ?? null);
-        setDistanciaEstimadaKm(data.estimatedDistanceKm ?? null);
+        if (typeof data.estimatedFare === "number") {
+          setTarifaEstimada(data.estimatedFare);
+        }
+
+        if (typeof data.estimatedDistanceKm === "number") {
+          setDistanciaEstimadaKm(data.estimatedDistanceKm);
+        }
 
         showToastOnce("taxista:rehydrated", () => {
           toast.success("¡Viaje recuperado con éxito!");
@@ -1112,6 +1117,13 @@ useGeolocation(
         setIsAccepting(false);
         setViajeSolicitado(null);
 
+        if (typeof data.estimatedFare === "number") {
+          setTarifaEstimada(data.estimatedFare);
+        }
+
+        if (typeof data.estimatedDistanceKm === "number") {
+          setDistanciaEstimadaKm(data.estimatedDistanceKm);
+        }
 
         showToastOnce("taxista:assignment-confirmed", () => {
           toast.success("¡Viaje vinculado! Dirígete al pasajero.");
