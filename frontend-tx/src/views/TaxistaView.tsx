@@ -1071,12 +1071,6 @@ useGeolocation(
         setRouteRefreshToken((prev) => prev + 1);
       }
 
-      if (typeof data?.estimatedFare === "number") {
-        setTarifaEstimada(data.estimatedFare);
-      }
-      if (typeof data?.estimatedDistanceKm === "number") {
-        setDistanciaEstimadaKm(data.estimatedDistanceKm);
-      }
     };
 
     // 🚨 NUEVO: Listeners de la Trip Room (Coordinación)
@@ -1118,12 +1112,6 @@ useGeolocation(
         setIsAccepting(false);
         setViajeSolicitado(null);
 
-        if (typeof data.estimatedFare === "number") {
-          setTarifaEstimada(data.estimatedFare);
-        }
-        if (typeof data.estimatedDistanceKm === "number") {
-          setDistanciaEstimadaKm(data.estimatedDistanceKm);
-        }
 
         showToastOnce("taxista:assignment-confirmed", () => {
           toast.success("¡Viaje vinculado! Dirígete al pasajero.");

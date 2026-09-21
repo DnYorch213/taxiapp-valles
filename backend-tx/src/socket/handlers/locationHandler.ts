@@ -3,7 +3,6 @@ import { Position } from "../../models/Position";
 import { buildPayload } from "../../utils/payloadBuilder";
 import { logMotor } from "../../utils/logger";
 import { POSITION_STATES } from "../../constants/states";
-import { estimateFareByDistance } from "../../services/fareService";
 
 export const registerLocationHandlers = (io: Server, socket: Socket, email: string) => {
 
@@ -75,13 +74,37 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                 return;
             }
 
-            const updatePayload: Record<string, any> = { updatedAt: new Date() };
+            const updatePayload: Record<string, any> = {
+                updatedAt: new Date()
+            };
 
-            if (destinationLat !== undefined && destinationLat !== null) updatePayload.destinationLat = Number(destinationLat);
-            if (destinationLng !== undefined && destinationLng !== null) updatePayload.destinationLng = Number(destinationLng);
+            if (destinationLat !== undefined && destinationLat !== null) {
+                updatePayload.destinationLat = Number(destinationLat);
+            }
+
+            if (destinationLng !== undefined && destinationLng !== null) {
+                updatePayload.destinationLng = Number(destinationLng);
+            }
+
             if (destinationAddress !== undefined) {
                 const nextAddress = String(destinationAddress).trim();
-                updatePayload.destinationAddress = nextAddress.length > 0 ? nextAddress : null;
+                updatePayload.destinationAddress =
+                    nextAddress.length > 0 ? nextAddress : null;
+            }
+
+            // 🗺️ Los nuevos valores vienen calculados por Mapbox en el frontend.
+            if (
+                typeof data?.estimatedDistanceKm === "number" &&
+                Number.isFinite(data.estimatedDistanceKm)
+            ) {
+                updatePayload.estimatedDistanceKm = data.estimatedDistanceKm;
+            }
+
+            if (
+                typeof data?.estimatedFare === "number" &&
+                Number.isFinite(data.estimatedFare)
+            ) {
+                updatePayload.estimatedFare = data.estimatedFare;
             }
 
             const updatedPassenger = await Position.findOneAndUpdate(
@@ -92,20 +115,19 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
 
             if (!updatedPassenger) return;
 
-            const fareEstimate = estimateFareByDistance(
-                updatedPassenger.lat || 0,
-                updatedPassenger.lng || 0,
-                updatedPassenger.destinationLat,
-                updatedPassenger.destinationLng
-            );
+            // 🗺️ No recalcular distancia/tarifa con Haversine.
+            // Usamos los valores de Mapbox guardados en Position.
+            const estimatedFare = updatedPassenger.estimatedFare ?? null;
+            const estimatedDistanceKm = updatedPassenger.estimatedDistanceKm ?? null;
 
             const payload = {
                 pasajeroEmail: passengerEmail,
                 destinationLat: updatedPassenger.destinationLat ?? null,
                 destinationLng: updatedPassenger.destinationLng ?? null,
-                destinationAddress: updatedPassenger.destinationAddress || "Destino no especificado",
-                estimatedFare: fareEstimate.estimatedPrice,
-                estimatedDistanceKm: fareEstimate.distanceKm,
+                destinationAddress:
+                    updatedPassenger.destinationAddress || "Destino no especificado",
+                estimatedFare,
+                estimatedDistanceKm,
                 timestamp: new Date().toISOString(),
             };
 

@@ -15,6 +15,8 @@ export interface IPosition extends Document {
     pasajeroAsignado?: string;
     pickupAddress?: string;
     destinationAddress?: string;
+    estimatedDistanceKm?: number;
+    estimatedFare?: number;
     requestId?: string;
     pushSubscription?: any;
 
@@ -109,6 +111,15 @@ const positionSchema = new Schema<IPosition>(
         destinationAddress: {
             type: String
         },
+
+        estimatedDistanceKm: {
+            type: Number
+        },
+
+        estimatedFare: {
+            type: Number
+        },
+
 
         requestId: {
             type: String

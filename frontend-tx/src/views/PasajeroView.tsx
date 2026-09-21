@@ -1,4 +1,4 @@
-﻿import React, { Suspense, lazy, useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { Suspense, lazy, useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { socket } from "../lib/socket";
@@ -336,8 +336,10 @@ const PasajeroView: React.FC = () => {
       destinationLat: nextLat,
       destinationLng: nextLng,
       destinationAddress: nextAddress ?? (destinationAddress || destinationQuery || "Destino no especificado"),
+      estimatedDistanceKm: distanciaRutaMapboxKm,
+      estimatedFare: tarifaEstimada,
     });
-  }, [destinationAddress, destinationQuery, userPosition?.email]);
+  }, [destinationAddress, destinationQuery, userPosition?.email, distanciaRutaMapboxKm, tarifaEstimada]);
 
   const geocodificarDestino = useCallback(async (query: string) => {
     const cleanQuery = query.trim();
@@ -986,13 +988,15 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       destinationLat,
       destinationLng,
       destinationAddress: destinationAddress || destinationQuery || undefined,
+      estimatedDistanceKm: distanciaRutaMapboxKm,
+      estimatedFare: tarifaEstimada,
       role: "pasajero",
       estado: "buscando",
       timestamp: new Date().toISOString(),
     });
 
     toast.info("Buscando taxi disponible...", { autoClose: 3000 });
-  }, [userPosition, estado, destinationLat, destinationLng, destinationAddress, destinationQuery]);
+  }, [userPosition, estado, destinationLat, destinationLng, destinationAddress, destinationQuery, distanciaRutaMapboxKm, tarifaEstimada]);
 
   const cancelarSolicitud = useCallback(() => {
     setSearchFlowActivo(false);

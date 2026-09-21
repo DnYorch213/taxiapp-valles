@@ -16,7 +16,6 @@ import {
 } from "../../services/dispatchService";
 import { logMotor } from "../../utils/logger";
 import { calculateDistance } from "../../utils/distance";
-import { estimateFareByDistance } from "../../services/fareService";
 import { POSITION_STATES } from "../../constants/states";
 import { joinTripRoom, notifyPeerReconnection } from "../../services/tripRoomService";
 
@@ -150,7 +149,20 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                                 taxistaAsignado: null,
                                 pasajeroAsignado: currentRequestId,
                                 requestId: currentRequestId,
-                                destinationAddress: data.destinationAddress && data.destinationAddress.trim().length > 0 ? data.destinationAddress : null,
+                                destinationAddress: data.destinationAddress && data.destinationAddress.trim().length > 0
+                                    ? data.destinationAddress
+                                    : null,
+
+                                estimatedDistanceKm:
+                                    typeof data.estimatedDistanceKm === "number" && Number.isFinite(data.estimatedDistanceKm)
+                                        ? data.estimatedDistanceKm
+                                        : null,
+
+                                estimatedFare:
+                                    typeof data.estimatedFare === "number" && Number.isFinite(data.estimatedFare)
+                                        ? data.estimatedFare
+                                        : null,
+
                                 updatedAt: new Date()
                             }
                         },
@@ -182,14 +194,6 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                         pickupAddress = "Ubicación no disponible";
                     }
 
-                    const fareEstimate = estimateFareByDistance(
-                        data.lat,
-                        data.lng,
-                        data.destinationLat || data.lat,
-                        data.destinationLng || data.lng,
-                        data.destinationAddress
-                    );
-
                     const pasajeroPayload = {
                         email: pEmail,
                         name: data.name || "Pasajero",
@@ -200,8 +204,10 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                         destinationLng: data.destinationLng ?? null,
                         destinationAddress: data.destinationAddress || "Destino no especificado",
                         requestId: currentRequestId,
-                        estimatedFare: fareEstimate.estimatedPrice,
-                        estimatedDistanceKm: fareEstimate.distanceKm
+
+                        // 🗺️ Datos del viaje calculados por Mapbox
+                        estimatedFare: data.estimatedFare ?? null,
+                        estimatedDistanceKm: data.estimatedDistanceKm ?? null
                     };
 
                     logMotor("request_taxi", `Buscando unidad más cercana para ${pEmail}`, "INFO");
@@ -436,14 +442,8 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
 
                 const tPos = await Position.findOne({ email: tEmail });
 
-                // ✅ DESPUÉS (100% Consistente con la lógica inteligente)
-                const fareEstimate = estimateFareByDistance(
-                    pPosActualizado.lat ?? 0,
-                    pPosActualizado.lng ?? 0,
-                    pPosActualizado.destinationLat ?? pPosActualizado.lat ?? 0,
-                    pPosActualizado.destinationLng ?? pPosActualizado.lng ?? 0,
-                    pPosActualizado.destinationAddress || undefined // <-- Agregado para consistencia total
-                );
+                const estimatedFare = pPosActualizado.estimatedFare ?? null;
+                const estimatedDistanceKm = pPosActualizado.estimatedDistanceKm ?? null;
 
                 io.to(pEmail).emit("response_from_taxi", {
                     accepted: true,
@@ -457,18 +457,32 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                     pasajeroEmail: pEmail,
                     pasajeroLat: pPosActualizado.lat,
                     pasajeroLng: pPosActualizado.lng,
+
+                    // 🚕 Esta distancia SÍ es para proximidad taxista → pasajero.
+                    // Se mantiene Haversine para el dispatch.
                     distancia: (tPos?.lat && tPos?.lng && pPosActualizado.lat && pPosActualizado.lng)
-                        ? calculateDistance(pPosActualizado.lat, pPosActualizado.lng, tPos.lat, tPos.lng)
+                        ? calculateDistance(
+                            pPosActualizado.lat,
+                            pPosActualizado.lng,
+                            tPos.lat,
+                            tPos.lng
+                        )
                         : null,
-                    estimatedFare: fareEstimate.estimatedPrice,
-                    estimatedDistanceKm: fareEstimate.distanceKm
+
+                    // 🗺️ Distancia vial y tarifa calculadas por Mapbox.
+                    estimatedFare,
+                    estimatedDistanceKm
                 });
 
                 io.to(tEmail).emit("assignment_confirmed", {
                     success: true,
-                    pasajero: buildPayload(pPosActualizado, pPosActualizado, POSITION_STATES.ENCAMINO),
-                    estimatedFare: fareEstimate.estimatedPrice,
-                    estimatedDistanceKm: fareEstimate.distanceKm
+                    pasajero: buildPayload(
+                        pPosActualizado,
+                        pPosActualizado,
+                        POSITION_STATES.ENCAMINO
+                    ),
+                    estimatedFare,
+                    estimatedDistanceKm
                 });
 
                 io.to(pEmail).emit("trip_status_update", {
@@ -1100,22 +1114,18 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                     ]);
 
                     if (pDoc && tDoc) {
-                        // 🌟 CÁLCULO DE TARIFA CON EL 5º PARÁMETRO (destinationAddress)
-                        // Esto activa la lógica de "Lugares Conocidos" (ej. Walmart = $75) al reconectar
-                        const fareEstimate = estimateFareByDistance(
-                            tDoc.lat || pDoc.lat || 0, // Origen: ubicación actual del taxista (o del pasajero como fallback)
-                            tDoc.lng || pDoc.lng || 0,
-                            pDoc.destinationLat ?? pDoc.lat ?? 0, // Destino: siempre basado en el documento del pasajero
-                            pDoc.destinationLng ?? pDoc.lng ?? 0,
-                            pDoc.destinationAddress || undefined // ¡CLAVE! Activa las tarifas por nombre de lugar
-                        );
+                        // 🗺️ Recuperamos la distancia vial y tarifa calculadas por Mapbox
+                        // y guardadas en el documento del pasajero al solicitar el viaje.
+                        estimatedFare = pDoc.estimatedFare ?? null;
+                        estimatedDistanceKm = pDoc.estimatedDistanceKm ?? null;
 
                         // Preparamos el payload de la "otra parte" para enviarlo al que reconecta
                         const counterpartDoc = isPassenger ? tDoc : pDoc;
-                        counterpartPayload = buildPayload(counterpartDoc, counterpartDoc, estadoActual);
-
-                        estimatedFare = fareEstimate.estimatedPrice;
-                        estimatedDistanceKm = fareEstimate.distanceKm;
+                        counterpartPayload = buildPayload(
+                            counterpartDoc,
+                            counterpartDoc,
+                            estadoActual
+                        );
                     }
                 }
             }
