@@ -4,7 +4,6 @@ import { Position, IPosition } from "../models/Position";
 import { calculateDistance } from "../utils/distance";
 import { reverseGeocode } from "./geocodingService";
 import { enviarNotificacionPush } from "./pushService";
-import { estimateFareByDistance } from "./fareService";
 import { logMotor } from "../utils/logger";
 import { POSITION_STATES, STATE_GROUPS } from "../constants/states";
 import { emitToTripRoom } from "./tripRoomService";
@@ -152,7 +151,16 @@ const calculateDynamicTimeout = (distanciaKm: number): number => {
 // 🚨 CORRECCIÓN 3: Optimización de consulta y eliminación del bucle N+1 de sockets
 const getDispatchCandidates = async (
     io: Server,
-    pasajeroData: { email: string; requestId?: string; lat?: number; lng?: number; name?: string; pickupAddress?: string },
+    pasajeroData: {
+        email: string;
+        requestId?: string;
+        lat?: number;
+        lng?: number;
+        name?: string;
+        pickupAddress?: string;
+        estimatedFare?: number;
+        estimatedDistanceKm?: number;
+    },
     currentExcluidos: string[]
 ): Promise<{ candidates: IPosition[]; source: "db" | "none" }> => {
     const excluded = new Set(currentExcluidos.map(normalizeEmail));
@@ -198,7 +206,18 @@ const getDispatchCandidates = async (
 
 const runDispatchWithRetry = async (
     io: Server,
-    pasajeroData: { email: string; requestId?: string; lat?: number; lng?: number; name?: string; pickupAddress?: string; destinationLat?: number; destinationLng?: number },
+    pasajeroData: {
+        email: string;
+        requestId?: string;
+        lat?: number;
+        lng?: number;
+        name?: string;
+        pickupAddress?: string;
+        destinationLat?: number;
+        destinationLng?: number;
+        estimatedFare?: number;
+        estimatedDistanceKm?: number;
+    },
     excludedEmails: string[] = [],
     attempt: number = 1,
     transactionAttempt: number = 1
@@ -408,13 +427,6 @@ const runDispatchWithRetry = async (
             nombrePasajero = userData?.name || "Pasajero";
         }
 
-        const fareEstimate = estimateFareByDistance(
-            pasajeroData.lat ?? 0,
-            pasajeroData.lng ?? 0,
-            pasajeroData.destinationLat ?? pasajeroData.lat ?? 0,
-            pasajeroData.destinationLng ?? pasajeroData.lng ?? 0
-        );
-
         const fullPayload = {
             ...pasajeroData,
             name: nombrePasajero,
@@ -425,8 +437,8 @@ const runDispatchWithRetry = async (
             attempt,
             distancia,
             timeoutMs: calculateDynamicTimeout(distancia),
-            estimatedFare: fareEstimate.estimatedPrice,
-            estimatedDistanceKm: fareEstimate.distanceKm
+            estimatedFare: pasajeroData.estimatedFare ?? null,
+            estimatedDistanceKm: pasajeroData.estimatedDistanceKm ?? null
         };
 
         // 🎯 6. EMISIÓN DE EVENTOS

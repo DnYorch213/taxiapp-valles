@@ -32,15 +32,45 @@ const DESTINATION_STORAGE_TTL_MS = 12 * 60 * 60 * 1000;
 
 const calcularTarifaPorDistancia = (distanciaKm: number): number => {
   if (!distanciaKm || distanciaKm <= 0) return 50;
-  if (distanciaKm <= 1.0) return 50;
-  if (distanciaKm <= 2.0) return 75;
-  if (distanciaKm <= 3.0) return 80;
-  if (distanciaKm <= 4.0) return 90;
-  if (distanciaKm <= 5.0) return 100;
-  if (distanciaKm <= 6.0) return 105;
-  const kmExtra = distanciaKm - 6.0;
-  const tarifaCalculada = 105 + Math.ceil(kmExtra) * 12;
-  return Math.ceil(tarifaCalculada / 5) * 5;
+
+  const FARE_TIERS = [
+    { maxKm: 0.5, price: 50 },
+    { maxKm: 1.0, price: 60 },
+    { maxKm: 1.5, price: 65 },
+    { maxKm: 2.0, price: 70 },
+    { maxKm: 2.5, price: 75 },
+    { maxKm: 3.0, price: 80 },
+    { maxKm: 3.5, price: 85 },
+    { maxKm: 4.0, price: 90 },
+    { maxKm: 4.5, price: 95 },
+    { maxKm: 5.0, price: 100 },
+    { maxKm: 5.5, price: 105 },
+    { maxKm: 6.0, price: 110 },
+    { maxKm: 6.5, price: 115 },
+    { maxKm: 7.0, price: 120 },
+    { maxKm: 7.5, price: 125 },
+    { maxKm: 8.0, price: 130 },
+    { maxKm: 8.5, price: 135 },
+    { maxKm: 9.0, price: 140 },
+    { maxKm: 9.5, price: 145 },
+    { maxKm: 10.0, price: 150 },
+    { maxKm: 10.5, price: 155 },
+    { maxKm: 11.0, price: 160 },
+    { maxKm: 11.5, price: 165 },
+    { maxKm: 12.0, price: 170 },
+    { maxKm: 12.5, price: 175 },
+    { maxKm: 13.0, price: 180 },
+    { maxKm: 13.5, price: 185 },
+    { maxKm: 14.0, price: 190 },
+    { maxKm: 14.5, price: 195 },
+    { maxKm: 15.0, price: 200 },
+    { maxKm: 15.5, price: 205 },
+    { maxKm: 16.0, price: 210 },
+  ];
+
+  const tramo = FARE_TIERS.find((tier) => distanciaKm <= tier.maxKm);
+
+  return tramo?.price ?? 210;
 };
 
 const isValidCoordinatePair = (lat: number, lng: number) => {
