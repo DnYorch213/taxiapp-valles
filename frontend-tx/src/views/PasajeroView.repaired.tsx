@@ -135,23 +135,6 @@ const PasajeroView: React.FC = () => {
   const [distanciaRutaMapboxKm, setDistanciaRutaMapboxKm] =  useState<number | null>(null);
   const [isRehydrating, setIsRehydrating] = useState(false);
 
-  const limpiarDireccionDestino = (direccion: string) => {
-  if (!direccion) return "";
-
-  return direccion
-    .replace(/\bC\.?\s*P\.?\s*\d{5}\b/gi, "")
-    .replace(/\b\d{5}\b/g, "")
-    .replace(/\bSLP\b/gi, "")
-    .replace(/\bSan\s+Luis\s+Potos[ií]\b/gi, "")
-    .replace(/\bEstado\s+de\s+San\s+Luis\s+Potos[ií]\b/gi, "")
-    .replace(/\bMéxico\b/gi, "")
-    .replace(/,\s*,/g, ",")
-    .replace(/\s+,/g, ",")
-    .replace(/,\s*$/g, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-};
-
   // REFS CENTRALIZADAS - Evitan closures obsoletos en listeners
   const taxistaAsignadoRef = useRef<Payload | null>(null);
   const estadoRef = useRef<ViajeEstado>(TRIP_STATES.PENDIENTE);
@@ -354,63 +337,41 @@ const PasajeroView: React.FC = () => {
     setDestinationLng(userPosition?.lng ?? null);
   }, [userPosition?.lat, userPosition?.lng]);
 
- const limpiarMapaDestino = useCallback(() => {
-  setRutaDestinoPreview([]);
-  setRutaDestinoEnCurso([]);
-  setGeometriaRuta([]);
-  setHistorialRuta([]);
+  const limpiarMapaDestino = useCallback(() => {
+    setRutaDestinoPreview([]);
+    setRutaDestinoEnCurso([]);
+    setGeometriaRuta([]);
+    setHistorialRuta([]);
+    setDestinationAddress("");
+    setDestinationQuery("");
+    setDestinationLat(null);
+    setDestinationLng(null);
+    setSelectorDestinoAbierto(false);
+    setDestinoColapsado(false);
+    localStorage.removeItem("taxi_destination_query");
+    localStorage.removeItem("taxi_destination_address");
+    localStorage.removeItem("taxi_destination_lat");
+    localStorage.removeItem("taxi_destination_lng");
+    localStorage.removeItem("taxi_destination_updated_at");
+  }, []);
 
-  setDestinationAddress("");
-  setDestinationQuery("");
-  setDestinationLat(null);
-  setDestinationLng(null);
+  const actualizarDestinoEnServidor = useCallback((nextLat: number | null, nextLng: number | null, nextAddress?: string) => {
+    const passengerEmail = userPosition?.email?.toLowerCase().trim();
+    if (!passengerEmail || !socket.connected) return;
 
-  setDestinoConfirmado(false);
-  setTarifaEstimada(null);
-  setDistanciaEstimadaKm(null);
+    setRutaDestinoPreview([]);
+    setRutaDestinoEnCurso([]);
 
-  setSelectorDestinoAbierto(false);
-  setDestinoColapsado(false);
+    socket.emit("update_trip_destination", {
+      pasajeroEmail: passengerEmail,
+      destinationLat: nextLat,
+      destinationLng: nextLng,
+      destinationAddress: nextAddress ?? (destinationAddress || destinationQuery || "Destino no especificado"),
+      estimatedDistanceKm: distanciaRutaMapboxKm,
+      estimatedFare: tarifaEstimada,
+    });
+  }, [destinationAddress, destinationQuery, userPosition?.email, distanciaRutaMapboxKm, tarifaEstimada]);
 
-  localStorage.removeItem("taxi_destination_query");
-  localStorage.removeItem("taxi_destination_address");
-  localStorage.removeItem("taxi_destination_lat");
-  localStorage.removeItem("taxi_destination_lng");
-  localStorage.removeItem("taxi_destination_updated_at");
-}, []);
-
-const actualizarDestinoEnServidor = useCallback((
-  nextLat: number | null,
-  nextLng: number | null,
-  nextAddress?: string,
-  nextDistanceKm?: number | null,
-  nextFare?: number | null
-) => {
-  const passengerEmail = userPosition?.email?.toLowerCase().trim();
-
-  if (!passengerEmail || !socket.connected) return;
-
-  socket.emit("update_trip_destination", {
-    pasajeroEmail: passengerEmail,
-    destinationLat: nextLat,
-    destinationLng: nextLng,
-    destinationAddress:
-      nextAddress ??
-      (destinationAddress || destinationQuery || "Destino no especificado"),
-
-    estimatedDistanceKm:
-      nextDistanceKm ?? distanciaRutaMapboxKm,
-
-    estimatedFare:
-      nextFare ?? tarifaEstimada,
-  });
-}, [
-  destinationAddress,
-  destinationQuery,
-  userPosition?.email,
-  distanciaRutaMapboxKm,
-  tarifaEstimada,
-]);
   const geocodificarDestino = useCallback(async (query: string) => {
     const cleanQuery = query.trim();
     if (!cleanQuery) {
@@ -447,8 +408,7 @@ const actualizarDestinoEnServidor = useCallback((
 
       setDestinationLat(latNum);
       setDestinationLng(lngNum);
-      const nextAddress = limpiarDireccionDestino(
-        match.display_name || cleanQuery );     
+      const nextAddress = match.display_name || cleanQuery;
       setDestinationAddress(nextAddress);
       setDestinationQuery(nextAddress);
       setRutaDestinoPreview([]);
@@ -464,65 +424,46 @@ const actualizarDestinoEnServidor = useCallback((
       setIsSearchingDestination(false);
     }
   }, [estado, actualizarDestinoEnServidor]);
-  
-const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number) => {
-  if (!isValidCoordinatePair(lat, lng)) {
-    toast.error("La posición seleccionada no es válida.");
-    return;
-  }
 
-  setDestinationLat(lat);
-  setDestinationLng(lng);
-  setRutaDestinoPreview([]);
-  setRutaDestinoEnCurso([]);
-
-  try {
-    const url = new URL("https://nominatim.openstreetmap.org/reverse");
-    url.searchParams.set("format", "jsonv2");
-    url.searchParams.set("lat", String(lat));
-    url.searchParams.set("lon", String(lng));
-    url.searchParams.set("zoom", "18");
-    url.searchParams.set("addressdetails", "1");
-
-    const response = await fetch(url.toString(), {
-      headers: { Accept: "application/json" }
-    });
-
-    if (!response.ok) throw new Error("No se pudo resolver la dirección");
-
-    const data = await response.json();
-
-    const label = limpiarDireccionDestino(
-      data.display_name || `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`
-    );
-
-    setDestinationAddress(label);
-    setDestinationQuery(label);
-
-    if (
-      estado === "encurso" ||
-      estado === "encamino" ||
-      estado === "asignado"
-    ) {
-      actualizarDestinoEnServidor(lat, lng, label);
+  const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number) => {
+    if (!isValidCoordinatePair(lat, lng)) {
+      toast.error("La posición seleccionada no es válida.");
+      return;
     }
-  } catch (error) {
-    console.warn("Error resolviendo destino:", error);
 
-    const label = `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    setDestinationLat(lat);
+    setDestinationLng(lng);
+    setRutaDestinoPreview([]);
+    setRutaDestinoEnCurso([]);
 
-    setDestinationAddress(label);
-    setDestinationQuery(label);
+    try {
+      const url = new URL("https://nominatim.openstreetmap.org/reverse");
+      url.searchParams.set("format", "jsonv2");
+      url.searchParams.set("lat", String(lat));
+      url.searchParams.set("lon", String(lng));
+      url.searchParams.set("zoom", "18");
+      url.searchParams.set("addressdetails", "1");
 
-    if (
-      estado === "encurso" ||
-      estado === "encamino" ||
-      estado === "asignado"
-    ) {
-      actualizarDestinoEnServidor(lat, lng, label);
+      const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error("No se pudo resolver la dirección");
+
+      const data = await response.json();
+      const label = data.display_name || `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      setDestinationAddress(label);
+      setDestinationQuery(label);
+      if (estado === "encurso" || estado === "encamino" || estado === "asignado") {
+        actualizarDestinoEnServidor(lat, lng, label);
+      }
+    } catch (error) {
+      console.warn("Error resolviendo destino:", error);
+      const label = `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      setDestinationAddress(label);
+      setDestinationQuery(label);
+      if (estado === "encurso" || estado === "encamino" || estado === "asignado") {
+        actualizarDestinoEnServidor(lat, lng, label);
+      }
     }
-  }
-}, [estado, actualizarDestinoEnServidor]);
+  }, [estado, actualizarDestinoEnServidor]);
 
   const clampBubbleX = useCallback((x: number) => {
     if (typeof window === "undefined") return x;
@@ -623,11 +564,12 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
     if (!socket) return;
 
     const handleTripDestinationUpdated = (data: any) => {
-      console.log("🚩 PASAJERO RECIBIÓ trip_destination_updated:", data);
       const passengerEmail = userPositionRef.current?.email?.toLowerCase().trim();
       const incomingEmail = String(data?.pasajeroEmail || "").toLowerCase().trim();
       if (incomingEmail && passengerEmail && incomingEmail !== passengerEmail) return;
-    
+
+      setRutaDestinoPreview([]);
+      setRutaDestinoEnCurso([]);
 
       if (data?.destinationLat !== undefined && data?.destinationLat !== null) {
         setDestinationLat(Number(data.destinationLat));
@@ -636,22 +578,16 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
         setDestinationLng(Number(data.destinationLng));
       }
       if (data?.destinationAddress) {
-  const direccionLimpia = limpiarDireccionDestino(
-    String(data.destinationAddress)
-  );
-
-  setDestinationAddress(direccionLimpia);
-  setDestinationQuery(direccionLimpia);
-}
+        setDestinationAddress(String(data.destinationAddress));
+        setDestinationQuery(String(data.destinationAddress));
+      }
 
       if (typeof data?.estimatedFare === "number") {
-  setTarifaEstimada(data.estimatedFare);
-}
-
-if (typeof data?.estimatedDistanceKm === "number") {
-  setDistanciaEstimadaKm(data.estimatedDistanceKm);
-  setDistanciaRutaMapboxKm(data.estimatedDistanceKm);
-}
+        setTarifaEstimada(data.estimatedFare);
+      }
+      if (typeof data?.estimatedDistanceKm === "number") {
+        setDistanciaEstimadaKm(data.estimatedDistanceKm);
+      }
     };
 
     // ACEPTACIÓN DEL TAXI (sin setTimeout innecesario)
@@ -1167,36 +1103,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   const compactoInferior = ["buscando", "preasignado", "asignado", "encamino", "encurso"].includes(estado);
   const mostrarTextoBuscando = !taxistaAsignado && ["buscando", "preasignado"].includes(estado);
 
- const abrirSelectorDestino = () => {
-  setSelectorDestinoAbierto(true);
-  setDestinoColapsado(false);
-  setDestinoConfirmado(false);
-
-  // Pin provisional cerca del pasajero, sin crear una ruta.
-  if (
-    userPosition?.lat &&
-    userPosition?.lng
-  ) {
-    const lat = Number(userPosition.lat);
-    const lng = Number(userPosition.lng);
-
-    // Aproximadamente 20 metros al norte del pasajero.
-    const latOffset = 20 / 111320;
-
-    setDestinationLat(lat + latOffset);
-    setDestinationLng(lng);
-
-    setDestinationAddress("");
-    setDestinationQuery("");
-
-    // No mostrar ruta mientras el destino sea provisional.
-    setRutaDestinoPreview([]);
-    setRutaDestinoEnCurso([]);
-    setDistanciaRutaMapboxKm(null);
-    setDistanciaEstimadaKm(null);
-    setTarifaEstimada(null);
-  }
-};
+  const abrirSelectorDestino = () => {
+    setSelectorDestinoAbierto(true);
+    setDestinoColapsado(false);
+  };
 
   useEffect(() => {
     if (enCaminoUI) {
@@ -1216,12 +1126,17 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }, [chatAbierto]);
 
   const routePositionsEnCurso = useMemo(() => {
-  if (rutaDestinoEnCurso.length > 0) {
-    return rutaDestinoEnCurso;
-  }
+    if (rutaDestinoEnCurso.length > 0) {
+      return rutaDestinoEnCurso;
+    }
 
-  return [] as L.LatLngExpression[];
-}, [rutaDestinoEnCurso]);
+    if (estado === "encurso" && taxiPos?.lat && taxiPos?.lng && destinationPosition) {
+      return [[Number(taxiPos.lat), Number(taxiPos.lng)], destinationPosition] as L.LatLngExpression[];
+    }
+
+    return [] as L.LatLngExpression[];
+  }, [estado, rutaDestinoEnCurso, taxiPos?.lat, taxiPos?.lng, destinationPosition?.[0], destinationPosition?.[1]]);
+
   
 return (
   <div className="h-dvh bg-slate-50 flex flex-col items-center font-sans relative overflow-hidden">
@@ -1334,7 +1249,7 @@ return (
             {/* -----------------------------------------------------
                 DESTINO
             ----------------------------------------------------- */}
-            {
+            {(estado === "encurso" || selectorDestinoAbierto) &&
               destinationPosition && (
                 <Marker
                   position={destinationPosition}
@@ -1366,7 +1281,7 @@ return (
             {/* -----------------------------------------------------
                 PREVIEW DE DESTINO
             ----------------------------------------------------- */}
-            {
+            {selectorDestinoAbierto &&
               destinationPosition &&
               estado !== "encurso" &&
               rutaDestinoPreview.length > 0 && (
@@ -1386,12 +1301,11 @@ return (
                 ROUTING DESTINO PREVIEW
             ----------------------------------------------------- */}
             {selectorDestinoAbierto &&
-  destinationPosition &&
-  destinationAddress &&
-  estado !== "encurso" &&
-  userPosition?.lat &&
-  userPosition?.lng &&
-  rutaDestinoPreview.length === 0 && (
+              destinationPosition &&
+              estado !== "encurso" &&
+              userPosition?.lat &&
+              userPosition?.lng &&
+              rutaDestinoPreview.length === 0 && (
                 <Suspense fallback={null}>
                   <RoutingMachine
                     key={`${userPosition.lat}-${userPosition.lng}-${destinationPosition[0]}-${destinationPosition[1]}-${estado}-${selectorDestinoAbierto}`}
@@ -1530,33 +1444,10 @@ return (
                         destinationPosition[1]
                       ),
                     ]}
-                    onRouteFound={({ coords, distanceKm, durationMin }) => {
+                    onRouteFound={({ coords }) => {
   setRutaDestinoEnCurso(
     sanitizeRouteTail(coords)
   );
-
-  if (distanceKm !== null && Number.isFinite(distanceKm)) {
-    const nuevaDistanciaKm = Number(distanceKm);
-    const nuevaTarifa = calcularTarifaPorDistancia(nuevaDistanciaKm);
-
-    setDistanciaRutaMapboxKm(nuevaDistanciaKm);
-    setDistanciaEstimadaKm(nuevaDistanciaKm);
-    setTarifaEstimada(nuevaTarifa);
-
-    console.log("📏 Nueva distancia vial al destino:", {
-      distanceKm: nuevaDistanciaKm,
-      fare: nuevaTarifa,
-      durationMin,
-    });
-
-    actualizarDestinoEnServidor(
-      destinationPosition?.[0] ?? null,
-      destinationPosition?.[1] ?? null,
-      destinationAddress || destinationQuery || "Destino no especificado",
-      nuevaDistanciaKm,
-      nuevaTarifa
-    );
-  }
 }}
                   />
                 </Suspense>
@@ -1712,20 +1603,16 @@ return (
                     </div>
                   </div>
                 )}
-              <button 
-  type="button" 
-  onClick={() => {
-    setDestinoConfirmado(true);
-    setSelectorDestinoAbierto(false);
-    setDestinoColapsado(true);
-  }}
-  disabled={ 
-    destinationLat === null || 
-    destinationLng === null 
-  } 
-  className="w-full py-3 rounded-2xl bg-[#22c55e] text-white font-black text-[10px] uppercase tracking-widest disabled:opacity-40 active:scale-95 transition-all" 
-> 
-  CONFIRMAR DESTINO 
+                <button
+  type="button"
+  onClick={() => setDestinoConfirmado(true)}
+  disabled={
+    destinationLat === null ||
+    destinationLng === null
+  }
+  className="w-full py-3 rounded-2xl bg-[#22c55e] text-white font-black text-[10px] uppercase tracking-widest disabled:opacity-40 active:scale-95 transition-all"
+>
+  CONFIRMAR DESTINO
 </button>
 
               <p className="text-[7px] font-bold text-slate-400 uppercase tracking-[0.16em] text-center">
@@ -1841,9 +1728,14 @@ return (
                 </p>
 
                 <p className="text-[10px] font-bold text-slate-700 truncate">
-                  {destinationAddress}
+                  {destinationAddress ||
+                    "Sin destino especificado"}
                 </p>
-              </div>             
+              </div>
+
+              <span className="text-[8px] font-black uppercase tracking-widest text-[#22c55e]">
+                Ver
+              </span>
             </button>
           )}
 
@@ -1853,38 +1745,19 @@ return (
         {estado === "pendiente" && (
           <div className="space-y-3">
 
-           <div>
-  <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">
-    Servicio Valles
-  </p>
+            <div>
+              <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                Servicio Valles
+              </p>
 
-  {destinoConfirmado ? (
-    <>
-      <h2 className="text-sm font-black text-slate-900 tracking-tight">
-        📍 {destinationAddress || destinationQuery || "Destino confirmado"}
-      </h2>
+              <h2 className="text-xl font-black text-slate-900 tracking-tight">
+                ¿A dónde vamos hoy?
+              </h2>
 
-      <p className="text-[11px] text-slate-500 mt-1">
-  Tarifa estimada:{" "}
-  <span className="text-lg font-black text-[#22c55e]">
-    {tarifaEstimada !== null
-      ? `$${Math.round(tarifaEstimada)}`
-      : "Calculando..."}
-  </span>
-</p>
-    </>
-  ) : (
-    <>
-      <h2 className="text-xl font-black text-slate-900 tracking-tight">
-        ¿A dónde vamos hoy?
-      </h2>
-
-      <p className="text-[10px] text-slate-400 mt-1">
-        Solicita una unidad cercana en segundos.
-      </p>
-    </>
-  )}
-</div>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Solicita una unidad cercana en segundos.
+              </p>
+            </div>
 
             {!selectorDestinoAbierto && (
               <button
@@ -1897,7 +1770,10 @@ return (
                 </div>
 
                 <div className="flex-1">
-                  
+                  <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
+                    Destino opcional
+                  </p>
+
                   <p className="text-[10px] font-bold text-slate-600">
                     Selecciona tu destino
                   </p>
@@ -1909,19 +1785,14 @@ return (
               </button>
             )}
 
-          {!searchFlowActivo && (
-  <button
-    onClick={solicitarTaxi}
-    disabled={!destinoConfirmado}
-    className={`w-full py-4 rounded-2xl font-black text-[11px] tracking-widest transition-all ${
-      destinoConfirmado
-        ? "bg-[#22c55e] text-white shadow-xl shadow-green-900/20 hover:bg-[#16a34a] active:scale-[0.98]"
-        : "bg-slate-200 text-slate-400 cursor-not-allowed opacity-70"
-    }`}
-  >
-    SOLICITAR TRANSPORTE
-  </button>
-)}
+            {destinoConfirmado && !searchFlowActivo && (
+              <button
+                onClick={solicitarTaxi}
+                className="w-full py-4 rounded-2xl font-black text-[11px] tracking-widest bg-[#22c55e] text-white shadow-xl shadow-green-900/20 hover:bg-[#16a34a] active:scale-[0.98] transition-all"
+              >
+                SOLICITAR TRANSPORTE
+              </button>
+            )}
           </div>
         )}
 

@@ -1049,34 +1049,97 @@ useGeolocation(
       setIsRehydrating(false);
     };
 
-    // 🚩 LISTENER DE ACTUALIZACIÓN DE DESTINO
-    const handleTripDestinationUpdated = (data: any) => {
-      const passengerEmail = pasajeroAsignadoRef.current?.email?.toLowerCase().trim();
-      const incomingEmail = String(data?.pasajeroEmail || "").toLowerCase().trim();
-      if (incomingEmail && passengerEmail && incomingEmail !== passengerEmail) return;
+   // 🚩 LISTENER DE ACTUALIZACIÓN DE DESTINO
+const handleTripDestinationUpdated = (data: any) => {
+  console.log("🚩 TAXISTA RECIBIÓ trip_destination_updated:", data);
+  const passengerEmail =
+    pasajeroAsignadoRef.current?.email?.toLowerCase().trim();
 
-      setPasajeroAsignado((prev: Payload | null) => {
-        if (!prev) return prev;
-        const nextLat = data?.destinationLat ?? prev.destinationLat ?? null;
-        const nextLng = data?.destinationLng ?? prev.destinationLng ?? null;
-        const nextAddress = data?.destinationAddress ?? prev.destinationAddress ?? "Rumbo al destino...";
-        const sameDestination = prev.destinationLat === nextLat && prev.destinationLng === nextLng;
+  const incomingEmail =
+    String(data?.pasajeroEmail || "").toLowerCase().trim();
 
-        if (sameDestination) return prev;
+  if (
+    incomingEmail &&
+    passengerEmail &&
+    incomingEmail !== passengerEmail
+  ) {
+    return;
+  }
 
-        return { ...prev, destinationLat: nextLat, destinationLng: nextLng, destinationAddress: nextAddress } as Payload;
-      });
+  // 💰 Actualizar tarifa y distancia
+  if (typeof data?.estimatedFare === "number") {
+    setTarifaEstimada(data.estimatedFare);
+  }
 
-      const nextLat = data?.destinationLat ?? pasajeroAsignadoRef.current?.destinationLat ?? null;
-      const nextLng = data?.destinationLng ?? pasajeroAsignadoRef.current?.destinationLng ?? null;
-      const sameDestination = pasajeroAsignadoRef.current?.destinationLat === nextLat && pasajeroAsignadoRef.current?.destinationLng === nextLng;
-      const isInProgressTrip = estadoRef.current === POSITION_STATES.ENCURSO;
+  if (typeof data?.estimatedDistanceKm === "number") {
+    setDistanciaEstimadaKm(data.estimatedDistanceKm);
+  }
 
-      if (!sameDestination && nextLat !== null && nextLng !== null && !isInProgressTrip) {
-        setRouteRefreshToken((prev) => prev + 1);
-      }
+  setPasajeroAsignado((prev: Payload | null) => {
+    if (!prev) return prev;
 
-    };
+    const nextLat =
+      data?.destinationLat ??
+      prev.destinationLat ??
+      null;
+
+    const nextLng =
+      data?.destinationLng ??
+      prev.destinationLng ??
+      null;
+
+    const nextAddress =
+      data?.destinationAddress ??
+      prev.destinationAddress ??
+      "Rumbo al destino...";
+
+    const sameDestination =
+      prev.destinationLat === nextLat &&
+      prev.destinationLng === nextLng;
+
+    return {
+      ...prev,
+      destinationLat: nextLat,
+      destinationLng: nextLng,
+      destinationAddress: nextAddress,
+
+      // 💰 Sincronizar también dentro del pasajero asignado
+      estimatedFare:
+        typeof data?.estimatedFare === "number"
+          ? data.estimatedFare
+          : prev.estimatedFare,
+
+      estimatedDistanceKm:
+        typeof data?.estimatedDistanceKm === "number"
+          ? data.estimatedDistanceKm
+          : prev.estimatedDistanceKm,
+    } as Payload;
+  });
+
+  const nextLat =
+    data?.destinationLat ??
+    pasajeroAsignadoRef.current?.destinationLat ??
+    null;
+
+  const nextLng =
+    data?.destinationLng ??
+    pasajeroAsignadoRef.current?.destinationLng ??
+    null;
+
+  const sameDestination =
+    pasajeroAsignadoRef.current?.destinationLat === nextLat &&
+    pasajeroAsignadoRef.current?.destinationLng === nextLng;
+
+  // 🗺️ Si realmente cambió el destino, recalcular ruta
+  if (
+    !sameDestination &&
+    nextLat !== null &&
+    nextLng !== null
+  ) {
+    setRutaDestinoFinal([]);
+    setRouteRefreshToken((prev) => prev + 1);
+  }
+};
 
     // 🚨 NUEVO: Listeners de la Trip Room (Coordinación)
     const handlePeerReconnected = (data: any) => {

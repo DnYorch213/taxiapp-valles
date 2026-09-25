@@ -3,6 +3,7 @@ import { Position } from "../../models/Position";
 import { buildPayload } from "../../utils/payloadBuilder";
 import { logMotor } from "../../utils/logger";
 import { POSITION_STATES } from "../../constants/states";
+import { emitToTripRoom } from "../../services/tripRoomService";
 
 export const registerLocationHandlers = (io: Server, socket: Socket, email: string) => {
 
@@ -133,11 +134,31 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
 
             socket.emit("trip_destination_updated", payload);
 
+            // 📡 Mantener envío por room del taxista
             if (updatedPassenger.taxistaAsignado) {
-                io.to(updatedPassenger.taxistaAsignado.toLowerCase().trim()).emit("trip_destination_updated", payload);
+                io
+                    .to(updatedPassenger.taxistaAsignado.toLowerCase().trim())
+                    .emit("trip_destination_updated", payload);
             }
 
-            io.emit("panel_update", buildPayload(updatedPassenger, updatedPassenger, updatedPassenger.estado));
+            // 📡 Enviar también por la sala específica del viaje
+            if (updatedPassenger.requestId) {
+                emitToTripRoom(
+                    io,
+                    String(updatedPassenger.requestId),
+                    "trip_destination_updated",
+                    payload
+                );
+            }
+
+            io.emit(
+                "panel_update",
+                buildPayload(
+                    updatedPassenger,
+                    updatedPassenger,
+                    updatedPassenger.estado
+                )
+            );
         } catch (error) {
             logMotor("trip_destination", `Error al actualizar destino para viaje activo: ${error}`, "ERROR");
         }

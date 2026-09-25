@@ -29,6 +29,9 @@ export interface Payload {
     pickupAddress?: string;
     destinationAddress?: string;
 
+    estimatedFare?: number | null;
+    estimatedDistanceKm?: number | null;
+
     // 🎯 ADICIONES CRÍTICAS: Soportar variantes de geocoding inverso del backend
     direccion?: string;
     address?: string;

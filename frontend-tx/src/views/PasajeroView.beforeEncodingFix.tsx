@@ -85,7 +85,7 @@ const sanitizeRouteTail = (coords: L.LatLng[]) => {
   const prev = coords[coords.length - 2];
   const tailDistance = prev.distanceTo(last);
 
-  // Recorta el último salto si cae fuera de calle para evitar parpadeo visual.
+  // Recorta el Ãºltimo salto si cae fuera de calle para evitar parpadeo visual.
   if (tailDistance >= OFFROAD_TAIL_THRESHOLD_METERS) {
     return coords.slice(0, -1);
   }
@@ -135,23 +135,6 @@ const PasajeroView: React.FC = () => {
   const [distanciaRutaMapboxKm, setDistanciaRutaMapboxKm] =  useState<number | null>(null);
   const [isRehydrating, setIsRehydrating] = useState(false);
 
-  const limpiarDireccionDestino = (direccion: string) => {
-  if (!direccion) return "";
-
-  return direccion
-    .replace(/\bC\.?\s*P\.?\s*\d{5}\b/gi, "")
-    .replace(/\b\d{5}\b/g, "")
-    .replace(/\bSLP\b/gi, "")
-    .replace(/\bSan\s+Luis\s+Potos[ií]\b/gi, "")
-    .replace(/\bEstado\s+de\s+San\s+Luis\s+Potos[ií]\b/gi, "")
-    .replace(/\bMéxico\b/gi, "")
-    .replace(/,\s*,/g, ",")
-    .replace(/\s+,/g, ",")
-    .replace(/,\s*$/g, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-};
-
   // REFS CENTRALIZADAS - Evitan closures obsoletos en listeners
   const taxistaAsignadoRef = useRef<Payload | null>(null);
   const estadoRef = useRef<ViajeEstado>(TRIP_STATES.PENDIENTE);
@@ -168,7 +151,7 @@ const PasajeroView: React.FC = () => {
     moved: false,
   });
 
-  // Sincronización de refs (un solo efecto para todas)
+  // SincronizaciÃ³n de refs (un solo efecto para todas)
   useEffect(() => { taxistaAsignadoRef.current = taxistaAsignado; }, [taxistaAsignado]);
   useEffect(() => { estadoRef.current = estado; }, [estado]);
   useEffect(() => { taxiPosRef.current = taxiPos; }, [taxiPos]);
@@ -263,8 +246,8 @@ const PasajeroView: React.FC = () => {
     return;
   }
 
-  // Mientras Mapbox todavía no responde,
-  // usamos la distancia geométrica únicamente como valor provisional.
+  // Mientras Mapbox todavÃ­a no responde,
+  // usamos la distancia geomÃ©trica Ãºnicamente como valor provisional.
   if (distanciaRutaMapboxKm === null) {
     const distanciaKm = getDistanceKm(
       Number(userPosition.lat),
@@ -354,63 +337,41 @@ const PasajeroView: React.FC = () => {
     setDestinationLng(userPosition?.lng ?? null);
   }, [userPosition?.lat, userPosition?.lng]);
 
- const limpiarMapaDestino = useCallback(() => {
-  setRutaDestinoPreview([]);
-  setRutaDestinoEnCurso([]);
-  setGeometriaRuta([]);
-  setHistorialRuta([]);
+  const limpiarMapaDestino = useCallback(() => {
+    setRutaDestinoPreview([]);
+    setRutaDestinoEnCurso([]);
+    setGeometriaRuta([]);
+    setHistorialRuta([]);
+    setDestinationAddress("");
+    setDestinationQuery("");
+    setDestinationLat(null);
+    setDestinationLng(null);
+    setSelectorDestinoAbierto(false);
+    setDestinoColapsado(false);
+    localStorage.removeItem("taxi_destination_query");
+    localStorage.removeItem("taxi_destination_address");
+    localStorage.removeItem("taxi_destination_lat");
+    localStorage.removeItem("taxi_destination_lng");
+    localStorage.removeItem("taxi_destination_updated_at");
+  }, []);
 
-  setDestinationAddress("");
-  setDestinationQuery("");
-  setDestinationLat(null);
-  setDestinationLng(null);
+  const actualizarDestinoEnServidor = useCallback((nextLat: number | null, nextLng: number | null, nextAddress?: string) => {
+    const passengerEmail = userPosition?.email?.toLowerCase().trim();
+    if (!passengerEmail || !socket.connected) return;
 
-  setDestinoConfirmado(false);
-  setTarifaEstimada(null);
-  setDistanciaEstimadaKm(null);
+    setRutaDestinoPreview([]);
+    setRutaDestinoEnCurso([]);
 
-  setSelectorDestinoAbierto(false);
-  setDestinoColapsado(false);
+    socket.emit("update_trip_destination", {
+      pasajeroEmail: passengerEmail,
+      destinationLat: nextLat,
+      destinationLng: nextLng,
+      destinationAddress: nextAddress ?? (destinationAddress || destinationQuery || "Destino no especificado"),
+      estimatedDistanceKm: distanciaRutaMapboxKm,
+      estimatedFare: tarifaEstimada,
+    });
+  }, [destinationAddress, destinationQuery, userPosition?.email, distanciaRutaMapboxKm, tarifaEstimada]);
 
-  localStorage.removeItem("taxi_destination_query");
-  localStorage.removeItem("taxi_destination_address");
-  localStorage.removeItem("taxi_destination_lat");
-  localStorage.removeItem("taxi_destination_lng");
-  localStorage.removeItem("taxi_destination_updated_at");
-}, []);
-
-const actualizarDestinoEnServidor = useCallback((
-  nextLat: number | null,
-  nextLng: number | null,
-  nextAddress?: string,
-  nextDistanceKm?: number | null,
-  nextFare?: number | null
-) => {
-  const passengerEmail = userPosition?.email?.toLowerCase().trim();
-
-  if (!passengerEmail || !socket.connected) return;
-
-  socket.emit("update_trip_destination", {
-    pasajeroEmail: passengerEmail,
-    destinationLat: nextLat,
-    destinationLng: nextLng,
-    destinationAddress:
-      nextAddress ??
-      (destinationAddress || destinationQuery || "Destino no especificado"),
-
-    estimatedDistanceKm:
-      nextDistanceKm ?? distanciaRutaMapboxKm,
-
-    estimatedFare:
-      nextFare ?? tarifaEstimada,
-  });
-}, [
-  destinationAddress,
-  destinationQuery,
-  userPosition?.email,
-  distanciaRutaMapboxKm,
-  tarifaEstimada,
-]);
   const geocodificarDestino = useCallback(async (query: string) => {
     const cleanQuery = query.trim();
     if (!cleanQuery) {
@@ -428,11 +389,11 @@ const actualizarDestinoEnServidor = useCallback((
       url.searchParams.set("countrycodes", "mx");
 
       const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
-      if (!response.ok) throw new Error("No se pudo buscar la dirección");
+      if (!response.ok) throw new Error("No se pudo buscar la direcciÃ³n");
 
       const results = await response.json();
       if (!Array.isArray(results) || results.length === 0) {
-        toast.error("No encontré esa ubicación. Prueba con otra dirección.");
+        toast.error("No encontrÃ© esa ubicaciÃ³n. Prueba con otra direcciÃ³n.");
         return;
       }
 
@@ -441,14 +402,13 @@ const actualizarDestinoEnServidor = useCallback((
       const lngNum = Number(match.lon);
 
       if (Number.isNaN(latNum) || Number.isNaN(lngNum)) {
-        toast.error("La ubicación encontrada no es válida.");
+        toast.error("La ubicaciÃ³n encontrada no es vÃ¡lida.");
         return;
       }
 
       setDestinationLat(latNum);
       setDestinationLng(lngNum);
-      const nextAddress = limpiarDireccionDestino(
-        match.display_name || cleanQuery );     
+      const nextAddress = match.display_name || cleanQuery;
       setDestinationAddress(nextAddress);
       setDestinationQuery(nextAddress);
       setRutaDestinoPreview([]);
@@ -464,65 +424,46 @@ const actualizarDestinoEnServidor = useCallback((
       setIsSearchingDestination(false);
     }
   }, [estado, actualizarDestinoEnServidor]);
-  
-const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number) => {
-  if (!isValidCoordinatePair(lat, lng)) {
-    toast.error("La posición seleccionada no es válida.");
-    return;
-  }
 
-  setDestinationLat(lat);
-  setDestinationLng(lng);
-  setRutaDestinoPreview([]);
-  setRutaDestinoEnCurso([]);
-
-  try {
-    const url = new URL("https://nominatim.openstreetmap.org/reverse");
-    url.searchParams.set("format", "jsonv2");
-    url.searchParams.set("lat", String(lat));
-    url.searchParams.set("lon", String(lng));
-    url.searchParams.set("zoom", "18");
-    url.searchParams.set("addressdetails", "1");
-
-    const response = await fetch(url.toString(), {
-      headers: { Accept: "application/json" }
-    });
-
-    if (!response.ok) throw new Error("No se pudo resolver la dirección");
-
-    const data = await response.json();
-
-    const label = limpiarDireccionDestino(
-      data.display_name || `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`
-    );
-
-    setDestinationAddress(label);
-    setDestinationQuery(label);
-
-    if (
-      estado === "encurso" ||
-      estado === "encamino" ||
-      estado === "asignado"
-    ) {
-      actualizarDestinoEnServidor(lat, lng, label);
+  const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number) => {
+    if (!isValidCoordinatePair(lat, lng)) {
+      toast.error("La posiciÃ³n seleccionada no es vÃ¡lida.");
+      return;
     }
-  } catch (error) {
-    console.warn("Error resolviendo destino:", error);
 
-    const label = `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    setDestinationLat(lat);
+    setDestinationLng(lng);
+    setRutaDestinoPreview([]);
+    setRutaDestinoEnCurso([]);
 
-    setDestinationAddress(label);
-    setDestinationQuery(label);
+    try {
+      const url = new URL("https://nominatim.openstreetmap.org/reverse");
+      url.searchParams.set("format", "jsonv2");
+      url.searchParams.set("lat", String(lat));
+      url.searchParams.set("lon", String(lng));
+      url.searchParams.set("zoom", "18");
+      url.searchParams.set("addressdetails", "1");
 
-    if (
-      estado === "encurso" ||
-      estado === "encamino" ||
-      estado === "asignado"
-    ) {
-      actualizarDestinoEnServidor(lat, lng, label);
+      const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error("No se pudo resolver la direcciÃ³n");
+
+      const data = await response.json();
+      const label = data.display_name || `UbicaciÃ³n ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      setDestinationAddress(label);
+      setDestinationQuery(label);
+      if (estado === "encurso" || estado === "encamino" || estado === "asignado") {
+        actualizarDestinoEnServidor(lat, lng, label);
+      }
+    } catch (error) {
+      console.warn("Error resolviendo destino:", error);
+      const label = `UbicaciÃ³n ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      setDestinationAddress(label);
+      setDestinationQuery(label);
+      if (estado === "encurso" || estado === "encamino" || estado === "asignado") {
+        actualizarDestinoEnServidor(lat, lng, label);
+      }
     }
-  }
-}, [estado, actualizarDestinoEnServidor]);
+  }, [estado, actualizarDestinoEnServidor]);
 
   const clampBubbleX = useCallback((x: number) => {
     if (typeof window === "undefined") return x;
@@ -553,7 +494,7 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
       setRutaDestinoPreview([]);
       setRutaDestinoEnCurso([]);
       setChatAbierto(false);
-      toast.warn("Se abrió otra sesión para esta cuenta. Se limpió el estado local.", { autoClose: 3500 });
+      toast.warn("Se abriÃ³ otra sesiÃ³n para esta cuenta. Se limpiÃ³ el estado local.", { autoClose: 3500 });
     };
 
     window.addEventListener("resize", handleResize);
@@ -617,17 +558,18 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
       : false;
 
   // ============================================================
-  // ­ LISTENERS DE SOCKET - SIN DEPENDENCIAS VOLÁTILES
+  // Â­ LISTENERS DE SOCKET - SIN DEPENDENCIAS VOLÃTILES
   // ============================================================
   useEffect(() => {
     if (!socket) return;
 
     const handleTripDestinationUpdated = (data: any) => {
-      console.log("🚩 PASAJERO RECIBIÓ trip_destination_updated:", data);
       const passengerEmail = userPositionRef.current?.email?.toLowerCase().trim();
       const incomingEmail = String(data?.pasajeroEmail || "").toLowerCase().trim();
       if (incomingEmail && passengerEmail && incomingEmail !== passengerEmail) return;
-    
+
+      setRutaDestinoPreview([]);
+      setRutaDestinoEnCurso([]);
 
       if (data?.destinationLat !== undefined && data?.destinationLat !== null) {
         setDestinationLat(Number(data.destinationLat));
@@ -636,25 +578,19 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
         setDestinationLng(Number(data.destinationLng));
       }
       if (data?.destinationAddress) {
-  const direccionLimpia = limpiarDireccionDestino(
-    String(data.destinationAddress)
-  );
-
-  setDestinationAddress(direccionLimpia);
-  setDestinationQuery(direccionLimpia);
-}
+        setDestinationAddress(String(data.destinationAddress));
+        setDestinationQuery(String(data.destinationAddress));
+      }
 
       if (typeof data?.estimatedFare === "number") {
-  setTarifaEstimada(data.estimatedFare);
-}
-
-if (typeof data?.estimatedDistanceKm === "number") {
-  setDistanciaEstimadaKm(data.estimatedDistanceKm);
-  setDistanciaRutaMapboxKm(data.estimatedDistanceKm);
-}
+        setTarifaEstimada(data.estimatedFare);
+      }
+      if (typeof data?.estimatedDistanceKm === "number") {
+        setDistanciaEstimadaKm(data.estimatedDistanceKm);
+      }
     };
 
-    // ACEPTACIÓN DEL TAXI (sin setTimeout innecesario)
+    // ACEPTACIÃ“N DEL TAXI (sin setTimeout innecesario)
     socket.on("response_from_taxi", (data) => {
       console.log("Respuesta del taxi recibida:", data);
 
@@ -689,14 +625,14 @@ if (typeof data?.estimatedDistanceKm === "number") {
           setDistanciaEstimadaKm(data.estimatedDistanceKm);
         }
 
-        toast.success(`¡La Unidad ${data.taxiNumber} (${data.name}) va en camino!`, {
+        toast.success(`Â¡La Unidad ${data.taxiNumber} (${data.name}) va en camino!`, {
           position: "top-center",
           autoClose: 5000,
         });
       }
     });
 
-    // TAXI MOVIDO (con orientación geográfica)
+    // TAXI MOVIDO (con orientaciÃ³n geogrÃ¡fica)
     socket.on("taxi_moved", (data: any) => {
       const emailAsignado = taxistaAsignadoRef.current?.email?.toLowerCase().trim();
       const emailEntrante = (data.tEmail || data.email || data.taxistaEmail)?.toLowerCase().trim();
@@ -726,12 +662,12 @@ if (typeof data?.estimatedDistanceKm === "number") {
       }
     });
 
-    // ACTUALIZACIÓN DE RUTA EN CURSO
+    // ACTUALIZACIÃ“N DE RUTA EN CURSO
 socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   const latNum = Number(data.lat);
   const lngNum = Number(data.lng);
 
-  // CORRECCIÓN: Usar L.latLng() para garantizar el tipo correcto
+  // CORRECCIÃ“N: Usar L.latLng() para garantizar el tipo correcto
   setHistorialRuta((prev) => {
     const newHistory = [...prev, L.latLng(latNum, lngNum)];
     return newHistory.length > 500 ? newHistory.slice(-500) : newHistory;
@@ -763,7 +699,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }
 });
 
-    // ACTUALIZACIÓN DE ESTADO DEL VIAJE
+    // ACTUALIZACIÃ“N DE ESTADO DEL VIAJE
     socket.on("trip_destination_updated", handleTripDestinationUpdated);
 
     socket.on("trip_status_update", (data: { estado: string; pasajeroEmail?: string }) => {
@@ -772,7 +708,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       const nextEstado = String(data.estado || "").toLowerCase().trim();
 
       if (!shouldAcceptStateTransition(estadoRef.current, nextEstado)) {
-        console.warn("🛡️ Estado ignorado por guard de sincronización:", { current: estadoRef.current, next: nextEstado });
+        console.warn("ðŸ›¡ï¸ Estado ignorado por guard de sincronizaciÃ³n:", { current: estadoRef.current, next: nextEstado });
         return;
       }
 
@@ -787,7 +723,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
           setGeometriaRuta([L.latLng(Number(taxiActual.lat), Number(taxiActual.lng))]);
         }
         showToastOnce("pasajero:trip-started", () => {
-          toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
+          toast.success("Â¡Viaje iniciado! Que tengas un buen trayecto.");
         }, { cooldownMs: 4000 });
       }
 
@@ -802,13 +738,13 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         setChatAbierto(false);
         limpiarMapaDestino();
         showToastOnce("pasajero:trip-finished", () => {
-          toast.success("¡Viaje finalizado!");
+          toast.success("Â¡Viaje finalizado!");
         }, { cooldownMs: 4000 });
       }
 
       // Escudo contra saltos accidentales
       if (["encurso", "finalizado"].includes(estadoRef.current) && nextEstado === "buscando") {
-        console.warn("Ignorado salto a 'buscando' porque el viaje ya está cerrado o en curso.");
+        console.warn("Ignorado salto a 'buscando' porque el viaje ya estÃ¡ cerrado o en curso.");
         return;
       }
 
@@ -840,7 +776,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
      if (emailRecibido === miEmail || !data.pasajeroEmail) {
   setSearchFlowActivo(false);
 
-  // El viaje terminó realmente en el servidor.
+  // El viaje terminÃ³ realmente en el servidor.
   // Conservamos "finalizado" para mostrar la pantalla de cierre.
   setEstado(TRIP_STATES.FINALIZADO);
 
@@ -851,7 +787,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   setChatAbierto(false);
   limpiarMapaDestino();
           showToastOnce("pasajero:trip-finished-extended", () => {
-          toast.success("¡Viaje finalizado! Gracias por viajar con nosotros.", {
+          toast.success("Â¡Viaje finalizado! Gracias por viajar con nosotros.", {
             position: "top-center",
             autoClose: 4000,
           });
@@ -859,10 +795,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       }
     });
 
-    // TAXI RECHAZÓ LA SOLICITUD
+    // TAXI RECHAZÃ“ LA SOLICITUD
     socket.on("taxi_rejected_request", () => {
       if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
-        console.warn("🛡️ taxi_rejected_request ignorado: la solicitud ya no está activa o el viaje terminó.");
+        console.warn("ðŸ›¡ï¸ taxi_rejected_request ignorado: la solicitud ya no estÃ¡ activa o el viaje terminÃ³.");
         return;
       }
       setSearchFlowActivo(true);
@@ -873,10 +809,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     });
 
    socket.on("no_taxis_available", (payload?: { message?: string }) => {
-  // El servidor terminó todos los intentos y no encontró una unidad.
+  // El servidor terminÃ³ todos los intentos y no encontrÃ³ una unidad.
   // Si seguimos buscando, ya no hay una solicitud activa que mantener.
   if (["encurso", "finalizado"].includes(estadoRef.current)) {
-    console.warn("🛡️ no_taxis_available ignorado: el viaje ya está cerrado.", {
+    console.warn("ðŸ›¡ï¸ no_taxis_available ignorado: el viaje ya estÃ¡ cerrado.", {
       estado: estadoRef.current,
     });
     return;
@@ -897,7 +833,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
     socket.on("dispatch_error", (payload?: { message?: string }) => {
       if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
-        console.warn("🛡️ dispatch_error ignorado: la solicitud ya no está activa.");
+        console.warn("ðŸ›¡ï¸ dispatch_error ignorado: la solicitud ya no estÃ¡ activa.");
         return;
       }
       setSearchFlowActivo(true);
@@ -920,10 +856,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       socket.off("no_taxis_available");
       socket.off("dispatch_error");
     };
-  }, [socket]); //  SOLO depende de socket - nunca se re-registra por cambios de posición
+  }, [socket]); //  SOLO depende de socket - nunca se re-registra por cambios de posiciÃ³n
 
   // ============================================================
-  //  REHIDRATACIÓN DE VIAJE ACTIVO AL RECONECTAR / VOLVER DE SEGUNDO PLANO
+  //  REHIDRATACIÃ“N DE VIAJE ACTIVO AL RECONECTAR / VOLVER DE SEGUNDO PLANO
   // ============================================================
   useEffect(() => {
     if (!socket) return;
@@ -977,7 +913,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
             name: data.passenger.name,
             lat: data.passenger.lat,
             lng: data.passenger.lng,
-            pickupAddress: data.passenger.pickupAddress || "Calculando ubicación...",
+            pickupAddress: data.passenger.pickupAddress || "Calculando ubicaciÃ³n...",
             destinationAddress: data.passenger.destinationAddress || "Rumbo al destino...",
             destinationLat: data.passenger.destinationLat ?? null,
             destinationLng: data.passenger.destinationLng ?? null,
@@ -1021,16 +957,16 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }, [socket, userPosition?.email]);
 
   // ============================================================
-  //  HEARTBEAT OPTIMIZADO - No se re-crea en cada cambio de posición
+  //  HEARTBEAT OPTIMIZADO - No se re-crea en cada cambio de posiciÃ³n
   // ============================================================
   useEffect(() => {
     if (!userPosition?.email || !userPosition?.lat) return;
 
     const interval = setInterval(() => {
-      // Candado: no enviar si está inactivo
+      // Candado: no enviar si estÃ¡ inactivo
       if (estadoRef.current === "pendiente" || estadoRef.current === "finalizado") return;
       
-      // Verificar que el socket esté conectado antes de emitir
+      // Verificar que el socket estÃ© conectado antes de emitir
       if (!socket?.connected) {
         console.warn("Socket desconectado, omitiendo heartbeat");
         return;
@@ -1060,13 +996,13 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     }
 
     if (!userPosition?.lat || !userPosition?.lng) {
-      toast.error("Esperando señal GPS...");
+      toast.error("Esperando seÃ±al GPS...");
       return;
     }
 
-    // Verificar conexión del socket
+    // Verificar conexiÃ³n del socket
     if (!socket?.connected) {
-      toast.error("Sin conexión al servidor. Reintentando...");
+      toast.error("Sin conexiÃ³n al servidor. Reintentando...");
       socket?.connect?.();
       return;
     }
@@ -1126,7 +1062,7 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }, [limpiarMapaDestino]);
 
   // ============================================================
-  // RECORTE DE RUTA DINÁMICA (optimizado)
+  // RECORTE DE RUTA DINÃMICA (optimizado)
   // ============================================================
   useEffect(() => {
     if (!taxiPos?.lat || !taxiPos?.lng || geometriaRuta.length === 0) return;
@@ -1167,36 +1103,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   const compactoInferior = ["buscando", "preasignado", "asignado", "encamino", "encurso"].includes(estado);
   const mostrarTextoBuscando = !taxistaAsignado && ["buscando", "preasignado"].includes(estado);
 
- const abrirSelectorDestino = () => {
-  setSelectorDestinoAbierto(true);
-  setDestinoColapsado(false);
-  setDestinoConfirmado(false);
-
-  // Pin provisional cerca del pasajero, sin crear una ruta.
-  if (
-    userPosition?.lat &&
-    userPosition?.lng
-  ) {
-    const lat = Number(userPosition.lat);
-    const lng = Number(userPosition.lng);
-
-    // Aproximadamente 20 metros al norte del pasajero.
-    const latOffset = 20 / 111320;
-
-    setDestinationLat(lat + latOffset);
-    setDestinationLng(lng);
-
-    setDestinationAddress("");
-    setDestinationQuery("");
-
-    // No mostrar ruta mientras el destino sea provisional.
-    setRutaDestinoPreview([]);
-    setRutaDestinoEnCurso([]);
-    setDistanciaRutaMapboxKm(null);
-    setDistanciaEstimadaKm(null);
-    setTarifaEstimada(null);
-  }
-};
+  const abrirSelectorDestino = () => {
+    setSelectorDestinoAbierto(true);
+    setDestinoColapsado(false);
+  };
 
   useEffect(() => {
     if (enCaminoUI) {
@@ -1216,12 +1126,17 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }, [chatAbierto]);
 
   const routePositionsEnCurso = useMemo(() => {
-  if (rutaDestinoEnCurso.length > 0) {
-    return rutaDestinoEnCurso;
-  }
+    if (rutaDestinoEnCurso.length > 0) {
+      return rutaDestinoEnCurso;
+    }
 
-  return [] as L.LatLngExpression[];
-}, [rutaDestinoEnCurso]);
+    if (estado === "encurso" && taxiPos?.lat && taxiPos?.lng && destinationPosition) {
+      return [[Number(taxiPos.lat), Number(taxiPos.lng)], destinationPosition] as L.LatLngExpression[];
+    }
+
+    return [] as L.LatLngExpression[];
+  }, [estado, rutaDestinoEnCurso, taxiPos?.lat, taxiPos?.lng, destinationPosition?.[0], destinationPosition?.[1]]);
+
   
 return (
   <div className="h-dvh bg-slate-50 flex flex-col items-center font-sans relative overflow-hidden">
@@ -1259,7 +1174,7 @@ return (
       </div>
 
       {/* =========================================================
-          BOTÓN SALIR
+          BOTÃ“N SALIR
       ========================================================= */}
       <div className="absolute top-[4.5rem] left-4 z-[1002]">
         <button
@@ -1326,7 +1241,7 @@ return (
                 zIndexOffset={100}
               >
                 <Popup>
-                  {userPosition.name || "Tu ubicación"}
+                  {userPosition.name || "Tu ubicaciÃ³n"}
                 </Popup>
               </Marker>
             )}
@@ -1334,7 +1249,7 @@ return (
             {/* -----------------------------------------------------
                 DESTINO
             ----------------------------------------------------- */}
-            {
+            {(estado === "encurso" || selectorDestinoAbierto) &&
               destinationPosition && (
                 <Marker
                   position={destinationPosition}
@@ -1366,7 +1281,7 @@ return (
             {/* -----------------------------------------------------
                 PREVIEW DE DESTINO
             ----------------------------------------------------- */}
-            {
+            {selectorDestinoAbierto &&
               destinationPosition &&
               estado !== "encurso" &&
               rutaDestinoPreview.length > 0 && (
@@ -1386,12 +1301,11 @@ return (
                 ROUTING DESTINO PREVIEW
             ----------------------------------------------------- */}
             {selectorDestinoAbierto &&
-  destinationPosition &&
-  destinationAddress &&
-  estado !== "encurso" &&
-  userPosition?.lat &&
-  userPosition?.lng &&
-  rutaDestinoPreview.length === 0 && (
+              destinationPosition &&
+              estado !== "encurso" &&
+              userPosition?.lat &&
+              userPosition?.lng &&
+              rutaDestinoPreview.length === 0 && (
                 <Suspense fallback={null}>
                   <RoutingMachine
                     key={`${userPosition.lat}-${userPosition.lng}-${destinationPosition[0]}-${destinationPosition[1]}-${estado}-${selectorDestinoAbierto}`}
@@ -1418,7 +1332,7 @@ return (
     );
   }
 
-  console.log("📏 Distancia vial destino:", {
+  console.log("ðŸ“ Distancia vial destino:", {
     distanceKm,
     durationMin,
   });
@@ -1444,7 +1358,7 @@ return (
               )}
 
             {/* -----------------------------------------------------
-                RUTA DE APROXIMACIÓN
+                RUTA DE APROXIMACIÃ“N
             ----------------------------------------------------- */}
             {["asignado", "encamino"].includes(estado) &&
               geometriaRuta.length > 0 && (
@@ -1460,7 +1374,7 @@ return (
               )}
 
             {/* -----------------------------------------------------
-                ROUTING TAXI → PASAJERO
+                ROUTING TAXI â†’ PASAJERO
             ----------------------------------------------------- */}
             {taxiPos?.lat &&
               taxiPos?.lng &&
@@ -1530,40 +1444,17 @@ return (
                         destinationPosition[1]
                       ),
                     ]}
-                    onRouteFound={({ coords, distanceKm, durationMin }) => {
+                    onRouteFound={({ coords }) => {
   setRutaDestinoEnCurso(
     sanitizeRouteTail(coords)
   );
-
-  if (distanceKm !== null && Number.isFinite(distanceKm)) {
-    const nuevaDistanciaKm = Number(distanceKm);
-    const nuevaTarifa = calcularTarifaPorDistancia(nuevaDistanciaKm);
-
-    setDistanciaRutaMapboxKm(nuevaDistanciaKm);
-    setDistanciaEstimadaKm(nuevaDistanciaKm);
-    setTarifaEstimada(nuevaTarifa);
-
-    console.log("📏 Nueva distancia vial al destino:", {
-      distanceKm: nuevaDistanciaKm,
-      fare: nuevaTarifa,
-      durationMin,
-    });
-
-    actualizarDestinoEnServidor(
-      destinationPosition?.[0] ?? null,
-      destinationPosition?.[1] ?? null,
-      destinationAddress || destinationQuery || "Destino no especificado",
-      nuevaDistanciaKm,
-      nuevaTarifa
-    );
-  }
 }}
                   />
                 </Suspense>
               )}
 
             {/* -----------------------------------------------------
-                LÍNEA AL DESTINO
+                LÃNEA AL DESTINO
             ----------------------------------------------------- */}
             {estado === "encurso" &&
               routePositionsEnCurso.length > 0 && (
@@ -1583,7 +1474,7 @@ return (
             <div className="h-10 w-10 rounded-full border-4 border-slate-200 border-t-[#22c55e] animate-spin" />
 
             <p className="text-slate-400 font-black text-[9px] uppercase tracking-widest">
-              Buscando tu ubicación...
+              Buscando tu ubicaciÃ³n...
             </p>
           </div>
         )}
@@ -1599,7 +1490,7 @@ return (
                 <div className="relative h-11 w-11 flex items-center justify-center">
                   <div className="absolute inset-0 rounded-full bg-amber-400/20 animate-ping" />
                   <div className="relative h-10 w-10 rounded-full bg-amber-500 flex items-center justify-center text-white text-lg">
-                    🚕
+                    ðŸš•
                   </div>
                 </div>
 
@@ -1613,7 +1504,7 @@ return (
                   </h3>
 
                   <p className="text-[9px] text-slate-400 font-medium mt-0.5">
-                    Buscando la unidad disponible más cercana
+                    Buscando la unidad disponible mÃ¡s cercana
                   </p>
                 </div>
               </div>
@@ -1637,7 +1528,7 @@ return (
 
                   <p className="text-[11px] font-bold text-slate-700 truncate">
                     {destinationAddress ||
-                      "¿A dónde quieres ir?"}
+                      "Â¿A dÃ³nde quieres ir?"}
                   </p>
                 </div>
 
@@ -1656,7 +1547,7 @@ return (
               <div className="flex gap-2">
                 <div className="flex-1 relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm">
-                    📍
+                    ðŸ“
                   </span>
 
                   <input
@@ -1712,24 +1603,20 @@ return (
                     </div>
                   </div>
                 )}
-              <button 
-  type="button" 
-  onClick={() => {
-    setDestinoConfirmado(true);
-    setSelectorDestinoAbierto(false);
-    setDestinoColapsado(true);
-  }}
-  disabled={ 
-    destinationLat === null || 
-    destinationLng === null 
-  } 
-  className="w-full py-3 rounded-2xl bg-[#22c55e] text-white font-black text-[10px] uppercase tracking-widest disabled:opacity-40 active:scale-95 transition-all" 
-> 
-  CONFIRMAR DESTINO 
+                <button
+  type="button"
+  onClick={() => setDestinoConfirmado(true)}
+  disabled={
+    destinationLat === null ||
+    destinationLng === null
+  }
+  className="w-full py-3 rounded-2xl bg-[#22c55e] text-white font-black text-[10px] uppercase tracking-widest disabled:opacity-40 active:scale-95 transition-all"
+>
+  CONFIRMAR DESTINO
 </button>
 
               <p className="text-[7px] font-bold text-slate-400 uppercase tracking-[0.16em] text-center">
-                Arrastra el pin verde para ajustar la ubicación
+                Arrastra el pin verde para ajustar la ubicaciÃ³n
               </p>
             </div>
           )}
@@ -1747,7 +1634,7 @@ return (
               <div className="flex items-center gap-3">
 
                 <div className="h-11 w-11 shrink-0 bg-green-50 rounded-2xl flex items-center justify-center text-xl">
-                  🚕
+                  ðŸš•
                 </div>
 
                 <div className="min-w-0 flex-1">
@@ -1832,7 +1719,7 @@ return (
               className="mb-3 flex items-center gap-3 w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 text-left"
             >
               <div className="h-8 w-8 rounded-xl bg-green-50 flex items-center justify-center">
-                📍
+                ðŸ“
               </div>
 
               <div className="min-w-0 flex-1">
@@ -1841,9 +1728,14 @@ return (
                 </p>
 
                 <p className="text-[10px] font-bold text-slate-700 truncate">
-                  {destinationAddress}
+                  {destinationAddress ||
+                    "Sin destino especificado"}
                 </p>
-              </div>             
+              </div>
+
+              <span className="text-[8px] font-black uppercase tracking-widest text-[#22c55e]">
+                Ver
+              </span>
             </button>
           )}
 
@@ -1853,38 +1745,19 @@ return (
         {estado === "pendiente" && (
           <div className="space-y-3">
 
-           <div>
-  <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">
-    Servicio Valles
-  </p>
+            <div>
+              <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                Servicio Valles
+              </p>
 
-  {destinoConfirmado ? (
-    <>
-      <h2 className="text-sm font-black text-slate-900 tracking-tight">
-        📍 {destinationAddress || destinationQuery || "Destino confirmado"}
-      </h2>
+              <h2 className="text-xl font-black text-slate-900 tracking-tight">
+                Â¿A dÃ³nde vamos hoy?
+              </h2>
 
-      <p className="text-[11px] text-slate-500 mt-1">
-  Tarifa estimada:{" "}
-  <span className="text-lg font-black text-[#22c55e]">
-    {tarifaEstimada !== null
-      ? `$${Math.round(tarifaEstimada)}`
-      : "Calculando..."}
-  </span>
-</p>
-    </>
-  ) : (
-    <>
-      <h2 className="text-xl font-black text-slate-900 tracking-tight">
-        ¿A dónde vamos hoy?
-      </h2>
-
-      <p className="text-[10px] text-slate-400 mt-1">
-        Solicita una unidad cercana en segundos.
-      </p>
-    </>
-  )}
-</div>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Solicita una unidad cercana en segundos.
+              </p>
+            </div>
 
             {!selectorDestinoAbierto && (
               <button
@@ -1893,35 +1766,33 @@ return (
                 className="w-full text-left bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-3 active:scale-[0.99] transition-all"
               >
                 <div className="h-9 w-9 bg-white rounded-xl flex items-center justify-center shadow-sm">
-                  📍
+                  ðŸ“
                 </div>
 
                 <div className="flex-1">
-                  
+                  <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
+                    Destino opcional
+                  </p>
+
                   <p className="text-[10px] font-bold text-slate-600">
                     Selecciona tu destino
                   </p>
                 </div>
 
                 <span className="text-[#22c55e] font-black">
-                  →
+                  â†’
                 </span>
               </button>
             )}
 
-          {!searchFlowActivo && (
-  <button
-    onClick={solicitarTaxi}
-    disabled={!destinoConfirmado}
-    className={`w-full py-4 rounded-2xl font-black text-[11px] tracking-widest transition-all ${
-      destinoConfirmado
-        ? "bg-[#22c55e] text-white shadow-xl shadow-green-900/20 hover:bg-[#16a34a] active:scale-[0.98]"
-        : "bg-slate-200 text-slate-400 cursor-not-allowed opacity-70"
-    }`}
-  >
-    SOLICITAR TRANSPORTE
-  </button>
-)}
+            {destinoConfirmado && !searchFlowActivo && (
+              <button
+                onClick={solicitarTaxi}
+                className="w-full py-4 rounded-2xl font-black text-[11px] tracking-widest bg-[#22c55e] text-white shadow-xl shadow-green-900/20 hover:bg-[#16a34a] active:scale-[0.98] transition-all"
+              >
+                SOLICITAR TRANSPORTE
+              </button>
+            )}
           </div>
         )}
 
@@ -2027,14 +1898,14 @@ return (
               </h2>
 
               <p className="text-[9px] text-slate-400 mt-1">
-                Tu ruta hacia el destino está activa.
+                Tu ruta hacia el destino estÃ¡ activa.
               </p>
             </div>
 
             {destinationAddress && (
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-3">
                 <div className="h-9 w-9 rounded-xl bg-green-50 flex items-center justify-center">
-                  📍
+                  ðŸ“
                 </div>
 
                 <div className="min-w-0 flex-1">
@@ -2115,7 +1986,7 @@ return (
                 onClick={() => setChatAbierto(false)}
                 className="text-slate-400 hover:text-slate-800 text-xs font-black"
               >
-                ✕
+                âœ•
               </button>
             </div>
 
@@ -2164,7 +2035,7 @@ return (
                   : "false"
               }
             >
-              💬
+              ðŸ’¬
 
               {unreadChatCount > 0 && (
                 <span className="absolute -top-1 -right-1 min-w-[19px] h-[19px] px-1 rounded-full bg-red-500 border-2 border-white text-[9px] leading-none font-black flex items-center justify-center text-white">
@@ -2179,7 +2050,7 @@ return (
       )}
 
     {/* ===========================================================
-        FINALIZACIÓN
+        FINALIZACIÃ“N
     =========================================================== */}
     {estado === "finalizado" && (
       <div className="fixed inset-0 z-[3000] bg-[#22c55e] flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in">
@@ -2187,7 +2058,7 @@ return (
         <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center text-center max-w-xs w-full">
 
           <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center text-4xl mb-5">
-            ✓
+            âœ“
           </div>
 
           <p className="text-[8px] font-black uppercase tracking-[0.25em] text-[#22c55e] mb-2">
@@ -2195,7 +2066,7 @@ return (
           </p>
 
           <div className="text-2xl font-black text-slate-800 tracking-tight mb-2">
-            ¡Viaje finalizado!
+            Â¡Viaje finalizado!
           </div>
 
           <p className="text-[10px] text-slate-400 font-medium mb-6">
@@ -2213,7 +2084,7 @@ return (
     )}
 
     {/* ===========================================================
-        REHIDRATACIÓN
+        REHIDRATACIÃ“N
     =========================================================== */}
     {isRehydrating && (
       <div className="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-md z-[3000] flex flex-col items-center justify-center gap-5">
@@ -2222,7 +2093,7 @@ return (
           <div className="w-14 h-14 border-4 border-white/20 border-t-[#22c55e] rounded-full animate-spin" />
 
           <div className="absolute inset-0 flex items-center justify-center text-lg">
-            🚕
+            ðŸš•
           </div>
         </div>
 
@@ -2232,7 +2103,7 @@ return (
           </p>
 
           <p className="text-white/50 text-[8px] font-bold uppercase tracking-widest mt-1">
-            Restaurando tu conexión...
+            Restaurando tu conexiÃ³n...
           </p>
         </div>
       </div>
