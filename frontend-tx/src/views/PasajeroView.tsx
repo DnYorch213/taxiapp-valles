@@ -454,7 +454,7 @@ const actualizarDestinoEnServidor = useCallback((
       setRutaDestinoPreview([]);
       setRutaDestinoEnCurso([]);
       if (estado === "encurso" || estado === "encamino" || estado === "asignado") {
-        actualizarDestinoEnServidor(latNum, lngNum, nextAddress);
+        // La actualización al servidor se hace después de calcular la nueva ruta Mapbox.
       }
       toast.success("Destino ubicado en el mapa.");
     } catch (error) {
@@ -504,7 +504,7 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
       estado === "encamino" ||
       estado === "asignado"
     ) {
-      actualizarDestinoEnServidor(lat, lng, label);
+      // La actualización al servidor se hace después de calcular la nueva ruta Mapbox.
     }
   } catch (error) {
     console.warn("Error resolviendo destino:", error);
@@ -519,7 +519,7 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
       estado === "encamino" ||
       estado === "asignado"
     ) {
-      actualizarDestinoEnServidor(lat, lng, label);
+      // La actualización al servidor se hace después de calcular la nueva ruta Mapbox.
     }
   }
 }, [estado, actualizarDestinoEnServidor]);
@@ -2242,3 +2242,4 @@ return (
 };
 
 export default PasajeroView;
+

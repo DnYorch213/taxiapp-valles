@@ -281,6 +281,13 @@ useEffect(() => {
 
 useEffect(() => {
   pasajeroAsignadoRef.current = pasajeroAsignado;
+
+  console.log("🔍 ESTADO pasajeroAsignado CAMBIÓ:", {
+    destinationAddress: pasajeroAsignado?.destinationAddress,
+    destinationLat: pasajeroAsignado?.destinationLat,
+    destinationLng: pasajeroAsignado?.destinationLng,
+    requestId: pasajeroAsignado?.requestId,
+  });
 }, [pasajeroAsignado]);
 
 useEffect(() => {
@@ -745,6 +752,12 @@ useGeolocation(
           }
         : null;
       setEstado(nextState as PositionState);
+      console.log("🟣 REHYDRATE passengerPayload:", {
+  destinationAddress: passengerPayload?.destinationAddress,
+  destinationLat: passengerPayload?.destinationLat,
+  destinationLng: passengerPayload?.destinationLng,
+  requestId: passengerPayload?.requestId,
+});
       setPasajeroAsignado(passengerPayload);
       tripSessionActiveRef.current = true;
       setIsRehydrating(false);
@@ -1018,6 +1031,12 @@ useGeolocation(
 
       if (hasActiveTrip) {
         setEstado(nextState as PositionState);
+        console.log("🟠 REHYDRATE counterpart:", {
+  destinationAddress: counterpart?.destinationAddress,
+  destinationLat: counterpart?.destinationLat,
+  destinationLng: counterpart?.destinationLng,
+  requestId: counterpart?.requestId,
+});
         setPasajeroAsignado(counterpart);
         tripSessionActiveRef.current = true;
         if (typeof data.estimatedFare === "number") {
@@ -1074,6 +1093,14 @@ const handleTripDestinationUpdated = (data: any) => {
   if (typeof data?.estimatedDistanceKm === "number") {
     setDistanciaEstimadaKm(data.estimatedDistanceKm);
   }
+  console.log("🟡 ANTES DE ACTUALIZAR pasajeroAsignado:", {
+  actual: pasajeroAsignadoRef.current?.destinationAddress,
+  nueva: data?.destinationAddress,
+  actualLat: pasajeroAsignadoRef.current?.destinationLat,
+  nuevaLat: data?.destinationLat,
+  actualLng: pasajeroAsignadoRef.current?.destinationLng,
+  nuevaLng: data?.destinationLng,
+});
 
   setPasajeroAsignado((prev: Payload | null) => {
     if (!prev) return prev;
@@ -1097,6 +1124,13 @@ const handleTripDestinationUpdated = (data: any) => {
       prev.destinationLat === nextLat &&
       prev.destinationLng === nextLng;
 
+      console.log("🟢 NUEVO pasajeroAsignado:", {
+  anterior: prev.destinationAddress,
+  nuevo: nextAddress,
+  lat: nextLat,
+  lng: nextLng,
+});
+
     return {
       ...prev,
       destinationLat: nextLat,
@@ -1116,6 +1150,16 @@ const handleTripDestinationUpdated = (data: any) => {
     } as Payload;
   });
 
+  if (pasajeroAsignadoRef.current) {
+    pasajeroAsignadoRef.current = {
+      ...pasajeroAsignadoRef.current,
+      destinationLat: data?.destinationLat ?? pasajeroAsignadoRef.current.destinationLat ?? null,
+      destinationLng: data?.destinationLng ?? pasajeroAsignadoRef.current.destinationLng ?? null,
+      destinationAddress: data?.destinationAddress ?? pasajeroAsignadoRef.current.destinationAddress ?? "Rumbo al destino...",
+      estimatedFare: typeof data?.estimatedFare === "number" ? data.estimatedFare : pasajeroAsignadoRef.current.estimatedFare,
+      estimatedDistanceKm: typeof data?.estimatedDistanceKm === "number" ? data.estimatedDistanceKm : pasajeroAsignadoRef.current.estimatedDistanceKm,
+    };
+  }
   const nextLat =
     data?.destinationLat ??
     pasajeroAsignadoRef.current?.destinationLat ??
