@@ -1037,7 +1037,22 @@ useGeolocation(
   destinationLng: counterpart?.destinationLng,
   requestId: counterpart?.requestId,
 });
-        setPasajeroAsignado(counterpart);
+        setPasajeroAsignado((prev: Payload | null) => ({
+  ...prev,
+  ...counterpart,
+  destinationAddress:
+    counterpart?.destinationAddress ??
+    prev?.destinationAddress ??
+    "Rumbo al destino...",
+  destinationLat:
+    counterpart?.destinationLat ??
+    prev?.destinationLat ??
+    null,
+  destinationLng:
+    counterpart?.destinationLng ??
+    prev?.destinationLng ??
+    null,
+}));
         tripSessionActiveRef.current = true;
         if (typeof data.estimatedFare === "number") {
           setTarifaEstimada(data.estimatedFare);

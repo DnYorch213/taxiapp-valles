@@ -62,6 +62,14 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
             const destinationLat = data?.destinationLat;
             const destinationLng = data?.destinationLng;
             const destinationAddress = data?.destinationAddress;
+            console.log("📥 BACKEND RECIBIÓ update_trip_destination:", {
+                passengerEmail,
+                destinationLat,
+                destinationLng,
+                destinationAddress,
+                estimatedDistanceKm: data?.estimatedDistanceKm,
+                estimatedFare: data?.estimatedFare,
+            });
 
             const passengerDoc = await Position.findOne({ email: passengerEmail, role: "pasajero" }).lean();
             if (!passengerDoc) return;
@@ -113,6 +121,14 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                 { $set: updatePayload },
                 { upsert: true, returnDocument: "after" }
             );
+            console.log("📦 BACKEND DESPUÉS DE GUARDAR:", {
+                email: updatedPassenger?.email,
+                destinationLat: updatedPassenger?.destinationLat,
+                destinationLng: updatedPassenger?.destinationLng,
+                destinationAddress: updatedPassenger?.destinationAddress,
+                estimatedDistanceKm: updatedPassenger?.estimatedDistanceKm,
+                estimatedFare: updatedPassenger?.estimatedFare,
+            });
 
             if (!updatedPassenger) return;
 

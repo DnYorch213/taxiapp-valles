@@ -121,6 +121,7 @@ const PasajeroView: React.FC = () => {
   const [destinationQuery, setDestinationQuery] = useState("");
   const [destinoConfirmado, setDestinoConfirmado] = useState(false);
   const [destinationAddress, setDestinationAddress] = useState("");
+  const destinationAddressRef = useRef("");
   const [destinationLat, setDestinationLat] = useState<number | null>(null);
   const [destinationLng, setDestinationLng] = useState<number | null>(null);
   const [destinoColapsado, setDestinoColapsado] = useState(false);
@@ -207,6 +208,7 @@ const PasajeroView: React.FC = () => {
   }, [destinationQuery]);
 
   useEffect(() => {
+    destinationAddressRef.current = destinationAddress;
     if (destinationAddress) localStorage.setItem("taxi_destination_address", destinationAddress);
     else localStorage.removeItem("taxi_destination_address");
   }, [destinationAddress]);
@@ -390,20 +392,31 @@ const actualizarDestinoEnServidor = useCallback((
 
   if (!passengerEmail || !socket.connected) return;
 
-  socket.emit("update_trip_destination", {
-    pasajeroEmail: passengerEmail,
-    destinationLat: nextLat,
-    destinationLng: nextLng,
-    destinationAddress:
-      nextAddress ??
-      (destinationAddress || destinationQuery || "Destino no especificado"),
+  const addressToSend =
+  nextAddress ??
+  destinationAddressRef.current ??
+  destinationAddress ??
+  destinationQuery ??
+  "Destino no especificado";
 
-    estimatedDistanceKm:
-      nextDistanceKm ?? distanciaRutaMapboxKm,
+console.log("ðŸ“¤ ENVIANDO update_trip_destination:", {
+  lat: nextLat,
+  lng: nextLng,
+  address: addressToSend,
+  distanceKm: nextDistanceKm ?? distanciaRutaMapboxKm,
+  fare: nextFare ?? tarifaEstimada,
+});
 
-    estimatedFare:
-      nextFare ?? tarifaEstimada,
-  });
+socket.emit("update_trip_destination", {
+  pasajeroEmail: passengerEmail,
+  destinationLat: nextLat,
+  destinationLng: nextLng,
+  destinationAddress: addressToSend,
+  estimatedDistanceKm:
+    nextDistanceKm ?? distanciaRutaMapboxKm,
+  estimatedFare:
+    nextFare ?? tarifaEstimada,
+});
 }, [
   destinationAddress,
   destinationQuery,
@@ -447,14 +460,16 @@ const actualizarDestinoEnServidor = useCallback((
 
       setDestinationLat(latNum);
       setDestinationLng(lngNum);
+
       const nextAddress = limpiarDireccionDestino(
-        match.display_name || cleanQuery );     
+        match.display_name || cleanQuery ); 
+      destinationAddressRef.current = nextAddress;      
       setDestinationAddress(nextAddress);
       setDestinationQuery(nextAddress);
       setRutaDestinoPreview([]);
       setRutaDestinoEnCurso([]);
       if (estado === "encurso" || estado === "encamino" || estado === "asignado") {
-        // La actualización al servidor se hace después de calcular la nueva ruta Mapbox.
+        // La actualizaciï¿½n al servidor se hace despuï¿½s de calcular la nueva ruta Mapbox.
       }
       toast.success("Destino ubicado en el mapa.");
     } catch (error) {
@@ -495,7 +510,7 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
     const label = limpiarDireccionDestino(
       data.display_name || `UbicaciÃ³n ${lat.toFixed(5)}, ${lng.toFixed(5)}`
     );
-
+    destinationAddressRef.current = label;
     setDestinationAddress(label);
     setDestinationQuery(label);
 
@@ -504,13 +519,13 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
       estado === "encamino" ||
       estado === "asignado"
     ) {
-      // La actualización al servidor se hace después de calcular la nueva ruta Mapbox.
+      // La actualizaciï¿½n al servidor se hace despuï¿½s de calcular la nueva ruta Mapbox.
     }
   } catch (error) {
     console.warn("Error resolviendo destino:", error);
 
     const label = `UbicaciÃ³n ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-
+    destinationAddressRef.current = label;
     setDestinationAddress(label);
     setDestinationQuery(label);
 
@@ -519,7 +534,7 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
       estado === "encamino" ||
       estado === "asignado"
     ) {
-      // La actualización al servidor se hace después de calcular la nueva ruta Mapbox.
+      // La actualizaciï¿½n al servidor se hace despuï¿½s de calcular la nueva ruta Mapbox.
     }
   }
 }, [estado, actualizarDestinoEnServidor]);
@@ -639,7 +654,7 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
   const direccionLimpia = limpiarDireccionDestino(
     String(data.destinationAddress)
   );
-
+  destinationAddressRef.current = direccionLimpia;
   setDestinationAddress(direccionLimpia);
   setDestinationQuery(direccionLimpia);
 }
@@ -1552,7 +1567,7 @@ return (
     actualizarDestinoEnServidor(
       destinationPosition?.[0] ?? null,
       destinationPosition?.[1] ?? null,
-      destinationAddress || destinationQuery || "Destino no especificado",
+      destinationAddressRef.current || destinationQuery || "Destino no especificado",
       nuevaDistanciaKm,
       nuevaTarifa
     );
