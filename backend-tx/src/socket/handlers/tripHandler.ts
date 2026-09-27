@@ -813,6 +813,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             }
 
             const direccionOrigen = pPos.pickupAddress || "Origen desconocido";
+            const requestIdFinalizado = pPos.requestId || tPos.requestId || null;
 
             const nuevoHistorial = new Trip({
                 pasajeroEmail: pEmail,
@@ -896,6 +897,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             const payloadFin = {
                 pasajeroEmail: pEmail,
                 taxistaEmail: tEmail,
+                requestId: requestIdFinalizado,
                 estado: POSITION_STATES.FINALIZADO,
                 pickupAddress: direccionOrigen,
                 destinationAddress: "Calculando...",

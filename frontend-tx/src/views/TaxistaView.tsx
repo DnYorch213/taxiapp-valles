@@ -280,6 +280,7 @@ useEffect(() => {
 }, [estado]);
 
 useEffect(() => {
+
   pasajeroAsignadoRef.current = pasajeroAsignado;
 
   console.log("🔍 ESTADO pasajeroAsignado CAMBIÓ:", {
@@ -288,6 +289,9 @@ useEffect(() => {
     destinationLng: pasajeroAsignado?.destinationLng,
     requestId: pasajeroAsignado?.requestId,
   });
+
+  console.trace("🧭 ORIGEN CAMBIO pasajeroAsignado");
+
 }, [pasajeroAsignado]);
 
 useEffect(() => {
@@ -527,6 +531,13 @@ useEffect(() => {
   }, []);
 
   const resetSolicitudActiva = useCallback(() => {
+    console.warn("🚨 RESET SOLICITUD ACTIVA", {
+  estado: estadoRef.current,
+  pasajero: pasajeroAsignadoRef.current,
+  requestId: pasajeroAsignadoRef.current?.requestId,
+  timestamp: new Date().toISOString(),
+  stack: new Error().stack,
+});
     detenerSonido();
     tripSessionActiveRef.current = false;
     if (acceptanceTimerRef.current) {
@@ -758,7 +769,28 @@ useGeolocation(
   destinationLng: passengerPayload?.destinationLng,
   requestId: passengerPayload?.requestId,
 });
-      setPasajeroAsignado(passengerPayload);
+      setPasajeroAsignado((prev: Payload | null) => ({
+  ...prev,
+  ...passengerPayload,
+
+  destinationAddress:
+    passengerPayload?.destinationAddress &&
+    passengerPayload.destinationAddress !== "Calculando..." &&
+    passengerPayload.destinationAddress !== "Calculando ubicación..." &&
+    passengerPayload.destinationAddress !== "Rumbo al destino..."
+      ? passengerPayload.destinationAddress
+      : prev?.destinationAddress ?? "Rumbo al destino...",
+
+  destinationLat:
+    passengerPayload?.destinationLat ??
+    prev?.destinationLat ??
+    null,
+
+  destinationLng:
+    passengerPayload?.destinationLng ??
+    prev?.destinationLng ??
+    null,
+}));
       tripSessionActiveRef.current = true;
       setIsRehydrating(false);
       showToastOnce("taxista:trip-rehydrated", () => {
@@ -860,20 +892,91 @@ useGeolocation(
       }
 
       const pEmail = incomingEmail;
-      setPasajeroAsignado((prev: Payload | null) => ({ 
-        ...prev,
-        ...rawData, 
-        email: pEmail, 
-        attempt: data.attempt,
-        pasajeroEmail: rawData.pasajeroEmail || pEmail,
-        pasajeroLat: rawData.pasajeroLat || rawData.lat,
-        pasajeroLng: rawData.pasajeroLng || rawData.lng,
-        distancia: rawData.distancia || null,
-        destinationLat: rawData.destinationLat ?? prev?.destinationLat ?? null,
-        destinationLng: rawData.destinationLng ?? prev?.destinationLng ?? null,
-        destinationAddress: rawData.destinationAddress ?? prev?.destinationAddress ?? "Rumbo al destino...",
-        pickupAddress: rawData.pickupAddress || prev?.pickupAddress || "Calculando ubicación..."
-      }));
+      setPasajeroAsignado((prev: Payload | null) => {
+  const incomingDestinationAddress = rawData.destinationAddress;
+  const incomingDestinationLat = rawData.destinationLat;
+  const incomingDestinationLng = rawData.destinationLng;
+
+  const hasIncomingDestination =
+    incomingDestinationLat != null &&
+    incomingDestinationLng != null;
+
+  const hasPreviousDestination =
+    prev?.destinationLat != null &&
+    prev?.destinationLng != null;
+
+  const destinationAddress =
+    incomingDestinationAddress &&
+    incomingDestinationAddress !== "Calculando..." &&
+    incomingDestinationAddress !== "Calculando ubicación..." &&
+    incomingDestinationAddress !== "Rumbo al destino..."
+      ? incomingDestinationAddress
+      : prev?.destinationAddress ||
+        "Rumbo al destino...";
+
+  const destinationLat =
+    hasIncomingDestination
+      ? incomingDestinationLat
+      : hasPreviousDestination
+        ? prev!.destinationLat
+        : null;
+
+  const destinationLng =
+    hasIncomingDestination
+      ? incomingDestinationLng
+      : hasPreviousDestination
+        ? prev!.destinationLng
+        : null;
+
+  console.log("🛡️ ASIGNACIÓN PROTEGIDA:", {
+    anterior: {
+      address: prev?.destinationAddress,
+      lat: prev?.destinationLat,
+      lng: prev?.destinationLng,
+    },
+    recibido: {
+      address: incomingDestinationAddress,
+      lat: incomingDestinationLat,
+      lng: incomingDestinationLng,
+    },
+    aplicado: {
+      address: destinationAddress,
+      lat: destinationLat,
+      lng: destinationLng,
+    },
+  });
+
+  return {
+    ...prev,
+    ...rawData,
+
+    email: pEmail,
+    attempt: data.attempt,
+
+    pasajeroEmail:
+      rawData.pasajeroEmail || pEmail,
+
+   pasajeroLat:
+  rawData.pasajeroLat ?? rawData.lat,
+
+pasajeroLng:
+  rawData.pasajeroLng ?? rawData.lng,
+
+distancia:
+  rawData.distancia ?? null,
+
+    // 🛡️ Nunca permitir que una asignación incompleta borre el destino
+    destinationLat,
+    destinationLng,
+    destinationAddress,
+
+    pickupAddress:
+      rawData.pickupAddress &&
+      rawData.pickupAddress !== "Calculando ubicación..."
+        ? rawData.pickupAddress
+        : prev?.pickupAddress || "Calculando ubicación...",
+  };
+});
       setExcludedEmails(data.excludedEmails || []);
       
       const estadoServidor = String(data.estado || rawData.estado || "").toLowerCase().trim();
@@ -948,45 +1051,104 @@ useGeolocation(
     }
 
     if (data.estado === "encamino") {
-      setPasajeroAsignado((prev: any) => {
-        if (data.pasajeroAsignado?.pickupAddress && data.pasajeroAsignado.pickupAddress !== "Calculando ubicación...") {
-          return data.pasajeroAsignado;
-        }
-        if (prev?.pickupAddress && prev.pickupAddress !== "Calculando ubicación...") {
-          return { ...prev, ...data.pasajeroAsignado, pickupAddress: prev.pickupAddress };
-        }
-        return prev;
-      });
-    }
+  setPasajeroAsignado((prev: Payload | null) => {
+    const incoming = data.pasajeroAsignado || {};
+
+    return {
+      ...prev,
+      ...incoming,
+
+      // 🛡️ Nunca borrar el destino activo si el evento no lo trae
+      destinationAddress:
+        incoming.destinationAddress ??
+        prev?.destinationAddress ??
+        "Rumbo al destino...",
+
+      destinationLat:
+        incoming.destinationLat ??
+        prev?.destinationLat ??
+        null,
+
+      destinationLng:
+        incoming.destinationLng ??
+        prev?.destinationLng ??
+        null,
+
+      // 🛡️ Mantener pickup válido
+      pickupAddress:
+        incoming.pickupAddress &&
+        incoming.pickupAddress !== "Calculando ubicación..."
+          ? incoming.pickupAddress
+          : prev?.pickupAddress || "Calculando ubicación...",
+    };
+  });
+}
 
     if (data.estado === "encurso") {
-      detenerSonido();
-      setChatAbierto(false);
+  detenerSonido();
+  setChatAbierto(false);
 
-      const pasajeroConDestinoReal = data.pasajeroAsignado || pasajeroAsignadoRef.current;
-      const destinoFinal = hasRealFinalDestination(pasajeroConDestinoReal)
-        ? getDestinoFinalLatLng(pasajeroConDestinoReal)
-        : null;
+  setPasajeroAsignado((prev: Payload | null) => {
+    if (!prev) return prev;
 
-      setPasajeroAsignado((prev: any) => ({
-        ...prev,
-        pickupAddress: prev?.pickupAddress && prev.pickupAddress !== "Calculando ubicación..."
+    const incomingAddress =
+      data.destinationAddress ??
+      data.pasajeroAsignado?.destinationAddress;
+
+    // 🛡️ Si viene una dirección nueva válida, usarla.
+    // De lo contrario, priorizar prev.destinationAddress si NO es genérica.
+    let finalAddress = prev.destinationAddress;
+
+    if (
+      incomingAddress &&
+      incomingAddress !== "Calculando..." &&
+      incomingAddress !== "Calculando ubicación..." &&
+      incomingAddress !== "Rumbo al destino..."
+    ) {
+      finalAddress = incomingAddress;
+    } else if (
+      !finalAddress ||
+      finalAddress === "Calculando..." ||
+      finalAddress === "Calculando ubicación..."
+    ) {
+      finalAddress = "Rumbo al destino...";
+    }
+
+    return {
+      ...prev,
+      pickupAddress:
+        prev.pickupAddress &&
+        prev.pickupAddress !== "Calculando ubicación..."
           ? prev.pickupAddress
           : "Pasajero a bordo",
-        destinationAddress: data.destinationAddress || data.pasajeroAsignado?.destinationAddress || prev?.destinationAddress || "Rumbo al destino..."
-      }));
 
-      showToastOnce("taxista:trip-started", () => {
-        toast.info("¡Viaje iniciado! Rumbo al destino final.");
-      }, { cooldownMs: 4000 });
+      destinationAddress: finalAddress,
 
-      if (data.estimatedFare != null) {
-        setTarifaEstimada(data.estimatedFare);
-      }
-      if (data.estimatedDistanceKm != null) {
-        setDistanciaEstimadaKm(data.estimatedDistanceKm);
-      }
-    }
+      destinationLat:
+        data.destinationLat ??
+        data.pasajeroAsignado?.destinationLat ??
+        prev.destinationLat ??
+        null,
+
+      destinationLng:
+        data.destinationLng ??
+        data.pasajeroAsignado?.destinationLng ??
+        prev.destinationLng ??
+        null,
+    };
+  });
+
+  showToastOnce("taxista:trip-started", () => {
+    toast.info("¡Viaje iniciado! Rumbo al destino final.");
+  }, { cooldownMs: 4000 });
+
+  if (data.estimatedFare != null) {
+    setTarifaEstimada(data.estimatedFare);
+  }
+  if (data.estimatedDistanceKm != null) {
+    setDistanciaEstimadaKm(data.estimatedDistanceKm);
+  }
+}
     };
 
     const handleUpdateTripPath = (data: { lat: number; lng: number }) => {
@@ -1015,77 +1177,141 @@ useGeolocation(
       }
     };
 
-    // 🚩 LISTENER DE REHIDRATACIÓN
-    const handleRehydrateTripResult = (data: any) => {
-      if (!data?.success) {
-        resetSolicitudActiva();
-        return;
-      }
+    // 🚩 LISTENER DE REHIDRATACIÓN (CORREGIDO)
+const handleRehydrateTripResult = (data: any) => {
+  console.log("🔎 REHYDRATE ENTRANTE:", {
+    success: data?.success,
+    estado: data?.estado,
+    requestId: data?.requestId,
+    counterpartRequestId: data?.counterpart?.requestId,
+    pasajeroRequestId: data?.pasajero?.requestId,
+    activeOfferRequestId: activeOfferRequestIdRef.current,
+    tripSessionActive: tripSessionActiveRef.current,
+    estadoLocal: estadoRef.current,
+    pasajeroLocal: pasajeroAsignadoRef.current?.email,
+  });
 
-      const nextState = String(data.estado || "").toLowerCase().trim();
+  if (!data?.success) {
+    const hayViajeActivoLocalmente =
+      tripSessionActiveRef.current ||
+      ["asignado", "encamino", "encurso"].includes(estadoRef.current) ||
+      !!pasajeroAsignadoRef.current?.requestId;
 
-      const activeStates = ["asignado", "encamino", "encurso", "preasignado"];
-      // Backend sends the passenger/taxi data as "counterpart"
-      const counterpart = data.counterpart || data.pasajero || data;
-      const hasActiveTrip = activeStates.includes(nextState) && counterpart;
-
-      if (hasActiveTrip) {
-        setEstado(nextState as PositionState);
-        console.log("🟠 REHYDRATE counterpart:", {
-  destinationAddress: counterpart?.destinationAddress,
-  destinationLat: counterpart?.destinationLat,
-  destinationLng: counterpart?.destinationLng,
-  requestId: counterpart?.requestId,
-});
-        setPasajeroAsignado((prev: Payload | null) => ({
-  ...prev,
-  ...counterpart,
-  destinationAddress:
-    counterpart?.destinationAddress ??
-    prev?.destinationAddress ??
-    "Rumbo al destino...",
-  destinationLat:
-    counterpart?.destinationLat ??
-    prev?.destinationLat ??
-    null,
-  destinationLng:
-    counterpart?.destinationLng ??
-    prev?.destinationLng ??
-    null,
-}));
-        tripSessionActiveRef.current = true;
-        if (typeof data.estimatedFare === "number") {
-          setTarifaEstimada(data.estimatedFare);
+    if (hayViajeActivoLocalmente) {
+      console.warn(
+        "🛡️ REHYDRATE success=false PERO HAY VIAJE ACTIVO → NO SE LIMPIA",
+        {
+          estado: estadoRef.current,
+          requestId: pasajeroAsignadoRef.current?.requestId,
+          pasajero: pasajeroAsignadoRef.current?.email,
+          destinationAddress:
+            pasajeroAsignadoRef.current?.destinationAddress,
+          destinationLat:
+            pasajeroAsignadoRef.current?.destinationLat,
+          destinationLng:
+            pasajeroAsignadoRef.current?.destinationLng,
         }
-
-        if (typeof data.estimatedDistanceKm === "number") {
-          setDistanciaEstimadaKm(data.estimatedDistanceKm);
-        }
-
-        showToastOnce("taxista:rehydrated", () => {
-          toast.success("¡Viaje recuperado con éxito!");
-        }, { cooldownMs: 4000 });
-
-      } else {
-        const teniaViajeActivoLocalmente = tripSessionActiveRef.current ||
-          ["asignado", "encamino", "encurso"].includes(estadoRef.current);
-
-        resetSolicitudActiva();
-        setEstado("activo" as PositionState);
-
-        if (teniaViajeActivoLocalmente) {
-          showToastOnce("taxista:rehydrated-cancelled", () => {
-            toast.info("La solicitud ya no está activa. Quedaste disponible.");
-          }, { cooldownMs: 4000 });
-        }
-      }
+      );
 
       setIsRehydrating(false);
-    };
+      return;
+    }
 
-   // 🚩 LISTENER DE ACTUALIZACIÓN DE DESTINO
+    resetSolicitudActiva();
+    return;
+  }
+
+  const nextState = String(data.estado || "").toLowerCase().trim();
+  const activeStates = ["asignado", "encamino", "encurso", "preasignado"];
+  const counterpart = data.counterpart || data.pasajero || data;
+  const hasActiveTrip = activeStates.includes(nextState) && counterpart;
+
+  if (hasActiveTrip) {
+    setEstado(nextState as PositionState);
+    
+    // 🛡️ Extraer el requestId garantizando fallback al estado/ref previo o data directo
+    const resolvedRequestId = 
+      counterpart?.requestId || 
+      data?.requestId || 
+      pasajeroAsignadoRef.current?.requestId || 
+      activeOfferRequestIdRef.current;
+
+    console.log("🟠 REHYDRATE counterpart:", {
+      destinationAddress: counterpart?.destinationAddress,
+      destinationLat: counterpart?.destinationLat,
+      destinationLng: counterpart?.destinationLng,
+      requestId: resolvedRequestId,
+    });
+
+    setPasajeroAsignado((prev: Payload | null) => ({
+      ...prev,
+      ...counterpart,
+      requestId: resolvedRequestId, // 👈 Mantener requestId preservado
+      destinationAddress:
+        counterpart?.destinationAddress && 
+        counterpart?.destinationAddress !== "Calculando..." &&
+        counterpart?.destinationAddress !== "Calculando ubicación..."
+          ? counterpart.destinationAddress
+          : prev?.destinationAddress || "Rumbo al destino...",
+      destinationLat:
+        counterpart?.destinationLat ??
+        prev?.destinationLat ??
+        null,
+      destinationLng:
+        counterpart?.destinationLng ??
+        prev?.destinationLng ??
+        null,
+    }));
+
+    if (resolvedRequestId) {
+      activeOfferRequestIdRef.current = resolvedRequestId;
+    }
+
+    tripSessionActiveRef.current = true;
+    
+    if (typeof data.estimatedFare === "number") {
+      setTarifaEstimada(data.estimatedFare);
+    }
+
+    if (typeof data.estimatedDistanceKm === "number") {
+      setDistanciaEstimadaKm(data.estimatedDistanceKm);
+    }
+
+    showToastOnce("taxista:rehydrated", () => {
+      toast.success("¡Viaje recuperado con éxito!");
+    }, { cooldownMs: 4000 });
+
+    } else {
+    const teniaViajeActivoLocalmente =
+  tripSessionActiveRef.current ||
+  ["asignado", "encamino", "encurso"].includes(estadoRef.current) ||
+  !!pasajeroAsignadoRef.current?.requestId ||
+  !!activeOfferRequestIdRef.current;
+
+    if (teniaViajeActivoLocalmente) {
+     console.warn(
+  "🛡️ REHYDRATE SIN VIAJE PERO HAY VIAJE LOCAL ACTIVO → NO SE LIMPIA",
+  {
+    estado: estadoRef.current,
+    requestId: pasajeroAsignadoRef.current?.requestId,
+    activeOfferRequestId: activeOfferRequestIdRef.current,
+    tripSessionActive: tripSessionActiveRef.current,
+    pasajero: pasajeroAsignadoRef.current?.email,
+  }
+);
+
+      setIsRehydrating(false);
+      return;
+    }
+
+    resetSolicitudActiva();
+    setEstado("activo" as PositionState);
+  }
+};
+  // 🚩 LISTENER DE ACTUALIZACIÓN DE DESTINO (CORREGIDO)
 const handleTripDestinationUpdated = (data: any) => {
   console.log("🚩 TAXISTA RECIBIÓ trip_destination_updated:", data);
+
   const passengerEmail =
     pasajeroAsignadoRef.current?.email?.toLowerCase().trim();
 
@@ -1100,6 +1326,41 @@ const handleTripDestinationUpdated = (data: any) => {
     return;
   }
 
+  const previousLat = pasajeroAsignadoRef.current?.destinationLat ?? null;
+  const previousLng = pasajeroAsignadoRef.current?.destinationLng ?? null;
+
+  const nextLat = data?.destinationLat ?? previousLat;
+  const nextLng = data?.destinationLng ?? previousLng;
+
+  // 🛡️ Preservar la dirección si la nueva trama no la incluye o incluye texto genérico
+  const incomingAddress = data?.destinationAddress;
+  const previousAddress = pasajeroAsignadoRef.current?.destinationAddress;
+
+  const nextAddress =
+    incomingAddress &&
+    incomingAddress !== "Calculando..." &&
+    incomingAddress !== "Calculando ubicación..."
+      ? incomingAddress
+      : previousAddress &&
+        previousAddress !== "Calculando..." &&
+        previousAddress !== "Calculando ubicación..."
+      ? previousAddress
+      : "Rumbo al destino...";
+
+  const destinationChanged =
+    previousLat !== nextLat ||
+    previousLng !== nextLng;
+
+  console.log("🟡 CAMBIO DE DESTINO TAXISTA:", {
+    anteriorLat: previousLat,
+    anteriorLng: previousLng,
+    nuevoLat: nextLat,
+    nuevoLng: nextLng,
+    anteriorAddress: previousAddress,
+    nuevoAddress: nextAddress,
+    destinationChanged,
+  });
+
   // 💰 Actualizar tarifa y distancia
   if (typeof data?.estimatedFare === "number") {
     setTarifaEstimada(data.estimatedFare);
@@ -1108,56 +1369,20 @@ const handleTripDestinationUpdated = (data: any) => {
   if (typeof data?.estimatedDistanceKm === "number") {
     setDistanciaEstimadaKm(data.estimatedDistanceKm);
   }
-  console.log("🟡 ANTES DE ACTUALIZAR pasajeroAsignado:", {
-  actual: pasajeroAsignadoRef.current?.destinationAddress,
-  nueva: data?.destinationAddress,
-  actualLat: pasajeroAsignadoRef.current?.destinationLat,
-  nuevaLat: data?.destinationLat,
-  actualLng: pasajeroAsignadoRef.current?.destinationLng,
-  nuevaLng: data?.destinationLng,
-});
 
+  // 👤 Actualizar pasajero asignado en el estado reactivo
   setPasajeroAsignado((prev: Payload | null) => {
     if (!prev) return prev;
-
-    const nextLat =
-      data?.destinationLat ??
-      prev.destinationLat ??
-      null;
-
-    const nextLng =
-      data?.destinationLng ??
-      prev.destinationLng ??
-      null;
-
-    const nextAddress =
-      data?.destinationAddress ??
-      prev.destinationAddress ??
-      "Rumbo al destino...";
-
-    const sameDestination =
-      prev.destinationLat === nextLat &&
-      prev.destinationLng === nextLng;
-
-      console.log("🟢 NUEVO pasajeroAsignado:", {
-  anterior: prev.destinationAddress,
-  nuevo: nextAddress,
-  lat: nextLat,
-  lng: nextLng,
-});
 
     return {
       ...prev,
       destinationLat: nextLat,
       destinationLng: nextLng,
       destinationAddress: nextAddress,
-
-      // 💰 Sincronizar también dentro del pasajero asignado
       estimatedFare:
         typeof data?.estimatedFare === "number"
           ? data.estimatedFare
           : prev.estimatedFare,
-
       estimatedDistanceKm:
         typeof data?.estimatedDistanceKm === "number"
           ? data.estimatedDistanceKm
@@ -1165,41 +1390,31 @@ const handleTripDestinationUpdated = (data: any) => {
     } as Payload;
   });
 
+  // 🔄 Sincronizar también la referencia mutable inmediatamente
   if (pasajeroAsignadoRef.current) {
     pasajeroAsignadoRef.current = {
       ...pasajeroAsignadoRef.current,
-      destinationLat: data?.destinationLat ?? pasajeroAsignadoRef.current.destinationLat ?? null,
-      destinationLng: data?.destinationLng ?? pasajeroAsignadoRef.current.destinationLng ?? null,
-      destinationAddress: data?.destinationAddress ?? pasajeroAsignadoRef.current.destinationAddress ?? "Rumbo al destino...",
-      estimatedFare: typeof data?.estimatedFare === "number" ? data.estimatedFare : pasajeroAsignadoRef.current.estimatedFare,
-      estimatedDistanceKm: typeof data?.estimatedDistanceKm === "number" ? data.estimatedDistanceKm : pasajeroAsignadoRef.current.estimatedDistanceKm,
-    };
+      destinationLat: nextLat,
+      destinationLng: nextLng,
+      destinationAddress: nextAddress,
+      estimatedFare:
+        typeof data?.estimatedFare === "number"
+          ? data.estimatedFare
+          : pasajeroAsignadoRef.current.estimatedFare,
+      estimatedDistanceKm:
+        typeof data?.estimatedDistanceKm === "number"
+          ? data.estimatedDistanceKm
+          : pasajeroAsignadoRef.current.estimatedDistanceKm,
+    } as Payload;
   }
-  const nextLat =
-    data?.destinationLat ??
-    pasajeroAsignadoRef.current?.destinationLat ??
-    null;
 
-  const nextLng =
-    data?.destinationLng ??
-    pasajeroAsignadoRef.current?.destinationLng ??
-    null;
-
-  const sameDestination =
-    pasajeroAsignadoRef.current?.destinationLat === nextLat &&
-    pasajeroAsignadoRef.current?.destinationLng === nextLng;
-
-  // 🗺️ Si realmente cambió el destino, recalcular ruta
-  if (
-    !sameDestination &&
-    nextLat !== null &&
-    nextLng !== null
-  ) {
+  // 🗺️ Recalcular la ruta visual si las coordenadas cambiaron
+  if (destinationChanged && nextLat !== null && nextLng !== null) {
+    console.log("🗺️ DESTINO CAMBIÓ → RECALCULANDO RUTA");
     setRutaDestinoFinal([]);
     setRouteRefreshToken((prev) => prev + 1);
   }
 };
-
     // 🚨 NUEVO: Listeners de la Trip Room (Coordinación)
     const handlePeerReconnected = (data: any) => {
       if (data.who === "pasajero") {
@@ -1256,13 +1471,33 @@ const handleTripDestinationUpdated = (data: any) => {
           const direccionDetectada = data.pasajero.pickupAddress || data.pasajero.direccionOrigen;
           
           setPasajeroAsignado((prev: Payload | null) => ({
-            ...prev,
-            ...data.pasajero,
-            pickupAddress: direccionDetectada && direccionDetectada !== "Calculando ubicación..." 
-              ? direccionDetectada 
-              : (prev?.pickupAddress || "Calle Detectada"),
-            email: pEmail
-          }));
+  ...prev,
+  ...data.pasajero,
+
+  email: pEmail,
+
+  pickupAddress:
+    direccionDetectada &&
+    direccionDetectada !== "Calculando ubicación..."
+      ? direccionDetectada
+      : (prev?.pickupAddress || "Calle Detectada"),
+
+  // 🛡️ No borrar el destino activo si la confirmación no lo trae
+  destinationAddress:
+    data.pasajero.destinationAddress ??
+    prev?.destinationAddress ??
+    "Rumbo al destino...",
+
+  destinationLat:
+    data.pasajero.destinationLat ??
+    prev?.destinationLat ??
+    null,
+
+  destinationLng:
+    data.pasajero.destinationLng ??
+    prev?.destinationLng ??
+    null,
+}));
 
           // 🚨 NUEVO: Unirse a la sala al confirmar aceptación
           if (data.pasajero.requestId && socket?.connected) {
@@ -1333,12 +1568,54 @@ const handleTripDestinationUpdated = (data: any) => {
     });
 
    socket.on("trip_finished", (payload) => {
-   detenerSonido();  
-   tripSessionActiveRef.current = false;
-   if (acceptanceTimerRef.current) {
-     window.clearTimeout(acceptanceTimerRef.current);
-     acceptanceTimerRef.current = null;
-   }
+  const requestIdLocal =
+    pasajeroAsignadoRef.current?.requestId ||
+    activeOfferRequestIdRef.current ||
+    null;
+
+  const requestIdRecibido = payload?.requestId || null;
+
+  console.warn("🚨🚨 TRIP_FINISHED RECIBIDO", {
+    requestIdPayload: requestIdRecibido,
+    requestIdLocal,
+    activeOfferRequestId: activeOfferRequestIdRef.current,
+    estadoLocal: estadoRef.current,
+  });
+
+  if (
+    requestIdLocal &&
+    requestIdRecibido &&
+    requestIdLocal !== requestIdRecibido
+  ) {
+    console.warn(
+      "🛡️ TRIP_FINISHED IGNORADO: requestId no corresponde al viaje actual",
+      {
+        requestIdRecibido,
+        requestIdLocal,
+      }
+    );
+    return;
+  }
+
+  if (requestIdLocal && !requestIdRecibido) {
+    console.warn(
+      "🛡️ TRIP_FINISHED IGNORADO: llegó sin requestId mientras hay un viaje activo",
+      {
+        requestIdLocal,
+      }
+    );
+    return;
+  }
+
+  detenerSonido();
+
+  tripSessionActiveRef.current = false;
+
+  if (acceptanceTimerRef.current) {
+    window.clearTimeout(acceptanceTimerRef.current);
+    acceptanceTimerRef.current = null;
+  }
+
   // 1. Actualizamos los datos del pasajero con la dirección que viene del server
   if (payload?.destinationAddress) {
     setPasajeroAsignado((prev: any) => ({
@@ -1347,27 +1624,29 @@ const handleTripDestinationUpdated = (data: any) => {
       distancia: payload.distancia || prev?.distancia || null
     }));
   }
+
   // 2. Cambiamos el estado para que la interfaz sepa que terminó
-  setEstado(POSITION_STATES.FINALIZADO); 
+  setEstado(POSITION_STATES.FINALIZADO);
   setChatAbierto(false);
-  setHistorialRuta([]); 
+  setHistorialRuta([]);
   setGeometriaRuta([]);
   setRutaDestinoFinal([]);
+
   showToastOnce("taxista:trip-finished", () => {
     toast.success("¡Viaje finalizado!");
   }, { cooldownMs: 4000 });
 
-  // 3. 🕒 ESPERA DE CORTESÍA: Dejamos la info en pantalla 5 segundos
+  // 3. ESPERA DE CORTESÍA: dejamos la info en pantalla 5 segundos
   setTimeout(() => {
     setEstado(POSITION_STATES.ACTIVO);
     setPasajeroAsignado(null);
     setRutaDestinoFinal([]);
     setGeometriaRuta([]);
     setHistorialRuta([]);
-  }, 5000); 
+  }, 5000);
 });
 
-    if (socket.connected) checkStatus();
+if (socket.connected) checkStatus();
 
     return () => {
       socket.off("pasajero_asignado");
@@ -1567,10 +1846,14 @@ const finalizarViaje = () => {
   // 🛡️ Aquí NO hacemos actualización optimista del estado. 
   // Dejamos que el servidor procese el cobro/cierre y nos envíe "trip_finished".
   // Esto evita que el viaje se marque como finalizado si hay un error en el servidor.
-  socket.emit("end_trip", { 
-    pasajeroEmail: pEmail.toLowerCase().trim(), 
-    taxistaEmail: tEmail.toLowerCase().trim() 
-  });
+ socket.emit("end_trip", {
+  pasajeroEmail: pEmail.toLowerCase().trim(),
+  taxistaEmail: tEmail.toLowerCase().trim(),
+  requestId:
+    pasajeroAsignadoRef.current?.requestId ||
+    activeOfferRequestIdRef.current ||
+    null,
+});
 };
 
    // --- OBJETO DE USUARIO PARA EL MENÚ LATERAL ---
