@@ -1403,7 +1403,7 @@ return (
             {selectorDestinoAbierto &&
   destinationPosition &&
   destinationAddress &&
-  estado !== "encurso" &&
+  estado === "pendiente" &&
   userPosition?.lat &&
   userPosition?.lng &&
   rutaDestinoPreview.length === 0 && (
@@ -1603,265 +1603,228 @@ return (
           </div>
         )}
 
-        {/* =======================================================
-            PANEL BUSCANDO
-        ======================================================= */}
-        {estado === "buscando" && (
-          <div className="absolute left-4 right-4 bottom-4 z-[1200]">
-            <div className="bg-white/95 backdrop-blur-md border border-slate-200 rounded-3xl shadow-2xl p-4">
+      
+       {/* =======================================================
+    SELECTOR DE DESTINO
+======================================================= */}
+{selectorDestinoAbierto &&
+  !destinoColapsado &&
+  estado === "pendiente" && (
+    <div className="absolute left-0 right-0 bottom-0 z-[1300] bg-white/97 backdrop-blur-md border-t border-slate-200 rounded-t-[2rem] shadow-2xl p-4 pb-5 space-y-3">
 
-              <div className="flex items-center gap-3">
-                <div className="relative h-11 w-11 flex items-center justify-center">
-                  <div className="absolute inset-0 rounded-full bg-amber-400/20 animate-ping" />
-                  <div className="relative h-10 w-10 rounded-full bg-amber-500 flex items-center justify-center text-white text-lg">
-                    🚕
-                  </div>
-                </div>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[8px] font-black uppercase tracking-[0.2em] text-[#22c55e]">
+            Destino
+          </p>
 
-                <div className="flex-1 min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-[0.18em] text-amber-500">
-                    VallesViaje
-                  </p>
+          <p className="text-[11px] font-bold text-slate-700 truncate">
+            {destinationAddress || "¿A dónde quieres ir?"}
+          </p>
+        </div>
 
-                  <h3 className="text-base font-black text-slate-900 leading-tight">
-                    Buscando tu taxi
-                  </h3>
-
-                  <p className="text-[9px] text-slate-400 font-medium mt-0.5">
-                    Buscando la unidad disponible más cercana
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* =======================================================
-            SELECTOR DE DESTINO
-        ======================================================= */}
-        {selectorDestinoAbierto &&
-          !destinoColapsado &&
-          estado !== "encurso" && (
-            <div className="absolute left-3 right-3 bottom-3 z-[1300] bg-white/97 backdrop-blur-md border border-slate-200 rounded-3xl shadow-2xl p-4 space-y-3">
-
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[8px] font-black uppercase tracking-[0.2em] text-[#22c55e]">
-                    Destino
-                  </p>
-
-                  <p className="text-[11px] font-bold text-slate-700 truncate">
-                    {destinationAddress ||
-                      "¿A dónde quieres ir?"}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectorDestinoAbierto(false);
-                    setDestinoColapsado(false);
-                  }}
-                  className="text-[8px] font-black uppercase tracking-widest text-slate-400"
-                >
-                  Cerrar
-                </button>
-              </div>
-
-              <div className="flex gap-2">
-                <div className="flex-1 relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm">
-                    📍
-                  </span>
-
-                  <input
-                    value={destinationQuery}
-                    onChange={(e) =>
-                      setDestinationQuery(e.target.value)
-                    }
-                    placeholder="Calle, colonia o lugar"
-                    className="w-full bg-slate-100 border border-slate-200 rounded-2xl pl-9 pr-3 py-3 text-sm font-medium text-slate-800 outline-none focus:ring-2 focus:ring-[#22c55e]/30"
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    void geocodificarDestino(
-                      destinationQuery
-                    )
-                  }
-                  disabled={
-                    isSearchingDestination ||
-                    !destinationQuery.trim()
-                  }
-                  className="px-4 rounded-2xl bg-[#22c55e] text-white font-black text-[9px] uppercase tracking-widest disabled:opacity-50 active:scale-95 transition-all"
-                >
-                  {isSearchingDestination
-                    ? "..."
-                    : "Buscar"}
-                </button>
-              </div>
-
-              {tarifaEstimada !== null &&
-                distanciaEstimadaKm !== null && (
-                  <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2.5">
-                    <div>
-                      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                        Distancia
-                      </p>
-
-                      <p className="text-sm font-black text-slate-800">
-                        {distanciaEstimadaKm.toFixed(1)} km
-                      </p>
-                    </div>
-
-                    <div className="text-right">
-                      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                        Tarifa estimada
-                      </p>
-
-                      <p className="text-sm font-black text-slate-800">
-                        ${tarifaEstimada} MXN
-                      </p>
-                    </div>
-                  </div>
-                )}
-              <button 
-  type="button" 
-  onClick={() => {
-    setDestinoConfirmado(true);
-    setSelectorDestinoAbierto(false);
-    setDestinoColapsado(true);
-  }}
-  disabled={ 
-    destinationLat === null || 
-    destinationLng === null 
-  } 
-  className="w-full py-3 rounded-2xl bg-[#22c55e] text-white font-black text-[10px] uppercase tracking-widest disabled:opacity-40 active:scale-95 transition-all" 
-> 
-  CONFIRMAR DESTINO 
-</button>
-
-              <p className="text-[7px] font-bold text-slate-400 uppercase tracking-[0.16em] text-center">
-                Arrastra el pin verde para ajustar la ubicación
-              </p>
-            </div>
-          )}
+        <button
+          type="button"
+          onClick={() => {
+            setSelectorDestinoAbierto(false);
+            setDestinoColapsado(false);
+          }}
+          className="text-[8px] font-black uppercase tracking-widest text-slate-400"
+        >
+          Cerrar
+        </button>
       </div>
 
-      {/* =========================================================
-          TARJETA DEL TAXISTA
-      ========================================================= */}
-      {taxistaAsignado &&
-        ["asignado", "encamino"].includes(estado) && (
-          <div className="relative z-[1100] mx-4 -mt-5">
+      <div className="flex gap-2">
+        <div className="flex-1 relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm">
+            📍
+          </span>
 
-            <div className="bg-white border border-slate-200 rounded-3xl shadow-xl px-4 py-3">
+          <input
+            value={destinationQuery}
+            onChange={(e) =>
+              setDestinationQuery(e.target.value)
+            }
+            placeholder="Calle, colonia o lugar"
+            className="w-full bg-slate-100 border border-slate-200 rounded-2xl pl-9 pr-3 py-3 text-sm font-medium text-slate-800 outline-none focus:ring-2 focus:ring-[#22c55e]/30"
+          />
+        </div>
 
-              <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() =>
+            void geocodificarDestino(destinationQuery)
+          }
+          disabled={
+            isSearchingDestination ||
+            !destinationQuery.trim()
+          }
+          className="px-4 rounded-2xl bg-[#22c55e] text-white font-black text-[9px] uppercase tracking-widest disabled:opacity-50 active:scale-95 transition-all"
+        >
+          {isSearchingDestination ? "..." : "Buscar"}
+        </button>
+      </div>
 
-                <div className="h-11 w-11 shrink-0 bg-green-50 rounded-2xl flex items-center justify-center text-xl">
-                  🚕
-                </div>
+      {tarifaEstimada !== null &&
+        distanciaEstimadaKm !== null && (
+          <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2.5">
+            <div>
+              <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                Distancia
+              </p>
 
-                <div className="min-w-0 flex-1">
-                  <p className="text-[7px] font-black uppercase tracking-[0.18em] text-slate-400">
-                    Tu unidad
-                  </p>
+              <p className="text-sm font-black text-slate-800">
+                {distanciaEstimadaKm.toFixed(1)} km
+              </p>
+            </div>
 
-                  <p className="text-[12px] font-black text-slate-800 truncate">
-                    {taxistaAsignado.name ||
-                      "Unidad asignada"}
-                  </p>
+            <div className="text-right">
+              <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                Tarifa estimada
+              </p>
 
-                  <p className="text-[9px] font-black text-[#22c55e] uppercase tracking-widest">
-                    TAXI{" "}
-                    {taxistaAsignado.taxiNumber ||
-                      "ECO"}
-                  </p>
-                </div>
-
-                <div className="text-right">
-                  <div className="flex items-center justify-end gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#22c55e] animate-pulse" />
-
-                    <span className="text-[8px] font-black text-[#22c55e] uppercase tracking-widest">
-                      {estado === "encamino"
-                        ? "En camino"
-                        : "Asignado"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {estado === "encamino" && (
-                <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
-
-                  <div>
-                    <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                      Estado
-                    </p>
-
-                    <p className="text-[10px] font-bold text-slate-700">
-                      Tu taxi se dirige hacia ti
-                    </p>
-                  </div>
-
-                  <div className="text-right">
-                    <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                      GPS
-                    </p>
-
-                    <p className="text-[9px] font-black text-[#22c55e]">
-                      EN VIVO
-                    </p>
-                  </div>
-                </div>
-              )}
+              <p className="text-sm font-black text-slate-800">
+                ${tarifaEstimada} MXN
+              </p>
             </div>
           </div>
         )}
 
+      <button
+        type="button"
+        onClick={() => {
+          setDestinoConfirmado(true);
+          setSelectorDestinoAbierto(false);
+          setDestinoColapsado(true);
+        }}
+        disabled={
+          destinationLat === null ||
+          destinationLng === null
+        }
+        className="w-full py-3 rounded-2xl bg-[#22c55e] text-white font-black text-[10px] uppercase tracking-widest disabled:opacity-40 active:scale-95 transition-all"
+      >
+        CONFIRMAR DESTINO
+      </button>
+
+      <p className="text-[7px] font-bold text-slate-400 uppercase tracking-[0.16em] text-center">
+        Arrastra el pin verde para ajustar la ubicación
+      </p>
+    </div>
+  )}
+      </div>
+
+    {/* =========================================================
+    TARJETA DEL TAXISTA
+========================================================= */}
+{taxistaAsignado &&
+  ["asignado", "encamino"].includes(estado) && (
+    <div className="relative z-[1100] mx-4 -mt-5">
+
+      <div className="bg-white border border-slate-200 rounded-3xl shadow-lg px-4 py-3">
+
+        {/* CABECERA DE LA UNIDAD */}
+        <div className="flex items-center gap-3">
+
+          <div className="h-11 w-11 shrink-0 bg-green-50 rounded-2xl flex items-center justify-center text-xl">
+            🚕
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <p className="text-[7px] font-black uppercase tracking-[0.18em] text-slate-400">
+              Tu unidad
+            </p>
+
+            <p className="text-[12px] font-black text-slate-800 truncate">
+              {taxistaAsignado.name || "Unidad asignada"}
+            </p>
+
+            <p className="text-[9px] font-black text-[#22c55e] uppercase tracking-widest">
+              TAXI {taxistaAsignado.taxiNumber || "ECO"}
+            </p>
+          </div>
+
+          {/* ESTADO */}
+          <div className="shrink-0">
+            <div
+              className={`px-2.5 py-1.5 rounded-xl ${
+                estado === "encamino"
+                  ? "bg-green-50"
+                  : "bg-slate-50"
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    estado === "encamino"
+                      ? "bg-[#22c55e] animate-pulse"
+                      : "bg-slate-400"
+                  }`}
+                />
+
+                <span
+                  className={`text-[7px] font-black uppercase tracking-widest ${
+                    estado === "encamino"
+                      ? "text-[#22c55e]"
+                      : "text-slate-500"
+                  }`}
+                >
+                  {estado === "encamino"
+                    ? "En camino"
+                    : "Asignado"}
+                </span>
+
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        {/* INFORMACIÓN GPS */}
+        {estado === "encamino" && (
+          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
+
+            <div className="min-w-0">
+              <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                Estado
+              </p>
+
+              <p className="text-[9px] font-bold text-slate-700 truncate">
+                Tu taxi se dirige hacia ti
+              </p>
+            </div>
+
+            <div className="shrink-0 ml-3 px-2.5 py-1.5 rounded-xl bg-green-50">
+              <div className="flex items-center gap-1.5">
+
+                <span className="h-1.5 w-1.5 rounded-full bg-[#22c55e] animate-pulse" />
+
+                <span className="text-[7px] font-black text-[#22c55e] uppercase tracking-widest">
+                  GPS EN VIVO
+                </span>
+
+              </div>
+            </div>
+
+          </div>
+        )}
+
+      </div>
+    </div>
+  )}
       {/* =========================================================
           PANEL INFERIOR
       ========================================================= */}
-      <div
-        className={`${
-          compactoInferior
-            ? "px-4 pt-3 pb-10"
-            : "px-5 pt-4 pb-12"
-        } flex flex-col shrink-0 bg-white transition-all duration-300`}
-      >
-
-        {/* -------------------------------------------------------
-            DESTINO COLAPSADO
-        ------------------------------------------------------- */}
-        {enCaminoUI &&
-          destinoColapsado && (
-            <button
-              type="button"
-              onClick={() =>
-                setDestinoColapsado(false)
-              }
-              className="mb-3 flex items-center gap-3 w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 text-left"
-            >
-              <div className="h-8 w-8 rounded-xl bg-green-50 flex items-center justify-center">
-                📍
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                  Destino
-                </p>
-
-                <p className="text-[10px] font-bold text-slate-700 truncate">
-                  {destinationAddress}
-                </p>
-              </div>             
-            </button>
-          )}
-
+      {!selectorDestinoAbierto && (
+  <div
+    className={`${
+      compactoInferior
+        ? "px-4 pt-3 pb-10"
+        : "px-5 pt-4 pb-12"
+    } flex flex-col shrink-0 bg-white transition-all duration-300`}
+  >
+       
         {/* -------------------------------------------------------
             PENDIENTE
         ------------------------------------------------------- */}
@@ -1901,6 +1864,7 @@ return (
   )}
 </div>
 
+
             {!selectorDestinoAbierto && (
               <button
                 type="button"
@@ -1924,15 +1888,10 @@ return (
               </button>
             )}
 
-          {!searchFlowActivo && (
+        {destinoConfirmado && !searchFlowActivo && (
   <button
     onClick={solicitarTaxi}
-    disabled={!destinoConfirmado}
-    className={`w-full py-4 rounded-2xl font-black text-[11px] tracking-widest transition-all ${
-      destinoConfirmado
-        ? "bg-[#22c55e] text-white shadow-xl shadow-green-900/20 hover:bg-[#16a34a] active:scale-[0.98]"
-        : "bg-slate-200 text-slate-400 cursor-not-allowed opacity-70"
-    }`}
+    className="w-full py-4 rounded-2xl bg-[#22c55e] text-white font-black text-[11px] tracking-widest shadow-xl shadow-green-900/20 hover:bg-[#16a34a] active:scale-[0.98] transition-all"
   >
     SOLICITAR TRANSPORTE
   </button>
@@ -1970,62 +1929,103 @@ return (
         )}
 
         {/* -------------------------------------------------------
-            ASIGNADO / EN CAMINO
-        ------------------------------------------------------- */}
-        {["asignado", "encamino"].includes(estado) &&
-          taxistaAsignado && (
-            <div className="space-y-3">
+    ASIGNADO / EN CAMINO
+------------------------------------------------------- */}
+{["asignado", "encamino"].includes(estado) &&
+  taxistaAsignado && (
+    <div className="space-y-3">
 
-              <div>
-                <p className="text-[8px] font-black text-[#22c55e] uppercase tracking-[0.2em]">
-                  {estado === "encamino"
-                    ? "Unidad en camino"
-                    : "Unidad confirmada"}
-                </p>
+      {/* DESTINO */}
+      {(destinationAddress ||
+        taxistaAsignado?.destinationAddress) && (
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
 
-                <h2 className="text-lg font-black text-slate-900">
-                  {estado === "encamino"
-                    ? "Tu taxi viene en camino"
-                    : "Tu taxi ha sido asignado"}
-                </h2>
+          <div className="flex items-center gap-3">
+
+            <div className="h-9 w-9 shrink-0 rounded-xl bg-green-50 flex items-center justify-center">
+              📍
+            </div>
+
+            <div className="min-w-0 flex-1">
+
+              <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                Destino
+              </p>
+
+              <div className="address-marquee">
+                <div className="address-marquee-track">
+
+                  <span className="!text-slate-700">
+                    {destinationAddress ||
+                      taxistaAsignado?.destinationAddress}
+                  </span>
+
+                  <span
+                    aria-hidden="true"
+                    className="!text-slate-700"
+                  >
+                    {destinationAddress ||
+                      taxistaAsignado?.destinationAddress}
+                  </span>
+
+                </div>
               </div>
 
-              {tarifaEstimada !== null &&
-                distanciaEstimadaKm !== null && (
-                  <div className="grid grid-cols-2 gap-2">
-
-                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
-                      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                        Distancia
-                      </p>
-
-                      <p className="text-base font-black text-slate-800">
-                        {distanciaEstimadaKm.toFixed(1)} km
-                      </p>
-                    </div>
-
-                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
-                      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                        Tarifa
-                      </p>
-
-                      <p className="text-base font-black text-slate-800">
-                        ${tarifaEstimada} MXN
-                      </p>
-                    </div>
-
-                  </div>
-                )}
-
-              <button
-                onClick={cancelarSolicitud}
-                className="w-full py-2.5 rounded-2xl bg-red-50 text-red-500 border border-red-100 font-black text-[8px] uppercase tracking-widest active:bg-red-100"
-              >
-                Cancelar solicitud
-              </button>
             </div>
-          )}
 
+          </div>
+
+        </div>
+      )}
+
+      {/* DISTANCIA + TARIFA */}
+      {tarifaEstimada !== null &&
+        distanciaEstimadaKm !== null && (
+          <div className="grid grid-cols-2 gap-2">
+
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+
+              <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                Distancia
+              </p>
+
+              <p className="text-lg font-black text-slate-800 mt-0.5">
+                {distanciaEstimadaKm.toFixed(1)}
+                <span className="text-[9px] font-bold text-slate-400 ml-1">
+                  km
+                </span>
+              </p>
+
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+
+              <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                Tarifa estimada
+              </p>
+
+              <p className="text-lg font-black text-[#22c55e] mt-0.5">
+                ${Math.round(tarifaEstimada)}
+                <span className="text-[9px] font-bold text-slate-400 ml-1">
+                  MXN
+                </span>
+              </p>
+
+            </div>
+
+          </div>
+        )}
+
+      {/* CANCELAR */}
+      <button
+        onClick={cancelarSolicitud}
+        className="w-full py-2.5 rounded-2xl bg-red-50 text-red-500 border border-red-100 font-black text-[8px] uppercase tracking-widest active:bg-red-100 transition-all"
+      >
+        Cancelar solicitud
+      </button>
+
+    </div>
+  )}
         {/* -------------------------------------------------------
             EN CURSO
         ------------------------------------------------------- */}
@@ -2046,23 +2046,35 @@ return (
               </p>
             </div>
 
-            {destinationAddress && (
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-3">
-                <div className="h-9 w-9 rounded-xl bg-green-50 flex items-center justify-center">
-                  📍
-                </div>
+            {(destinationAddress || taxistaAsignado?.destinationAddress) && (
+  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-3">
+    <div className="h-9 w-9 rounded-xl bg-green-50 flex items-center justify-center">
+      📍
+    </div>
 
-                <div className="min-w-0 flex-1">
-                  <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                    Destino
-                  </p>
+    <div className="min-w-0 flex-1">
+      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+        Destino
+      </p>
 
-                  <p className="text-[10px] font-bold text-slate-700 truncate">
-                    {destinationAddress}
-                  </p>
-                </div>
-              </div>
-            )}
+      {/* 🎯 MISMO MARQUEE QUE TAXISTAVIEW */}
+      <div className="address-marquee">
+        <div className="address-marquee-track">
+          <span className="!text-slate-700">
+            {destinationAddress || taxistaAsignado?.destinationAddress}
+          </span>
+
+          <span
+            aria-hidden="true"
+            className="!text-slate-700"
+          >
+            {destinationAddress || taxistaAsignado?.destinationAddress}
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
             {tarifaEstimada !== null &&
               distanciaEstimadaKm !== null && (
@@ -2093,6 +2105,7 @@ return (
           </div>
         )}
       </div>
+      )}
     </main>
 
     {/* ===========================================================
