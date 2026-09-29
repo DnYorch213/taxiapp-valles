@@ -1,4 +1,12 @@
-import React, { Suspense, lazy, useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, {
+  Suspense,
+  lazy,
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+} from "react";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { socket } from "../lib/socket";
@@ -7,7 +15,13 @@ import { useNavigate } from "react-router-dom";
 import { useGeolocation } from "../hooks/useGeolocation";
 import { Payload, ViajeEstado } from "../types/Payload";
 import { ChatBox } from "../components/ChatBox";
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  Polyline,
+} from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { taxistaIcon, pasajeroIcon } from "../utils/icons";
@@ -21,7 +35,7 @@ import { getDistanceKm } from "../helpers/getDistanceKm";
 const RoutingMachine = lazy(() =>
   import("../components/RoutingMachine").then((module) => ({
     default: module.RoutingMachine,
-  }))
+  })),
 );
 
 const OFFROAD_TAIL_THRESHOLD_METERS = 22;
@@ -109,7 +123,8 @@ const PasajeroView: React.FC = () => {
   const CHAT_BUBBLE_SIZE = 52;
   const CHAT_BUBBLE_MARGIN = 12;
 
-  const { userPosition, setUserPosition, taxiPos, setTaxiPos, logout } = useTravel();
+  const { userPosition, setUserPosition, taxiPos, setTaxiPos, logout } =
+    useTravel();
   const navigate = useNavigate();
   const [estado, setEstado] = useState<ViajeEstado>(TRIP_STATES.PENDIENTE);
   const [taxistaAsignado, setTaxistaAsignado] = useState<Payload | null>(null);
@@ -129,36 +144,47 @@ const PasajeroView: React.FC = () => {
   const [isSearchingDestination, setIsSearchingDestination] = useState(false);
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
   const [geometriaRuta, setGeometriaRuta] = useState<L.LatLngExpression[]>([]);
-  const [rutaDestinoPreview, setRutaDestinoPreview] = useState<L.LatLngExpression[]>([]);
-  const [rutaDestinoEnCurso, setRutaDestinoEnCurso] = useState<L.LatLngExpression[]>([]);
+  const [rutaDestinoPreview, setRutaDestinoPreview] = useState<
+    L.LatLngExpression[]
+  >([]);
+  const [rutaDestinoEnCurso, setRutaDestinoEnCurso] = useState<
+    L.LatLngExpression[]
+  >([]);
   const [tarifaEstimada, setTarifaEstimada] = useState<number | null>(null);
-  const [distanciaEstimadaKm, setDistanciaEstimadaKm] = useState<number | null>(null);
-  const [distanciaRutaMapboxKm, setDistanciaRutaMapboxKm] =  useState<number | null>(null);
+  const [distanciaEstimadaKm, setDistanciaEstimadaKm] = useState<number | null>(
+    null,
+  );
+  const [distanciaRutaMapboxKm, setDistanciaRutaMapboxKm] = useState<
+    number | null
+  >(null);
   const [isRehydrating, setIsRehydrating] = useState(false);
 
   const limpiarDireccionDestino = (direccion: string) => {
-  if (!direccion) return "";
+    if (!direccion) return "";
 
-  return direccion
-    .replace(/\bC\.?\s*P\.?\s*\d{5}\b/gi, "")
-    .replace(/\b\d{5}\b/g, "")
-    .replace(/\bSLP\b/gi, "")
-    .replace(/\bSan\s+Luis\s+Potos[ií]\b/gi, "")
-    .replace(/\bEstado\s+de\s+San\s+Luis\s+Potos[ií]\b/gi, "")
-    .replace(/\bMéxico\b/gi, "")
-    .replace(/,\s*,/g, ",")
-    .replace(/\s+,/g, ",")
-    .replace(/,\s*$/g, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-};
+    return direccion
+      .replace(/\bC\.?\s*P\.?\s*\d{5}\b/gi, "")
+      .replace(/\b\d{5}\b/g, "")
+      .replace(/\bSLP\b/gi, "")
+      .replace(/\bSan\s+Luis\s+Potos[ií]\b/gi, "")
+      .replace(/\bEstado\s+de\s+San\s+Luis\s+Potos[ií]\b/gi, "")
+      .replace(/\bMéxico\b/gi, "")
+      .replace(/,\s*,/g, ",")
+      .replace(/\s+,/g, ",")
+      .replace(/,\s*$/g, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  };
 
   // REFS CENTRALIZADAS - Evitan closures obsoletos en listeners
   const taxistaAsignadoRef = useRef<Payload | null>(null);
   const estadoRef = useRef<ViajeEstado>(TRIP_STATES.PENDIENTE);
   const taxiPosRef = useRef<any>(null);
   const userPositionRef = useRef<any>(null);
-  const previewRouteSeedRef = useRef<{ origin: L.LatLng | null; destination: L.LatLng | null }>({
+  const previewRouteSeedRef = useRef<{
+    origin: L.LatLng | null;
+    destination: L.LatLng | null;
+  }>({
     origin: null,
     destination: null,
   });
@@ -170,10 +196,18 @@ const PasajeroView: React.FC = () => {
   });
 
   // Sincronización de refs (un solo efecto para todas)
-  useEffect(() => { taxistaAsignadoRef.current = taxistaAsignado; }, [taxistaAsignado]);
-  useEffect(() => { estadoRef.current = estado; }, [estado]);
-  useEffect(() => { taxiPosRef.current = taxiPos; }, [taxiPos]);
-  useEffect(() => { userPositionRef.current = userPosition; }, [userPosition]);
+  useEffect(() => {
+    taxistaAsignadoRef.current = taxistaAsignado;
+  }, [taxistaAsignado]);
+  useEffect(() => {
+    estadoRef.current = estado;
+  }, [estado]);
+  useEffect(() => {
+    taxiPosRef.current = taxiPos;
+  }, [taxiPos]);
+  useEffect(() => {
+    userPositionRef.current = userPosition;
+  }, [userPosition]);
 
   useEffect(() => {
     const savedQuery = localStorage.getItem("taxi_destination_query") || "";
@@ -188,7 +222,9 @@ const PasajeroView: React.FC = () => {
       const latNum = Number(savedLat);
       const lngNum = Number(savedLng);
       const updatedAtNum = Number(savedUpdatedAt || "0");
-      const isFresh = Number.isFinite(updatedAtNum) && Date.now() - updatedAtNum <= DESTINATION_STORAGE_TTL_MS;
+      const isFresh =
+        Number.isFinite(updatedAtNum) &&
+        Date.now() - updatedAtNum <= DESTINATION_STORAGE_TTL_MS;
 
       if (isFresh && isValidCoordinatePair(latNum, lngNum)) {
         setDestinationLat(latNum);
@@ -203,13 +239,15 @@ const PasajeroView: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (destinationQuery) localStorage.setItem("taxi_destination_query", destinationQuery);
+    if (destinationQuery)
+      localStorage.setItem("taxi_destination_query", destinationQuery);
     else localStorage.removeItem("taxi_destination_query");
   }, [destinationQuery]);
 
   useEffect(() => {
     destinationAddressRef.current = destinationAddress;
-    if (destinationAddress) localStorage.setItem("taxi_destination_address", destinationAddress);
+    if (destinationAddress)
+      localStorage.setItem("taxi_destination_address", destinationAddress);
     else localStorage.removeItem("taxi_destination_address");
   }, [destinationAddress]);
 
@@ -227,25 +265,31 @@ const PasajeroView: React.FC = () => {
   }, [destinationLat, destinationLng]);
 
   // GEOCONFIG ESTABLE - Solo cambia cuando el email cambia realmente
-  const geoConfig = useMemo(() => ({
-    email: userPosition?.email || "",
-    name: userPosition?.name || "Pasajero",
-    role: "pasajero" as const,
-  }), [userPosition?.email, userPosition?.name]);
+  const geoConfig = useMemo(
+    () => ({
+      email: userPosition?.email || "",
+      name: userPosition?.name || "Pasajero",
+      role: "pasajero" as const,
+    }),
+    [userPosition?.email, userPosition?.name],
+  );
 
   // GPS con callback estable usando refs
-  const handlePositionUpdate = useCallback((pos: any) => {
-    if (pos.lat && pos.lng) {
-      const current = userPositionRef.current;
-      if (current?.lat !== pos.lat || current?.lng !== pos.lng) {
-        setUserPosition({
-          ...current,
-          lat: pos.lat,
-          lng: pos.lng,
-        } as any);
+  const handlePositionUpdate = useCallback(
+    (pos: any) => {
+      if (pos.lat && pos.lng) {
+        const current = userPositionRef.current;
+        if (current?.lat !== pos.lat || current?.lng !== pos.lng) {
+          setUserPosition({
+            ...current,
+            lat: pos.lat,
+            lng: pos.lng,
+          } as any);
+        }
       }
-    }
-  }, [setUserPosition]);
+    },
+    [setUserPosition],
+  );
 
   useGeolocation(geoConfig, handlePositionUpdate);
 
@@ -254,39 +298,39 @@ const PasajeroView: React.FC = () => {
     return [destinationLat, destinationLng];
   }, [destinationLat, destinationLng]);
 
- useEffect(() => {
-  if (estado !== "pendiente") return;
-  if (!userPosition?.lat || !userPosition?.lng) return;
+  useEffect(() => {
+    if (estado !== "pendiente") return;
+    if (!userPosition?.lat || !userPosition?.lng) return;
 
-  if (!destinationPosition) {
-    setDistanciaRutaMapboxKm(null);
-    setTarifaEstimada(null);
-    setDistanciaEstimadaKm(null);
-    return;
-  }
+    if (!destinationPosition) {
+      setDistanciaRutaMapboxKm(null);
+      setTarifaEstimada(null);
+      setDistanciaEstimadaKm(null);
+      return;
+    }
 
-  // Mientras Mapbox todavía no responde,
-  // usamos la distancia geométrica únicamente como valor provisional.
-  if (distanciaRutaMapboxKm === null) {
-    const distanciaKm = getDistanceKm(
-      Number(userPosition.lat),
-      Number(userPosition.lng),
-      destinationPosition[0],
-      destinationPosition[1]
-    );
+    // Mientras Mapbox todavía no responde,
+    // usamos la distancia geométrica únicamente como valor provisional.
+    if (distanciaRutaMapboxKm === null) {
+      const distanciaKm = getDistanceKm(
+        Number(userPosition.lat),
+        Number(userPosition.lng),
+        destinationPosition[0],
+        destinationPosition[1],
+      );
 
-    const tarifa = calcularTarifaPorDistancia(distanciaKm);
+      const tarifa = calcularTarifaPorDistancia(distanciaKm);
 
-    setDistanciaEstimadaKm(distanciaKm);
-    setTarifaEstimada(tarifa);
-  }
-}, [
-  estado,
-  userPosition?.lat,
-  userPosition?.lng,
-  destinationPosition,
-  distanciaRutaMapboxKm,
-]);
+      setDistanciaEstimadaKm(distanciaKm);
+      setTarifaEstimada(tarifa);
+    }
+  }, [
+    estado,
+    userPosition?.lat,
+    userPosition?.lng,
+    destinationPosition,
+    distanciaRutaMapboxKm,
+  ]);
   useEffect(() => {
     if (hasSeededDestinationRef.current) return;
     if (destinationLat !== null && destinationLng !== null) {
@@ -313,21 +357,38 @@ const PasajeroView: React.FC = () => {
       return;
     }
 
-    const currentOrigin = L.latLng(Number(userPosition.lat), Number(userPosition.lng));
-    const currentDestination = L.latLng(destinationPosition[0], destinationPosition[1]);
+    const currentOrigin = L.latLng(
+      Number(userPosition.lat),
+      Number(userPosition.lng),
+    );
+    const currentDestination = L.latLng(
+      destinationPosition[0],
+      destinationPosition[1],
+    );
     const previous = previewRouteSeedRef.current;
 
     if (!previous.origin || !previous.destination) {
-      previewRouteSeedRef.current = { origin: currentOrigin, destination: currentDestination };
+      previewRouteSeedRef.current = {
+        origin: currentOrigin,
+        destination: currentDestination,
+      };
       setRutaDestinoPreview([]);
       return;
     }
 
     const originDelta = currentOrigin.distanceTo(previous.origin);
-    const destinationDelta = currentDestination.distanceTo(previous.destination);
+    const destinationDelta = currentDestination.distanceTo(
+      previous.destination,
+    );
 
-    if (originDelta >= PREVIEW_ORIGIN_RECALC_METERS || destinationDelta >= PREVIEW_DEST_RECALC_METERS) {
-      previewRouteSeedRef.current = { origin: currentOrigin, destination: currentDestination };
+    if (
+      originDelta >= PREVIEW_ORIGIN_RECALC_METERS ||
+      destinationDelta >= PREVIEW_DEST_RECALC_METERS
+    ) {
+      previewRouteSeedRef.current = {
+        origin: currentOrigin,
+        destination: currentDestination,
+      };
       setRutaDestinoPreview([]);
     }
   }, [
@@ -347,7 +408,13 @@ const PasajeroView: React.FC = () => {
     if (!destinationPosition || !taxiPos?.lat || !taxiPos?.lng) {
       setRutaDestinoEnCurso([]);
     }
-  }, [estado, destinationPosition?.[0], destinationPosition?.[1], taxiPos?.lat, taxiPos?.lng]);
+  }, [
+    estado,
+    destinationPosition?.[0],
+    destinationPosition?.[1],
+    taxiPos?.lat,
+    taxiPos?.lng,
+  ]);
 
   const limpiarDestino = useCallback(() => {
     setDestinationQuery("");
@@ -356,188 +423,202 @@ const PasajeroView: React.FC = () => {
     setDestinationLng(userPosition?.lng ?? null);
   }, [userPosition?.lat, userPosition?.lng]);
 
- const limpiarMapaDestino = useCallback(() => {
-  setRutaDestinoPreview([]);
-  setRutaDestinoEnCurso([]);
-  setGeometriaRuta([]);
-  setHistorialRuta([]);
+  const limpiarMapaDestino = useCallback(() => {
+    setRutaDestinoPreview([]);
+    setRutaDestinoEnCurso([]);
+    setGeometriaRuta([]);
+    setHistorialRuta([]);
 
-  setDestinationAddress("");
-  setDestinationQuery("");
-  setDestinationLat(null);
-  setDestinationLng(null);
+    setDestinationAddress("");
+    setDestinationQuery("");
+    setDestinationLat(null);
+    setDestinationLng(null);
 
-  setDestinoConfirmado(false);
-  setTarifaEstimada(null);
-  setDistanciaEstimadaKm(null);
+    setDestinoConfirmado(false);
+    setTarifaEstimada(null);
+    setDistanciaEstimadaKm(null);
 
-  setSelectorDestinoAbierto(false);
-  setDestinoColapsado(false);
+    setSelectorDestinoAbierto(false);
+    setDestinoColapsado(false);
 
-  localStorage.removeItem("taxi_destination_query");
-  localStorage.removeItem("taxi_destination_address");
-  localStorage.removeItem("taxi_destination_lat");
-  localStorage.removeItem("taxi_destination_lng");
-  localStorage.removeItem("taxi_destination_updated_at");
-}, []);
+    localStorage.removeItem("taxi_destination_query");
+    localStorage.removeItem("taxi_destination_address");
+    localStorage.removeItem("taxi_destination_lat");
+    localStorage.removeItem("taxi_destination_lng");
+    localStorage.removeItem("taxi_destination_updated_at");
+  }, []);
 
-const actualizarDestinoEnServidor = useCallback((
-  nextLat: number | null,
-  nextLng: number | null,
-  nextAddress?: string,
-  nextDistanceKm?: number | null,
-  nextFare?: number | null
-) => {
-  const passengerEmail = userPosition?.email?.toLowerCase().trim();
+  const actualizarDestinoEnServidor = useCallback(
+    (
+      nextLat: number | null,
+      nextLng: number | null,
+      nextAddress?: string,
+      nextDistanceKm?: number | null,
+      nextFare?: number | null,
+    ) => {
+      const passengerEmail = userPosition?.email?.toLowerCase().trim();
 
-  if (!passengerEmail || !socket.connected) return;
+      if (!passengerEmail || !socket.connected) return;
 
-  const addressToSend =
-  nextAddress ??
-  destinationAddressRef.current ??
-  destinationAddress ??
-  destinationQuery ??
-  "Destino no especificado";
+      const addressToSend =
+        nextAddress ??
+        destinationAddressRef.current ??
+        destinationAddress ??
+        destinationQuery ??
+        "Destino no especificado";
 
-console.log("📤 ENVIANDO update_trip_destination:", {
-  lat: nextLat,
-  lng: nextLng,
-  address: addressToSend,
-  distanceKm: nextDistanceKm ?? distanciaRutaMapboxKm,
-  fare: nextFare ?? tarifaEstimada,
-});
+      console.log("📤 ENVIANDO update_trip_destination:", {
+        lat: nextLat,
+        lng: nextLng,
+        address: addressToSend,
+        distanceKm: nextDistanceKm ?? distanciaRutaMapboxKm,
+        fare: nextFare ?? tarifaEstimada,
+      });
 
-socket.emit("update_trip_destination", {
-  pasajeroEmail: passengerEmail,
-  destinationLat: nextLat,
-  destinationLng: nextLng,
-  destinationAddress: addressToSend,
-  estimatedDistanceKm:
-    nextDistanceKm ?? distanciaRutaMapboxKm,
-  estimatedFare:
-    nextFare ?? tarifaEstimada,
-});
-}, [
-  destinationAddress,
-  destinationQuery,
-  userPosition?.email,
-  distanciaRutaMapboxKm,
-  tarifaEstimada,
-]);
-  const geocodificarDestino = useCallback(async (query: string) => {
-    const cleanQuery = query.trim();
-    if (!cleanQuery) {
-      toast.error("Escribe un destino primero.");
-      return;
-    }
-
-    setIsSearchingDestination(true);
-    try {
-      const url = new URL("https://nominatim.openstreetmap.org/search");
-      url.searchParams.set("format", "jsonv2");
-      url.searchParams.set("q", cleanQuery);
-      url.searchParams.set("limit", "1");
-      url.searchParams.set("addressdetails", "1");
-      url.searchParams.set("countrycodes", "mx");
-
-      const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
-      if (!response.ok) throw new Error("No se pudo buscar la dirección");
-
-      const results = await response.json();
-      if (!Array.isArray(results) || results.length === 0) {
-        toast.error("No encontré esa ubicación. Prueba con otra dirección.");
+      socket.emit("update_trip_destination", {
+        pasajeroEmail: passengerEmail,
+        destinationLat: nextLat,
+        destinationLng: nextLng,
+        destinationAddress: addressToSend,
+        estimatedDistanceKm: nextDistanceKm ?? distanciaRutaMapboxKm,
+        estimatedFare: nextFare ?? tarifaEstimada,
+      });
+    },
+    [
+      destinationAddress,
+      destinationQuery,
+      userPosition?.email,
+      distanciaRutaMapboxKm,
+      tarifaEstimada,
+    ],
+  );
+  const geocodificarDestino = useCallback(
+    async (query: string) => {
+      const cleanQuery = query.trim();
+      if (!cleanQuery) {
+        toast.error("Escribe un destino primero.");
         return;
       }
 
-      const match = results[0];
-      const latNum = Number(match.lat);
-      const lngNum = Number(match.lon);
+      setIsSearchingDestination(true);
+      try {
+        const url = new URL("https://nominatim.openstreetmap.org/search");
+        url.searchParams.set("format", "jsonv2");
+        url.searchParams.set("q", cleanQuery);
+        url.searchParams.set("limit", "1");
+        url.searchParams.set("addressdetails", "1");
+        url.searchParams.set("countrycodes", "mx");
 
-      if (Number.isNaN(latNum) || Number.isNaN(lngNum)) {
-        toast.error("La ubicación encontrada no es válida.");
+        const response = await fetch(url.toString(), {
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) throw new Error("No se pudo buscar la dirección");
+
+        const results = await response.json();
+        if (!Array.isArray(results) || results.length === 0) {
+          toast.error("No encontré esa ubicación. Prueba con otra dirección.");
+          return;
+        }
+
+        const match = results[0];
+        const latNum = Number(match.lat);
+        const lngNum = Number(match.lon);
+
+        if (Number.isNaN(latNum) || Number.isNaN(lngNum)) {
+          toast.error("La ubicación encontrada no es válida.");
+          return;
+        }
+
+        setDestinationLat(latNum);
+        setDestinationLng(lngNum);
+
+        const nextAddress = limpiarDireccionDestino(
+          match.display_name || cleanQuery,
+        );
+        destinationAddressRef.current = nextAddress;
+        setDestinationAddress(nextAddress);
+        setDestinationQuery(nextAddress);
+        setRutaDestinoPreview([]);
+        setRutaDestinoEnCurso([]);
+        if (
+          estado === "encurso" ||
+          estado === "encamino" ||
+          estado === "asignado"
+        ) {
+          // La actualizaci�n al servidor se hace despu�s de calcular la nueva ruta Mapbox.
+        }
+        toast.success("Destino ubicado en el mapa.");
+      } catch (error) {
+        console.warn("Error buscando destino:", error);
+        toast.error("No pude buscar el destino en este momento.");
+      } finally {
+        setIsSearchingDestination(false);
+      }
+    },
+    [estado, actualizarDestinoEnServidor],
+  );
+
+  const actualizarDestinoDesdeMarker = useCallback(
+    async (lat: number, lng: number) => {
+      if (!isValidCoordinatePair(lat, lng)) {
+        toast.error("La posición seleccionada no es válida.");
         return;
       }
 
-      setDestinationLat(latNum);
-      setDestinationLng(lngNum);
-
-      const nextAddress = limpiarDireccionDestino(
-        match.display_name || cleanQuery ); 
-      destinationAddressRef.current = nextAddress;      
-      setDestinationAddress(nextAddress);
-      setDestinationQuery(nextAddress);
+      setDestinationLat(lat);
+      setDestinationLng(lng);
       setRutaDestinoPreview([]);
       setRutaDestinoEnCurso([]);
-      if (estado === "encurso" || estado === "encamino" || estado === "asignado") {
-        // La actualizaci�n al servidor se hace despu�s de calcular la nueva ruta Mapbox.
+
+      try {
+        const url = new URL("https://nominatim.openstreetmap.org/reverse");
+        url.searchParams.set("format", "jsonv2");
+        url.searchParams.set("lat", String(lat));
+        url.searchParams.set("lon", String(lng));
+        url.searchParams.set("zoom", "18");
+        url.searchParams.set("addressdetails", "1");
+
+        const response = await fetch(url.toString(), {
+          headers: { Accept: "application/json" },
+        });
+
+        if (!response.ok) throw new Error("No se pudo resolver la dirección");
+
+        const data = await response.json();
+
+        const label = limpiarDireccionDestino(
+          data.display_name || `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+        );
+        destinationAddressRef.current = label;
+        setDestinationAddress(label);
+        setDestinationQuery(label);
+
+        if (
+          estado === "encurso" ||
+          estado === "encamino" ||
+          estado === "asignado"
+        ) {
+          // La actualizaci�n al servidor se hace despu�s de calcular la nueva ruta Mapbox.
+        }
+      } catch (error) {
+        console.warn("Error resolviendo destino:", error);
+
+        const label = `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        destinationAddressRef.current = label;
+        setDestinationAddress(label);
+        setDestinationQuery(label);
+
+        if (
+          estado === "encurso" ||
+          estado === "encamino" ||
+          estado === "asignado"
+        ) {
+          // La actualizaci�n al servidor se hace despu�s de calcular la nueva ruta Mapbox.
+        }
       }
-      toast.success("Destino ubicado en el mapa.");
-    } catch (error) {
-      console.warn("Error buscando destino:", error);
-      toast.error("No pude buscar el destino en este momento.");
-    } finally {
-      setIsSearchingDestination(false);
-    }
-  }, [estado, actualizarDestinoEnServidor]);
-  
-const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number) => {
-  if (!isValidCoordinatePair(lat, lng)) {
-    toast.error("La posición seleccionada no es válida.");
-    return;
-  }
-
-  setDestinationLat(lat);
-  setDestinationLng(lng);
-  setRutaDestinoPreview([]);
-  setRutaDestinoEnCurso([]);
-
-  try {
-    const url = new URL("https://nominatim.openstreetmap.org/reverse");
-    url.searchParams.set("format", "jsonv2");
-    url.searchParams.set("lat", String(lat));
-    url.searchParams.set("lon", String(lng));
-    url.searchParams.set("zoom", "18");
-    url.searchParams.set("addressdetails", "1");
-
-    const response = await fetch(url.toString(), {
-      headers: { Accept: "application/json" }
-    });
-
-    if (!response.ok) throw new Error("No se pudo resolver la dirección");
-
-    const data = await response.json();
-
-    const label = limpiarDireccionDestino(
-      data.display_name || `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`
-    );
-    destinationAddressRef.current = label;
-    setDestinationAddress(label);
-    setDestinationQuery(label);
-
-    if (
-      estado === "encurso" ||
-      estado === "encamino" ||
-      estado === "asignado"
-    ) {
-      // La actualizaci�n al servidor se hace despu�s de calcular la nueva ruta Mapbox.
-    }
-  } catch (error) {
-    console.warn("Error resolviendo destino:", error);
-
-    const label = `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-    destinationAddressRef.current = label;
-    setDestinationAddress(label);
-    setDestinationQuery(label);
-
-    if (
-      estado === "encurso" ||
-      estado === "encamino" ||
-      estado === "asignado"
-    ) {
-      // La actualizaci�n al servidor se hace despu�s de calcular la nueva ruta Mapbox.
-    }
-  }
-}, [estado, actualizarDestinoEnServidor]);
+    },
+    [estado, actualizarDestinoEnServidor],
+  );
 
   const clampBubbleX = useCallback((x: number) => {
     if (typeof window === "undefined") return x;
@@ -555,7 +636,9 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
   useEffect(() => {
     const handleResize = () => {
       if (chatBubbleX === null) return;
-      setChatBubbleX((current) => (current === null ? current : clampBubbleX(current)));
+      setChatBubbleX((current) =>
+        current === null ? current : clampBubbleX(current),
+      );
     };
 
     const handleSessionReplaced = () => {
@@ -568,18 +651,29 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
       setRutaDestinoPreview([]);
       setRutaDestinoEnCurso([]);
       setChatAbierto(false);
-      toast.warn("Se abrió otra sesión para esta cuenta. Se limpió el estado local.", { autoClose: 3500 });
+      toast.warn(
+        "Se abrió otra sesión para esta cuenta. Se limpió el estado local.",
+        { autoClose: 3500 },
+      );
     };
 
     window.addEventListener("resize", handleResize);
-    window.addEventListener("socket-session-replaced", handleSessionReplaced as EventListener);
+    window.addEventListener(
+      "socket-session-replaced",
+      handleSessionReplaced as EventListener,
+    );
     return () => {
       window.removeEventListener("resize", handleResize);
-      window.removeEventListener("socket-session-replaced", handleSessionReplaced as EventListener);
+      window.removeEventListener(
+        "socket-session-replaced",
+        handleSessionReplaced as EventListener,
+      );
     };
   }, [chatBubbleX, clampBubbleX]);
 
-  const handleChatBubblePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const handleChatBubblePointerDown = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
 
     const baseX = chatBubbleX ?? CHAT_BUBBLE_MARGIN;
@@ -593,7 +687,9 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const handleChatBubblePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const handleChatBubblePointerMove = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
     if (!isDraggingChatBubble) return;
 
     const deltaX = event.clientX - chatDragRef.current.startPointerX;
@@ -605,7 +701,9 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
     setChatBubbleX(nextX);
   };
 
-  const finishChatBubbleDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const finishChatBubbleDrag = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
     if (!isDraggingChatBubble) return;
 
     event.currentTarget.releasePointerCapture(event.pointerId);
@@ -617,7 +715,8 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
     const snapLeft = CHAT_BUBBLE_MARGIN;
     const snapRight = window.innerWidth - CHAT_BUBBLE_SIZE - CHAT_BUBBLE_MARGIN;
     const middle = window.innerWidth / 2;
-    const nextSnap = currentX + CHAT_BUBBLE_SIZE / 2 < middle ? snapLeft : snapRight;
+    const nextSnap =
+      currentX + CHAT_BUBBLE_SIZE / 2 < middle ? snapLeft : snapRight;
 
     setChatBubbleX(nextSnap);
 
@@ -639,10 +738,14 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
 
     const handleTripDestinationUpdated = (data: any) => {
       console.log("🚩 PASAJERO RECIBIÓ trip_destination_updated:", data);
-      const passengerEmail = userPositionRef.current?.email?.toLowerCase().trim();
-      const incomingEmail = String(data?.pasajeroEmail || "").toLowerCase().trim();
-      if (incomingEmail && passengerEmail && incomingEmail !== passengerEmail) return;
-    
+      const passengerEmail = userPositionRef.current?.email
+        ?.toLowerCase()
+        .trim();
+      const incomingEmail = String(data?.pasajeroEmail || "")
+        .toLowerCase()
+        .trim();
+      if (incomingEmail && passengerEmail && incomingEmail !== passengerEmail)
+        return;
 
       if (data?.destinationLat !== undefined && data?.destinationLat !== null) {
         setDestinationLat(Number(data.destinationLat));
@@ -651,22 +754,22 @@ const actualizarDestinoDesdeMarker = useCallback(async (lat: number, lng: number
         setDestinationLng(Number(data.destinationLng));
       }
       if (data?.destinationAddress) {
-  const direccionLimpia = limpiarDireccionDestino(
-    String(data.destinationAddress)
-  );
-  destinationAddressRef.current = direccionLimpia;
-  setDestinationAddress(direccionLimpia);
-  setDestinationQuery(direccionLimpia);
-}
+        const direccionLimpia = limpiarDireccionDestino(
+          String(data.destinationAddress),
+        );
+        destinationAddressRef.current = direccionLimpia;
+        setDestinationAddress(direccionLimpia);
+        setDestinationQuery(direccionLimpia);
+      }
 
       if (typeof data?.estimatedFare === "number") {
-  setTarifaEstimada(data.estimatedFare);
-}
+        setTarifaEstimada(data.estimatedFare);
+      }
 
-if (typeof data?.estimatedDistanceKm === "number") {
-  setDistanciaEstimadaKm(data.estimatedDistanceKm);
-  setDistanciaRutaMapboxKm(data.estimatedDistanceKm);
-}
+      if (typeof data?.estimatedDistanceKm === "number") {
+        setDistanciaEstimadaKm(data.estimatedDistanceKm);
+        setDistanciaRutaMapboxKm(data.estimatedDistanceKm);
+      }
     };
 
     // ACEPTACIÓN DEL TAXI (sin setTimeout innecesario)
@@ -704,17 +807,24 @@ if (typeof data?.estimatedDistanceKm === "number") {
           setDistanciaEstimadaKm(data.estimatedDistanceKm);
         }
 
-        toast.success(`¡La Unidad ${data.taxiNumber} (${data.name}) va en camino!`, {
-          position: "top-center",
-          autoClose: 5000,
-        });
+        toast.success(
+          `¡La Unidad ${data.taxiNumber} (${data.name}) va en camino!`,
+          {
+            position: "top-center",
+            autoClose: 5000,
+          },
+        );
       }
     });
 
     // TAXI MOVIDO (con orientación geográfica)
     socket.on("taxi_moved", (data: any) => {
-      const emailAsignado = taxistaAsignadoRef.current?.email?.toLowerCase().trim();
-      const emailEntrante = (data.tEmail || data.email || data.taxistaEmail)?.toLowerCase().trim();
+      const emailAsignado = taxistaAsignadoRef.current?.email
+        ?.toLowerCase()
+        .trim();
+      const emailEntrante = (data.tEmail || data.email || data.taxistaEmail)
+        ?.toLowerCase()
+        .trim();
 
       if (emailAsignado && emailEntrante === emailAsignado) {
         const latNum = Number(data.lat);
@@ -725,9 +835,11 @@ if (typeof data?.estimatedDistanceKm === "number") {
         const nuevoHeading = calcularHeading(
           posAnterior ? { lat: posAnterior.lat, lng: posAnterior.lng } : null,
           { lat: latNum, lng: lngNum },
-          pasajeroPos ? { lat: Number(pasajeroPos.lat), lng: Number(pasajeroPos.lng) } : null,
+          pasajeroPos
+            ? { lat: Number(pasajeroPos.lat), lng: Number(pasajeroPos.lng) }
+            : null,
           estadoRef.current,
-          posAnterior?.heading || 0
+          posAnterior?.heading || 0,
         );
 
         setTaxiPos({ lat: latNum, lng: lngNum, heading: nuevoHeading || 0 });
@@ -742,106 +854,137 @@ if (typeof data?.estimatedDistanceKm === "number") {
     });
 
     // ACTUALIZACIÓN DE RUTA EN CURSO
-socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
-  const latNum = Number(data.lat);
-  const lngNum = Number(data.lng);
+    socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
+      const latNum = Number(data.lat);
+      const lngNum = Number(data.lng);
 
-  // CORRECCIÓN: Usar L.latLng() para garantizar el tipo correcto
-  setHistorialRuta((prev) => {
-    const newHistory = [...prev, L.latLng(latNum, lngNum)];
-    return newHistory.length > 500 ? newHistory.slice(-500) : newHistory;
-  });
+      // CORRECCIÓN: Usar L.latLng() para garantizar el tipo correcto
+      setHistorialRuta((prev) => {
+        const newHistory = [...prev, L.latLng(latNum, lngNum)];
+        return newHistory.length > 500 ? newHistory.slice(-500) : newHistory;
+      });
 
-  const posAnterior = taxiPosRef.current;
-  const taxistaPos = taxistaAsignadoRef.current;
+      const posAnterior = taxiPosRef.current;
+      const taxistaPos = taxistaAsignadoRef.current;
 
-  const nuevoHeading = calcularHeading(
-    posAnterior ? { lat: posAnterior.lat, lng: posAnterior.lng } : null,
-    { lat: latNum, lng: lngNum },
-    taxistaPos ? { lat: Number(taxistaPos.lat), lng: Number(taxistaPos.lng) } : null,
-    estadoRef.current,
-    posAnterior?.heading || 0
-  );
+      const nuevoHeading = calcularHeading(
+        posAnterior ? { lat: posAnterior.lat, lng: posAnterior.lng } : null,
+        { lat: latNum, lng: lngNum },
+        taxistaPos
+          ? { lat: Number(taxistaPos.lat), lng: Number(taxistaPos.lng) }
+          : null,
+        estadoRef.current,
+        posAnterior?.heading || 0,
+      );
 
-  setTaxiPos({ lat: latNum, lng: lngNum, heading: nuevoHeading || 0 });
+      setTaxiPos({ lat: latNum, lng: lngNum, heading: nuevoHeading || 0 });
 
-  if (estadoRef.current === "encurso") {
-    setGeometriaRuta([L.latLng(latNum, lngNum)]);
-  } else if (["asignado", "encamino"].includes(estadoRef.current)) {
-    const pasajeroPos = userPositionRef.current;
-    if (pasajeroPos?.lat && pasajeroPos?.lng) {
-      setGeometriaRuta([
-        L.latLng(latNum, lngNum),
-        L.latLng(Number(pasajeroPos.lat), Number(pasajeroPos.lng)),
-      ]);
-    }
-  }
-});
+      if (estadoRef.current === "encurso") {
+        setGeometriaRuta([L.latLng(latNum, lngNum)]);
+      } else if (["asignado", "encamino"].includes(estadoRef.current)) {
+        const pasajeroPos = userPositionRef.current;
+        if (pasajeroPos?.lat && pasajeroPos?.lng) {
+          setGeometriaRuta([
+            L.latLng(latNum, lngNum),
+            L.latLng(Number(pasajeroPos.lat), Number(pasajeroPos.lng)),
+          ]);
+        }
+      }
+    });
 
     // ACTUALIZACIÓN DE ESTADO DEL VIAJE
     socket.on("trip_destination_updated", handleTripDestinationUpdated);
 
-    socket.on("trip_status_update", (data: { estado: string; pasajeroEmail?: string }) => {
-      const miEmail = userPositionRef.current?.email?.toLowerCase().trim();
-      const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
-      const nextEstado = String(data.estado || "").toLowerCase().trim();
+    socket.on(
+      "trip_status_update",
+      (data: { estado: string; pasajeroEmail?: string }) => {
+        const miEmail = userPositionRef.current?.email?.toLowerCase().trim();
+        const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
+        const nextEstado = String(data.estado || "")
+          .toLowerCase()
+          .trim();
 
-      if (!shouldAcceptStateTransition(estadoRef.current, nextEstado)) {
-        console.warn("🛡️ Estado ignorado por guard de sincronización:", { current: estadoRef.current, next: nextEstado });
-        return;
-      }
-
-      if (data.estado === "encurso" && (!emailRecibido || emailRecibido === miEmail)) {
-        setSearchFlowActivo(false);
-        setEstado(TRIP_STATES.ENCURSO);
-        setChatAbierto(false);
-
-        const taxiActual = taxiPosRef.current;
-        if (taxiActual?.lat && taxiActual?.lng) {
-          setHistorialRuta([[Number(taxiActual.lat), Number(taxiActual.lng)]]);
-          setGeometriaRuta([L.latLng(Number(taxiActual.lat), Number(taxiActual.lng))]);
-        }
-        showToastOnce("pasajero:trip-started", () => {
-          toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
-        }, { cooldownMs: 4000 });
-      }
-
-      if (nextEstado === "finalizado") {
-        if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
+        if (!shouldAcceptStateTransition(estadoRef.current, nextEstado)) {
+          console.warn("🛡️ Estado ignorado por guard de sincronización:", {
+            current: estadoRef.current,
+            next: nextEstado,
+          });
           return;
         }
-        setSearchFlowActivo(false);
-        setEstado(TRIP_STATES.FINALIZADO);
-        setTaxistaAsignado(null);
-        setTaxiPos(null);
-        setChatAbierto(false);
-        limpiarMapaDestino();
-        showToastOnce("pasajero:trip-finished", () => {
-          toast.success("¡Viaje finalizado!");
-        }, { cooldownMs: 4000 });
-      }
 
-      // Escudo contra saltos accidentales
-      if (["encurso", "finalizado"].includes(estadoRef.current) && nextEstado === "buscando") {
-        console.warn("Ignorado salto a 'buscando' porque el viaje ya está cerrado o en curso.");
-        return;
-      }
+        if (
+          data.estado === "encurso" &&
+          (!emailRecibido || emailRecibido === miEmail)
+        ) {
+          setSearchFlowActivo(false);
+          setEstado(TRIP_STATES.ENCURSO);
+          setChatAbierto(false);
 
-      if (nextEstado === "buscando") {
-        setSearchFlowActivo(true);
-        setTaxistaAsignado(null);
-        setTaxiPos(null);
-        setEstado(TRIP_STATES.BUSCANDO);
-        return;
-      }
+          const taxiActual = taxiPosRef.current;
+          if (taxiActual?.lat && taxiActual?.lng) {
+            setHistorialRuta([
+              [Number(taxiActual.lat), Number(taxiActual.lng)],
+            ]);
+            setGeometriaRuta([
+              L.latLng(Number(taxiActual.lat), Number(taxiActual.lng)),
+            ]);
+          }
+          showToastOnce(
+            "pasajero:trip-started",
+            () => {
+              toast.success("¡Viaje iniciado! Que tengas un buen trayecto.");
+            },
+            { cooldownMs: 4000 },
+          );
+        }
 
-      if (["asignado", "encamino"].includes(nextEstado)) {
-        setSearchFlowActivo(false);
-        setEstado(nextEstado as ViajeEstado);
-        return;
-      }
+        if (nextEstado === "finalizado") {
+          if (
+            !["asignado", "encamino", "encurso"].includes(estadoRef.current)
+          ) {
+            return;
+          }
+          setSearchFlowActivo(false);
+          setEstado(TRIP_STATES.FINALIZADO);
+          setTaxistaAsignado(null);
+          setTaxiPos(null);
+          setChatAbierto(false);
+          limpiarMapaDestino();
+          showToastOnce(
+            "pasajero:trip-finished",
+            () => {
+              toast.success("¡Viaje finalizado!");
+            },
+            { cooldownMs: 4000 },
+          );
+        }
 
-    });
+        // Escudo contra saltos accidentales
+        if (
+          ["encurso", "finalizado"].includes(estadoRef.current) &&
+          nextEstado === "buscando"
+        ) {
+          console.warn(
+            "Ignorado salto a 'buscando' porque el viaje ya está cerrado o en curso.",
+          );
+          return;
+        }
+
+        if (nextEstado === "buscando") {
+          setSearchFlowActivo(true);
+          setTaxistaAsignado(null);
+          setTaxiPos(null);
+          setEstado(TRIP_STATES.BUSCANDO);
+          return;
+        }
+
+        if (["asignado", "encamino"].includes(nextEstado)) {
+          setSearchFlowActivo(false);
+          setEstado(nextEstado as ViajeEstado);
+          return;
+        }
+      },
+    );
 
     // VIAJE TERMINADO
     socket.on("trip_finished", (data: { pasajeroEmail: string }) => {
@@ -852,32 +995,41 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         return;
       }
 
-     if (emailRecibido === miEmail || !data.pasajeroEmail) {
-  setSearchFlowActivo(false);
+      if (emailRecibido === miEmail || !data.pasajeroEmail) {
+        setSearchFlowActivo(false);
 
-  // El viaje terminó realmente en el servidor.
-  // Conservamos "finalizado" para mostrar la pantalla de cierre.
-  setEstado(TRIP_STATES.FINALIZADO);
+        // El viaje terminó realmente en el servidor.
+        // Conservamos "finalizado" para mostrar la pantalla de cierre.
+        setEstado(TRIP_STATES.FINALIZADO);
 
-  setTaxistaAsignado(null);
-  setTaxiPos(null);
-  setTarifaEstimada(null);
-  setDistanciaEstimadaKm(null);
-  setChatAbierto(false);
-  limpiarMapaDestino();
-          showToastOnce("pasajero:trip-finished-extended", () => {
-          toast.success("¡Viaje finalizado! Gracias por viajar con nosotros.", {
-            position: "top-center",
-            autoClose: 4000,
-          });
-        }, { cooldownMs: 4000 });
+        setTaxistaAsignado(null);
+        setTaxiPos(null);
+        setTarifaEstimada(null);
+        setDistanciaEstimadaKm(null);
+        setChatAbierto(false);
+        limpiarMapaDestino();
+        showToastOnce(
+          "pasajero:trip-finished-extended",
+          () => {
+            toast.success(
+              "¡Viaje finalizado! Gracias por viajar con nosotros.",
+              {
+                position: "top-center",
+                autoClose: 4000,
+              },
+            );
+          },
+          { cooldownMs: 4000 },
+        );
       }
     });
 
     // TAXI RECHAZÓ LA SOLICITUD
     socket.on("taxi_rejected_request", () => {
       if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
-        console.warn("🛡️ taxi_rejected_request ignorado: la solicitud ya no está activa o el viaje terminó.");
+        console.warn(
+          "🛡️ taxi_rejected_request ignorado: la solicitud ya no está activa o el viaje terminó.",
+        );
         return;
       }
       setSearchFlowActivo(true);
@@ -887,40 +1039,53 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       toast.info("Buscando otra unidad cercana...");
     });
 
-   socket.on("no_taxis_available", (payload?: { message?: string }) => {
-  // El servidor terminó todos los intentos y no encontró una unidad.
-  // Si seguimos buscando, ya no hay una solicitud activa que mantener.
-  if (["encurso", "finalizado"].includes(estadoRef.current)) {
-    console.warn("🛡️ no_taxis_available ignorado: el viaje ya está cerrado.", {
-      estado: estadoRef.current,
+    socket.on("no_taxis_available", (payload?: { message?: string }) => {
+      // El servidor terminó todos los intentos y no encontró una unidad.
+      // Si seguimos buscando, ya no hay una solicitud activa que mantener.
+      if (["encurso", "finalizado"].includes(estadoRef.current)) {
+        console.warn(
+          "🛡️ no_taxis_available ignorado: el viaje ya está cerrado.",
+          {
+            estado: estadoRef.current,
+          },
+        );
+        return;
+      }
+
+      setSearchFlowActivo(false);
+      setTaxistaAsignado(null);
+      setTaxiPos(null);
+      setEstado(TRIP_STATES.PENDIENTE);
+
+      showToastOnce(
+        "pasajero:no-taxis-available",
+        () => {
+          toast.info(
+            payload?.message || "No hay taxistas disponibles en este momento.",
+            { autoClose: 3000 },
+          );
+        },
+        { cooldownMs: 3000 },
+      );
     });
-    return;
-  }
-
-  setSearchFlowActivo(false);
-  setTaxistaAsignado(null);
-  setTaxiPos(null);
-  setEstado(TRIP_STATES.PENDIENTE);
-
-  showToastOnce("pasajero:no-taxis-available", () => {
-    toast.info(
-      payload?.message || "No hay taxistas disponibles en este momento.",
-      { autoClose: 3000 }
-    );
-  }, { cooldownMs: 3000 });
-});
 
     socket.on("dispatch_error", (payload?: { message?: string }) => {
       if (!["asignado", "encamino", "encurso"].includes(estadoRef.current)) {
-        console.warn("🛡️ dispatch_error ignorado: la solicitud ya no está activa.");
+        console.warn(
+          "🛡️ dispatch_error ignorado: la solicitud ya no está activa.",
+        );
         return;
       }
       setSearchFlowActivo(true);
       setEstado(TRIP_STATES.BUSCANDO);
       if (payload?.message) {
-        showToastOnce(`pasajero:${payload.message || "dispatch-warning"}`, () => {
-          toast.warn(payload.message, { autoClose: 2500 });
-        }, { cooldownMs: 3000 });
+        showToastOnce(
+          `pasajero:${payload.message || "dispatch-warning"}`,
+          () => {
+            toast.warn(payload.message, { autoClose: 2500 });
+          },
+          { cooldownMs: 3000 },
+        );
       }
     });
 
@@ -943,7 +1108,9 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   useEffect(() => {
     if (!socket) return;
 
-    const miEmail = userPosition?.email?.toLowerCase().trim() || localStorage.getItem("email")?.toLowerCase().trim();
+    const miEmail =
+      userPosition?.email?.toLowerCase().trim() ||
+      localStorage.getItem("email")?.toLowerCase().trim();
     if (!miEmail) return;
 
     const requestRehydrate = () => {
@@ -958,8 +1125,16 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
         return;
       }
 
-      const nextEstado = String(data.estado || "").toLowerCase().trim();
-      const isInactiveTrip = ["activo", "pendiente", "buscando", "cancelado", "finalizado"].includes(nextEstado);
+      const nextEstado = String(data.estado || "")
+        .toLowerCase()
+        .trim();
+      const isInactiveTrip = [
+        "activo",
+        "pendiente",
+        "buscando",
+        "cancelado",
+        "finalizado",
+      ].includes(nextEstado);
 
       if (isInactiveTrip || !data?.pasajero) {
         setIsRehydrating(false);
@@ -972,7 +1147,11 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       setDistanciaEstimadaKm(data.estimatedDistanceKm ?? null);
 
       if (data.pasajero.lat && data.pasajero.lng) {
-        setTaxiPos({ lat: Number(data.pasajero.lat), lng: Number(data.pasajero.lng), heading: 0 });
+        setTaxiPos({
+          lat: Number(data.pasajero.lat),
+          lng: Number(data.pasajero.lng),
+          heading: 0,
+        });
       }
 
       setIsRehydrating(false);
@@ -992,8 +1171,10 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
             name: data.passenger.name,
             lat: data.passenger.lat,
             lng: data.passenger.lng,
-            pickupAddress: data.passenger.pickupAddress || "Calculando ubicación...",
-            destinationAddress: data.passenger.destinationAddress || "Rumbo al destino...",
+            pickupAddress:
+              data.passenger.pickupAddress || "Calculando ubicación...",
+            destinationAddress:
+              data.passenger.destinationAddress || "Rumbo al destino...",
             destinationLat: data.passenger.destinationLat ?? null,
             destinationLng: data.passenger.destinationLng ?? null,
           }
@@ -1005,7 +1186,11 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       setDistanciaEstimadaKm(data.estimatedDistanceKm ?? null);
 
       if (passengerPayload?.lat && passengerPayload?.lng) {
-        setTaxiPos({ lat: Number(passengerPayload.lat), lng: Number(passengerPayload.lng), heading: 0 });
+        setTaxiPos({
+          lat: Number(passengerPayload.lat),
+          lng: Number(passengerPayload.lng),
+          heading: 0,
+        });
       }
 
       setIsRehydrating(false);
@@ -1043,8 +1228,12 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
 
     const interval = setInterval(() => {
       // Candado: no enviar si está inactivo
-      if (estadoRef.current === "pendiente" || estadoRef.current === "finalizado") return;
-      
+      if (
+        estadoRef.current === "pendiente" ||
+        estadoRef.current === "finalizado"
+      )
+        return;
+
       // Verificar que el socket esté conectado antes de emitir
       if (!socket?.connected) {
         console.warn("Socket desconectado, omitiendo heartbeat");
@@ -1106,7 +1295,16 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
     });
 
     toast.info("Buscando taxi disponible...", { autoClose: 3000 });
-  }, [userPosition, estado, destinationLat, destinationLng, destinationAddress, destinationQuery, distanciaRutaMapboxKm, tarifaEstimada]);
+  }, [
+    userPosition,
+    estado,
+    destinationLat,
+    destinationLng,
+    destinationAddress,
+    destinationQuery,
+    distanciaRutaMapboxKm,
+    tarifaEstimada,
+  ]);
 
   const cancelarSolicitud = useCallback(() => {
     setSearchFlowActivo(false);
@@ -1179,39 +1377,43 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   };
 
   const enCaminoUI = ["asignado", "encamino"].includes(estado);
-  const compactoInferior = ["buscando", "preasignado", "asignado", "encamino", "encurso"].includes(estado);
-  const mostrarTextoBuscando = !taxistaAsignado && ["buscando", "preasignado"].includes(estado);
+  const compactoInferior = [
+    "buscando",
+    "preasignado",
+    "asignado",
+    "encamino",
+    "encurso",
+  ].includes(estado);
+  const mostrarTextoBuscando =
+    !taxistaAsignado && ["buscando", "preasignado"].includes(estado);
 
- const abrirSelectorDestino = () => {
-  setSelectorDestinoAbierto(true);
-  setDestinoColapsado(false);
-  setDestinoConfirmado(false);
+  const abrirSelectorDestino = () => {
+    setSelectorDestinoAbierto(true);
+    setDestinoColapsado(false);
+    setDestinoConfirmado(false);
 
-  // Pin provisional cerca del pasajero, sin crear una ruta.
-  if (
-    userPosition?.lat &&
-    userPosition?.lng
-  ) {
-    const lat = Number(userPosition.lat);
-    const lng = Number(userPosition.lng);
+    // Pin provisional cerca del pasajero, sin crear una ruta.
+    if (userPosition?.lat && userPosition?.lng) {
+      const lat = Number(userPosition.lat);
+      const lng = Number(userPosition.lng);
 
-    // Aproximadamente 20 metros al norte del pasajero.
-    const latOffset = 20 / 111320;
+      // Aproximadamente 20 metros al norte del pasajero.
+      const latOffset = 20 / 111320;
 
-    setDestinationLat(lat + latOffset);
-    setDestinationLng(lng);
+      setDestinationLat(lat + latOffset);
+      setDestinationLng(lng);
 
-    setDestinationAddress("");
-    setDestinationQuery("");
+      setDestinationAddress("");
+      setDestinationQuery("");
 
-    // No mostrar ruta mientras el destino sea provisional.
-    setRutaDestinoPreview([]);
-    setRutaDestinoEnCurso([]);
-    setDistanciaRutaMapboxKm(null);
-    setDistanciaEstimadaKm(null);
-    setTarifaEstimada(null);
-  }
-};
+      // No mostrar ruta mientras el destino sea provisional.
+      setRutaDestinoPreview([]);
+      setRutaDestinoEnCurso([]);
+      setDistanciaRutaMapboxKm(null);
+      setDistanciaEstimadaKm(null);
+      setTarifaEstimada(null);
+    }
+  };
 
   useEffect(() => {
     if (enCaminoUI) {
@@ -1231,133 +1433,124 @@ socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
   }, [chatAbierto]);
 
   const routePositionsEnCurso = useMemo(() => {
-  if (rutaDestinoEnCurso.length > 0) {
-    return rutaDestinoEnCurso;
-  }
+    if (rutaDestinoEnCurso.length > 0) {
+      return rutaDestinoEnCurso;
+    }
 
-  return [] as L.LatLngExpression[];
-}, [rutaDestinoEnCurso]);
-  
-return (
-  <div className="h-dvh bg-slate-50 flex flex-col items-center font-sans relative overflow-hidden">
-    <ToastContainer theme="light" />
+    return [] as L.LatLngExpression[];
+  }, [rutaDestinoEnCurso]);
 
-    {/* Barra superior */}
-    <div className="absolute top-0 left-0 w-full h-1 bg-[#22c55e] z-[2001]" />
+  return (
+    <div className="h-dvh bg-slate-50 flex flex-col items-center font-sans relative overflow-hidden">
+      <ToastContainer theme="light" />
 
-    <main className="w-full max-w-md bg-white rounded-t-[2.5rem] shadow-2xl overflow-hidden border border-slate-100 relative flex flex-col flex-1 min-h-0">
+      {/* Barra superior */}
+      <div className="absolute top-0 left-0 w-full h-1 bg-[#22c55e] z-[2001]" />
 
-      {/* =========================================================
+      <main className="w-full max-w-md bg-white rounded-t-[2.5rem] shadow-2xl overflow-hidden border border-slate-100 relative flex flex-col flex-1 min-h-0">
+        {/* =========================================================
           HEADER SOBRE EL MAPA
       ========================================================= */}
-      <div className="absolute top-4 left-4 right-4 z-[1002] flex items-center justify-between pointer-events-none">
+        <div className="absolute top-4 left-4 right-4 z-[1002] flex items-center justify-between pointer-events-none">
+          <div className="bg-slate-900/75 backdrop-blur-md px-3 py-1.5 rounded-full shadow-lg">
+            <h1 className="text-[11px] font-black text-white tracking-tight uppercase italic">
+              VALLES<span className="text-[#22c55e]">VIAJE</span>
+            </h1>
+          </div>
 
-        <div className="bg-slate-900/75 backdrop-blur-md px-3 py-1.5 rounded-full shadow-lg">
-          <h1 className="text-[11px] font-black text-white tracking-tight uppercase italic">
-            VALLES<span className="text-[#22c55e]">VIAJE</span>
-          </h1>
+          <div className="flex items-center gap-2 bg-white/95 px-3 py-1.5 rounded-full border border-slate-200 shadow-lg backdrop-blur-sm">
+            <div
+              className={`h-2 w-2 rounded-full ${
+                userPosition?.lat && userPosition?.lng
+                  ? "bg-[#22c55e]"
+                  : "bg-red-500 animate-pulse"
+              }`}
+            />
+
+            <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">
+              GPS
+            </span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 bg-white/95 px-3 py-1.5 rounded-full border border-slate-200 shadow-lg backdrop-blur-sm">
-          <div
-            className={`h-2 w-2 rounded-full ${
-              userPosition?.lat && userPosition?.lng
-                ? "bg-[#22c55e]"
-                : "bg-red-500 animate-pulse"
-            }`}
-          />
-
-          <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">
-            GPS
-          </span>
-        </div>
-      </div>
-
-      {/* =========================================================
+        {/* =========================================================
           BOTÓN SALIR
       ========================================================= */}
-      <div className="absolute top-[4.5rem] left-4 z-[1002]">
-        <button
-          onClick={handleLogout}
-          className="bg-white/95 backdrop-blur-md text-slate-500 border border-slate-200 px-3 py-1.5 rounded-full text-[8px] font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all"
-        >
-          Salir
-        </button>
-      </div>
+        <div className="absolute top-[4.5rem] left-4 z-[1002]">
+          <button
+            onClick={handleLogout}
+            className="bg-white/95 backdrop-blur-md text-slate-500 border border-slate-200 px-3 py-1.5 rounded-full text-[8px] font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all"
+          >
+            Salir
+          </button>
+        </div>
 
-      {/* =========================================================
+        {/* =========================================================
           BADGE DE ESTADO
       ========================================================= */}
-      <div className="absolute top-[4.5rem] right-4 z-[1002]">
-        <div
-          className={`px-3 py-1.5 rounded-full text-[8px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg backdrop-blur-md transition-all duration-500 ${
-            estado === "encurso"
-              ? "bg-slate-900/85 text-white"
-              : estado === "buscando"
-              ? "bg-amber-500 text-white animate-pulse"
-              : estado === "encamino"
-              ? "bg-[#22c55e] text-white"
-              : estado === "asignado"
-              ? "bg-[#22c55e] text-white"
-              : "bg-white/95 text-slate-600"
-          }`}
-        >
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              estado === "buscando"
-                ? "bg-white animate-ping"
-                : estado === "encurso"
-                ? "bg-[#22c55e]"
-                : "bg-white"
+        <div className="absolute top-[4.5rem] right-4 z-[1002]">
+          <div
+            className={`px-3 py-1.5 rounded-full text-[8px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg backdrop-blur-md transition-all duration-500 ${
+              estado === "encurso"
+                ? "bg-slate-900/85 text-white"
+                : estado === "buscando"
+                  ? "bg-amber-500 text-white animate-pulse"
+                  : estado === "encamino"
+                    ? "bg-[#22c55e] text-white"
+                    : estado === "asignado"
+                      ? "bg-[#22c55e] text-white"
+                      : "bg-white/95 text-slate-600"
             }`}
-          />
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                estado === "buscando"
+                  ? "bg-white animate-ping"
+                  : estado === "encurso"
+                    ? "bg-[#22c55e]"
+                    : "bg-white"
+              }`}
+            />
 
-          {obtenerTextoEstado()}
+            {obtenerTextoEstado()}
+          </div>
         </div>
-      </div>
 
-      {/* =========================================================
+        {/* =========================================================
           MAPA
       ========================================================= */}
-      <div className="flex-1 min-h-[250px] w-full relative bg-slate-100">
+        <div className="flex-1 min-h-[250px] w-full relative bg-slate-100">
+          {userPosition?.lat && userPosition?.lng ? (
+            <MapContainer
+              center={[userPosition.lat, userPosition.lng]}
+              zoom={15}
+              className="h-full w-full"
+              zoomControl={false}
+            >
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-        {userPosition?.lat && userPosition?.lng ? (
-          <MapContainer
-            center={[userPosition.lat, userPosition.lng]}
-            zoom={15}
-            className="h-full w-full"
-            zoomControl={false}
-          >
-
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-
-            {/* -----------------------------------------------------
+              {/* -----------------------------------------------------
                 PASAJERO
             ----------------------------------------------------- */}
-            {estado !== "encurso" && (
-              <Marker
-                position={[userPosition.lat, userPosition.lng]}
-                icon={pasajeroIcon}
-                zIndexOffset={100}
-              >
-                <Popup>
-                  {userPosition.name || "Tu ubicación"}
-                </Popup>
-              </Marker>
-            )}
+              {estado !== "encurso" && (
+                <Marker
+                  position={[userPosition.lat, userPosition.lng]}
+                  icon={pasajeroIcon}
+                  zIndexOffset={100}
+                >
+                  <Popup>{userPosition.name || "Tu ubicación"}</Popup>
+                </Marker>
+              )}
 
-            {/* -----------------------------------------------------
+              {/* -----------------------------------------------------
                 DESTINO
             ----------------------------------------------------- */}
-            {
-              destinationPosition && (
+              {destinationPosition && (
                 <Marker
                   position={destinationPosition}
                   icon={destinationMarkerIcon}
                   zIndexOffset={1000}
-                  draggable={
-                    estado === "encurso" || selectorDestinoAbierto
-                  }
+                  draggable={estado === "encurso" || selectorDestinoAbierto}
                   eventHandlers={
                     estado === "encurso" || selectorDestinoAbierto
                       ? {
@@ -1367,7 +1560,7 @@ return (
 
                             void actualizarDestinoDesdeMarker(
                               next.lat,
-                              next.lng
+                              next.lng,
                             );
                           },
                         }
@@ -1378,142 +1571,131 @@ return (
                 </Marker>
               )}
 
-            {/* -----------------------------------------------------
+              {/* -----------------------------------------------------
                 PREVIEW DE DESTINO
             ----------------------------------------------------- */}
-            {
-              destinationPosition &&
-              estado !== "encurso" &&
-              rutaDestinoPreview.length > 0 && (
-                <Polyline
-                  positions={rutaDestinoPreview}
-                  pathOptions={{
-                    color: "#22c55e",
-                    weight: 4,
-                    opacity: 0.85,
-                    lineJoin: "round",
-                    lineCap: "round",
-                  }}
-                />
-              )}
+              {destinationPosition &&
+                estado !== "encurso" &&
+                rutaDestinoPreview.length > 0 && (
+                  <Polyline
+                    positions={rutaDestinoPreview}
+                    pathOptions={{
+                      color: "#22c55e",
+                      weight: 4,
+                      opacity: 0.85,
+                      lineJoin: "round",
+                      lineCap: "round",
+                    }}
+                  />
+                )}
 
-            {/* -----------------------------------------------------
+              {/* -----------------------------------------------------
                 ROUTING DESTINO PREVIEW
             ----------------------------------------------------- */}
-            {selectorDestinoAbierto &&
-  destinationPosition &&
-  destinationAddress &&
-  estado === "pendiente" &&
-  userPosition?.lat &&
-  userPosition?.lng &&
-  rutaDestinoPreview.length === 0 && (
-                <Suspense fallback={null}>
-                  <RoutingMachine
-                    key={`${userPosition.lat}-${userPosition.lng}-${destinationPosition[0]}-${destinationPosition[1]}-${estado}-${selectorDestinoAbierto}`}
-                    waypoints={[
-                      L.latLng(
-                        Number(userPosition.lat),
-                        Number(userPosition.lng)
-                      ),
-                      L.latLng(
-                        destinationPosition[0],
-                        destinationPosition[1]
-                      ),
-                    ]}
-                   onRouteFound={({ coords, distanceKm, durationMin }) => {
-  setRutaDestinoPreview(
-    sanitizeRouteTail(coords)
-  );
+              {selectorDestinoAbierto &&
+                destinationPosition &&
+                destinationAddress &&
+                estado === "pendiente" &&
+                userPosition?.lat &&
+                userPosition?.lng &&
+                rutaDestinoPreview.length === 0 && (
+                  <Suspense fallback={null}>
+                    <RoutingMachine
+                      key={`${userPosition.lat}-${userPosition.lng}-${destinationPosition[0]}-${destinationPosition[1]}-${estado}-${selectorDestinoAbierto}`}
+                      waypoints={[
+                        L.latLng(
+                          Number(userPosition.lat),
+                          Number(userPosition.lng),
+                        ),
+                        L.latLng(
+                          destinationPosition[0],
+                          destinationPosition[1],
+                        ),
+                      ]}
+                      onRouteFound={({ coords, distanceKm, durationMin }) => {
+                        setRutaDestinoPreview(sanitizeRouteTail(coords));
 
-  if (distanceKm !== null) {
-    setDistanciaRutaMapboxKm(distanceKm);
-    setDistanciaEstimadaKm(distanceKm);
-    setTarifaEstimada(
-      calcularTarifaPorDistancia(distanceKm)
-    );
-  }
+                        if (distanceKm !== null) {
+                          setDistanciaRutaMapboxKm(distanceKm);
+                          setDistanciaEstimadaKm(distanceKm);
+                          setTarifaEstimada(
+                            calcularTarifaPorDistancia(distanceKm),
+                          );
+                        }
 
-  console.log("📏 Distancia vial destino:", {
-    distanceKm,
-    durationMin,
-  });
-}}
-                  />
-                </Suspense>
-              )}
+                        console.log("📏 Distancia vial destino:", {
+                          distanceKm,
+                          durationMin,
+                        });
+                      }}
+                    />
+                  </Suspense>
+                )}
 
-            {/* -----------------------------------------------------
+              {/* -----------------------------------------------------
                 TAXI
             ----------------------------------------------------- */}
-            {taxiPos &&
-              ["asignado", "encamino", "encurso"].includes(estado) && (
-                <RotatedMarker
-                  position={[taxiPos.lat, taxiPos.lng]}
-                  icon={taxistaIcon}
-                  rotationAngle={taxiPos.heading || 0}
-                >
-                  <Popup>
-                    Unidad {taxistaAsignado?.taxiNumber}
-                  </Popup>
-                </RotatedMarker>
-              )}
+              {taxiPos &&
+                ["asignado", "encamino", "encurso"].includes(estado) && (
+                  <RotatedMarker
+                    position={[taxiPos.lat, taxiPos.lng]}
+                    icon={taxistaIcon}
+                    rotationAngle={taxiPos.heading || 0}
+                  >
+                    <Popup>Unidad {taxistaAsignado?.taxiNumber}</Popup>
+                  </RotatedMarker>
+                )}
 
-            {/* -----------------------------------------------------
+              {/* -----------------------------------------------------
                 RUTA DE APROXIMACIÓN
             ----------------------------------------------------- */}
-            {["asignado", "encamino"].includes(estado) &&
-              geometriaRuta.length > 0 && (
-                <Polyline
-                  positions={geometriaRuta}
-                  pathOptions={{
-                    color: "rgb(245, 33, 65)",
-                    weight: 5,
-                    lineJoin: "round",
-                    lineCap: "round",
-                  }}
-                />
-              )}
+              {["asignado", "encamino"].includes(estado) &&
+                geometriaRuta.length > 0 && (
+                  <Polyline
+                    positions={geometriaRuta}
+                    pathOptions={{
+                      color: "rgb(245, 33, 65)",
+                      weight: 5,
+                      lineJoin: "round",
+                      lineCap: "round",
+                    }}
+                  />
+                )}
 
-            {/* -----------------------------------------------------
+              {/* -----------------------------------------------------
                 ROUTING TAXI → PASAJERO
             ----------------------------------------------------- */}
-            {taxiPos?.lat &&
-              taxiPos?.lng &&
-              userPosition?.lat &&
-              userPosition?.lng &&
-              ["asignado", "encamino"].includes(estado) &&
-              geometriaRuta.length === 0 && (
-                <Suspense fallback={null}>
-                  <RoutingMachine
-                    waypoints={[
-                      L.latLng(
-                        Number(taxiPos.lat),
-                        Number(taxiPos.lng)
-                      ),
-                      L.latLng(
-                        Number(userPosition.lat),
-                        Number(userPosition.lng)
-                      ),
-                    ]}
-                    onRouteFound={({ coords }) => {
-  console.log(
-    "Nueva trayectoria trazada. Puntos:",
-    coords.length
-  );
+              {taxiPos?.lat &&
+                taxiPos?.lng &&
+                userPosition?.lat &&
+                userPosition?.lng &&
+                ["asignado", "encamino"].includes(estado) &&
+                geometriaRuta.length === 0 && (
+                  <Suspense fallback={null}>
+                    <RoutingMachine
+                      waypoints={[
+                        L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
+                        L.latLng(
+                          Number(userPosition.lat),
+                          Number(userPosition.lng),
+                        ),
+                      ]}
+                      onRouteFound={({ coords }) => {
+                        console.log(
+                          "Nueva trayectoria trazada. Puntos:",
+                          coords.length,
+                        );
 
-  setGeometriaRuta(
-    sanitizeRouteTail(coords)
-  );
-}}
-                  />
-                </Suspense>
-              )}
+                        setGeometriaRuta(sanitizeRouteTail(coords));
+                      }}
+                    />
+                  </Suspense>
+                )}
 
-            {/* -----------------------------------------------------
+              {/* -----------------------------------------------------
                 RASTRO DEL VIAJE
             ----------------------------------------------------- */}
-            {estado === "encurso" &&
-              historialRuta.length > 0 && (
+              {estado === "encurso" && historialRuta.length > 0 && (
                 <Polyline
                   positions={historialRuta}
                   pathOptions={{
@@ -1524,64 +1706,64 @@ return (
                 />
               )}
 
-            {/* -----------------------------------------------------
+              {/* -----------------------------------------------------
                 ROUTING AL DESTINO
             ----------------------------------------------------- */}
-            {estado === "encurso" &&
-              taxiPos?.lat &&
-              taxiPos?.lng &&
-              destinationPosition &&
-              rutaDestinoEnCurso.length === 0 && (
-                <Suspense fallback={null}>
-                  <RoutingMachine
-                    key={`${taxiPos.lat}-${taxiPos.lng}-${destinationPosition[0]}-${destinationPosition[1]}-${estado}`}
-                    waypoints={[
-                      L.latLng(
-                        Number(taxiPos.lat),
-                        Number(taxiPos.lng)
-                      ),
-                      L.latLng(
-                        destinationPosition[0],
-                        destinationPosition[1]
-                      ),
-                    ]}
-                    onRouteFound={({ coords, distanceKm, durationMin }) => {
-  setRutaDestinoEnCurso(
-    sanitizeRouteTail(coords)
-  );
+              {estado === "encurso" &&
+                taxiPos?.lat &&
+                taxiPos?.lng &&
+                destinationPosition &&
+                rutaDestinoEnCurso.length === 0 && (
+                  <Suspense fallback={null}>
+                    <RoutingMachine
+                      key={`${taxiPos.lat}-${taxiPos.lng}-${destinationPosition[0]}-${destinationPosition[1]}-${estado}`}
+                      waypoints={[
+                        L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
+                        L.latLng(
+                          destinationPosition[0],
+                          destinationPosition[1],
+                        ),
+                      ]}
+                      onRouteFound={({ coords, distanceKm, durationMin }) => {
+                        setRutaDestinoEnCurso(sanitizeRouteTail(coords));
 
-  if (distanceKm !== null && Number.isFinite(distanceKm)) {
-    const nuevaDistanciaKm = Number(distanceKm);
-    const nuevaTarifa = calcularTarifaPorDistancia(nuevaDistanciaKm);
+                        if (
+                          distanceKm !== null &&
+                          Number.isFinite(distanceKm)
+                        ) {
+                          const nuevaDistanciaKm = Number(distanceKm);
+                          const nuevaTarifa =
+                            calcularTarifaPorDistancia(nuevaDistanciaKm);
 
-    setDistanciaRutaMapboxKm(nuevaDistanciaKm);
-    setDistanciaEstimadaKm(nuevaDistanciaKm);
-    setTarifaEstimada(nuevaTarifa);
+                          setDistanciaRutaMapboxKm(nuevaDistanciaKm);
+                          setDistanciaEstimadaKm(nuevaDistanciaKm);
+                          setTarifaEstimada(nuevaTarifa);
 
-    console.log("📏 Nueva distancia vial al destino:", {
-      distanceKm: nuevaDistanciaKm,
-      fare: nuevaTarifa,
-      durationMin,
-    });
+                          console.log("📏 Nueva distancia vial al destino:", {
+                            distanceKm: nuevaDistanciaKm,
+                            fare: nuevaTarifa,
+                            durationMin,
+                          });
 
-    actualizarDestinoEnServidor(
-      destinationPosition?.[0] ?? null,
-      destinationPosition?.[1] ?? null,
-      destinationAddressRef.current || destinationQuery || "Destino no especificado",
-      nuevaDistanciaKm,
-      nuevaTarifa
-    );
-  }
-}}
-                  />
-                </Suspense>
-              )}
+                          actualizarDestinoEnServidor(
+                            destinationPosition?.[0] ?? null,
+                            destinationPosition?.[1] ?? null,
+                            destinationAddressRef.current ||
+                              destinationQuery ||
+                              "Destino no especificado",
+                            nuevaDistanciaKm,
+                            nuevaTarifa,
+                          );
+                        }
+                      }}
+                    />
+                  </Suspense>
+                )}
 
-            {/* -----------------------------------------------------
+              {/* -----------------------------------------------------
                 LÍNEA AL DESTINO
             ----------------------------------------------------- */}
-            {estado === "encurso" &&
-              routePositionsEnCurso.length > 0 && (
+              {estado === "encurso" && routePositionsEnCurso.length > 0 && (
                 <Polyline
                   positions={routePositionsEnCurso}
                   pathOptions={{
@@ -1592,534 +1774,493 @@ return (
                   }}
                 />
               )}
-          </MapContainer>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full gap-3">
-            <div className="h-10 w-10 rounded-full border-4 border-slate-200 border-t-[#22c55e] animate-spin" />
+            </MapContainer>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full gap-3">
+              <div className="h-10 w-10 rounded-full border-4 border-slate-200 border-t-[#22c55e] animate-spin" />
 
-            <p className="text-slate-400 font-black text-[9px] uppercase tracking-widest">
-              Buscando tu ubicación...
-            </p>
-          </div>
-        )}
+              <p className="text-slate-400 font-black text-[9px] uppercase tracking-widest">
+                Buscando tu ubicación...
+              </p>
+            </div>
+          )}
 
-      
-       {/* =======================================================
+          {/* =======================================================
     SELECTOR DE DESTINO
 ======================================================= */}
-{selectorDestinoAbierto &&
-  !destinoColapsado &&
-  estado === "pendiente" && (
-    <div className="absolute left-0 right-0 bottom-0 z-[1300] bg-white/97 backdrop-blur-md border-t border-slate-200 rounded-t-[2rem] shadow-2xl p-4 pb-5 space-y-3">
+          {selectorDestinoAbierto &&
+            !destinoColapsado &&
+            estado === "pendiente" && (
+              <div className="absolute left-0 right-0 bottom-0 z-[1300] bg-white/97 backdrop-blur-md border-t border-slate-200 rounded-t-[2rem] shadow-2xl p-4 pb-5 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[8px] font-black uppercase tracking-[0.2em] text-[#22c55e]">
+                      Destino
+                    </p>
 
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[8px] font-black uppercase tracking-[0.2em] text-[#22c55e]">
-            Destino
-          </p>
+                    <p className="text-[11px] font-bold text-slate-700 truncate">
+                      {destinationAddress || "¿A dónde quieres ir?"}
+                    </p>
+                  </div>
 
-          <p className="text-[11px] font-bold text-slate-700 truncate">
-            {destinationAddress || "¿A dónde quieres ir?"}
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            setSelectorDestinoAbierto(false);
-            setDestinoColapsado(false);
-          }}
-          className="text-[8px] font-black uppercase tracking-widest text-slate-400"
-        >
-          Cerrar
-        </button>
-      </div>
-
-      <div className="flex gap-2">
-        <div className="flex-1 relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm">
-            📍
-          </span>
-
-          <input
-            value={destinationQuery}
-            onChange={(e) =>
-              setDestinationQuery(e.target.value)
-            }
-            placeholder="Calle, colonia o lugar"
-            className="w-full bg-slate-100 border border-slate-200 rounded-2xl pl-9 pr-3 py-3 text-sm font-medium text-slate-800 outline-none focus:ring-2 focus:ring-[#22c55e]/30"
-          />
-        </div>
-
-        <button
-          type="button"
-          onClick={() =>
-            void geocodificarDestino(destinationQuery)
-          }
-          disabled={
-            isSearchingDestination ||
-            !destinationQuery.trim()
-          }
-          className="px-4 rounded-2xl bg-[#22c55e] text-white font-black text-[9px] uppercase tracking-widest disabled:opacity-50 active:scale-95 transition-all"
-        >
-          {isSearchingDestination ? "..." : "Buscar"}
-        </button>
-      </div>
-
-      {tarifaEstimada !== null &&
-        distanciaEstimadaKm !== null && (
-          <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2.5">
-            <div>
-              <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                Distancia
-              </p>
-
-              <p className="text-sm font-black text-slate-800">
-                {distanciaEstimadaKm.toFixed(1)} km
-              </p>
-            </div>
-
-            <div className="text-right">
-              <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                Tarifa estimada
-              </p>
-
-              <p className="text-sm font-black text-slate-800">
-                ${tarifaEstimada} MXN
-              </p>
-            </div>
-          </div>
-        )}
-
-      <button
-        type="button"
-        onClick={() => {
-          setDestinoConfirmado(true);
-          setSelectorDestinoAbierto(false);
-          setDestinoColapsado(true);
-        }}
-        disabled={
-          destinationLat === null ||
-          destinationLng === null
-        }
-        className="w-full py-3 rounded-2xl bg-[#22c55e] text-white font-black text-[10px] uppercase tracking-widest disabled:opacity-40 active:scale-95 transition-all"
-      >
-        CONFIRMAR DESTINO
-      </button>
-
-      <p className="text-[7px] font-bold text-slate-400 uppercase tracking-[0.16em] text-center">
-        Arrastra el pin verde para ajustar la ubicación
-      </p>
-    </div>
-  )}
-      </div>
-
-    {/* =========================================================
-    TARJETA DEL TAXISTA
-========================================================= */}
-{taxistaAsignado &&
-  ["asignado", "encamino"].includes(estado) && (
-    <div className="relative z-[1100] mx-4 -mt-5">
-
-      <div className="bg-white border border-slate-200 rounded-3xl shadow-lg px-4 py-3">
-
-        {/* CABECERA DE LA UNIDAD */}
-        <div className="flex items-center gap-3">
-
-          <div className="h-11 w-11 shrink-0 bg-green-50 rounded-2xl flex items-center justify-center text-xl">
-            🚕
-          </div>
-
-          <div className="min-w-0 flex-1">
-            <p className="text-[7px] font-black uppercase tracking-[0.18em] text-slate-400">
-              Tu unidad
-            </p>
-
-            <p className="text-[12px] font-black text-slate-800 truncate">
-              {taxistaAsignado.name || "Unidad asignada"}
-            </p>
-
-            <p className="text-[9px] font-black text-[#22c55e] uppercase tracking-widest">
-              TAXI {taxistaAsignado.taxiNumber || "ECO"}
-            </p>
-          </div>
-
-          {/* ESTADO */}
-          <div className="shrink-0">
-            <div
-              className={`px-2.5 py-1.5 rounded-xl ${
-                estado === "encamino"
-                  ? "bg-green-50"
-                  : "bg-slate-50"
-              }`}
-            >
-              <div className="flex items-center gap-1.5">
-
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    estado === "encamino"
-                      ? "bg-[#22c55e] animate-pulse"
-                      : "bg-slate-400"
-                  }`}
-                />
-
-                <span
-                  className={`text-[7px] font-black uppercase tracking-widest ${
-                    estado === "encamino"
-                      ? "text-[#22c55e]"
-                      : "text-slate-500"
-                  }`}
-                >
-                  {estado === "encamino"
-                    ? "En camino"
-                    : "Asignado"}
-                </span>
-
-              </div>
-            </div>
-          </div>
-
-        </div>
-
-        {/* INFORMACIÓN GPS */}
-        {estado === "encamino" && (
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
-
-            <div className="min-w-0">
-              <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                Estado
-              </p>
-
-              <p className="text-[9px] font-bold text-slate-700 truncate">
-                Tu taxi se dirige hacia ti
-              </p>
-            </div>
-
-            <div className="shrink-0 ml-3 px-2.5 py-1.5 rounded-xl bg-green-50">
-              <div className="flex items-center gap-1.5">
-
-                <span className="h-1.5 w-1.5 rounded-full bg-[#22c55e] animate-pulse" />
-
-                <span className="text-[7px] font-black text-[#22c55e] uppercase tracking-widest">
-                  GPS EN VIVO
-                </span>
-
-              </div>
-            </div>
-
-          </div>
-        )}
-
-      </div>
-    </div>
-  )}
-      {/* =========================================================
-          PANEL INFERIOR
-      ========================================================= */}
-      {!selectorDestinoAbierto && (
-  <div
-    className={`${
-      compactoInferior
-        ? "px-4 pt-3 pb-10"
-        : "px-5 pt-4 pb-12"
-    } flex flex-col shrink-0 bg-white transition-all duration-300`}
-  >
-       
-        {/* -------------------------------------------------------
-            PENDIENTE
-        ------------------------------------------------------- */}
-        {estado === "pendiente" && (
-          <div className="space-y-3">
-
-           <div>
-  <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">
-    Servicio Valles
-  </p>
-
-  {destinoConfirmado ? (
-    <>
-      <h2 className="text-sm font-black text-slate-900 tracking-tight">
-        📍 {destinationAddress || destinationQuery || "Destino confirmado"}
-      </h2>
-
-      <p className="text-[11px] text-slate-500 mt-1">
-  Tarifa estimada:{" "}
-  <span className="text-lg font-black text-[#22c55e]">
-    {tarifaEstimada !== null
-      ? `$${Math.round(tarifaEstimada)}`
-      : "Calculando..."}
-  </span>
-</p>
-    </>
-  ) : (
-    <>
-      <h2 className="text-xl font-black text-slate-900 tracking-tight">
-        ¿A dónde vamos hoy?
-      </h2>
-
-      <p className="text-[10px] text-slate-400 mt-1">
-        Solicita una unidad cercana en segundos.
-      </p>
-    </>
-  )}
-</div>
-
-
-            {!selectorDestinoAbierto && (
-              <button
-                type="button"
-                onClick={abrirSelectorDestino}
-                className="w-full text-left bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-3 active:scale-[0.99] transition-all"
-              >
-                <div className="h-9 w-9 bg-white rounded-xl flex items-center justify-center shadow-sm">
-                  📍
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectorDestinoAbierto(false);
+                      setDestinoColapsado(false);
+                    }}
+                    className="text-[8px] font-black uppercase tracking-widest text-slate-400"
+                  >
+                    Cerrar
+                  </button>
                 </div>
 
-                <div className="flex-1">
-                  
-                  <p className="text-[10px] font-bold text-slate-600">
-                    Selecciona tu destino
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm">
+                      📍
+                    </span>
+
+                    <input
+                      value={destinationQuery}
+                      onChange={(e) => setDestinationQuery(e.target.value)}
+                      placeholder="Calle, colonia o lugar"
+                      className="w-full bg-slate-100 border border-slate-200 rounded-2xl pl-9 pr-3 py-3 text-sm font-medium text-slate-800 outline-none focus:ring-2 focus:ring-[#22c55e]/30"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void geocodificarDestino(destinationQuery)}
+                    disabled={
+                      isSearchingDestination || !destinationQuery.trim()
+                    }
+                    className="px-4 rounded-2xl bg-[#22c55e] text-white font-black text-[9px] uppercase tracking-widest disabled:opacity-50 active:scale-95 transition-all"
+                  >
+                    {isSearchingDestination ? "..." : "Buscar"}
+                  </button>
+                </div>
+
+                {tarifaEstimada !== null && distanciaEstimadaKm !== null && (
+                  <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2.5">
+                    <div>
+                      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                        Distancia
+                      </p>
+
+                      <p className="text-sm font-black text-slate-800">
+                        {distanciaEstimadaKm.toFixed(1)} km
+                      </p>
+                    </div>
+
+                    <div className="text-right">
+                      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                        Tarifa estimada
+                      </p>
+
+                      <p className="text-sm font-black text-slate-800">
+                        ${tarifaEstimada} MXN
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDestinoConfirmado(true);
+                    setSelectorDestinoAbierto(false);
+                    setDestinoColapsado(true);
+                  }}
+                  disabled={destinationLat === null || destinationLng === null}
+                  className="w-full py-3 rounded-2xl bg-[#22c55e] text-white font-black text-[10px] uppercase tracking-widest disabled:opacity-40 active:scale-95 transition-all"
+                >
+                  CONFIRMAR DESTINO
+                </button>
+
+                <p className="text-[7px] font-bold text-slate-400 uppercase tracking-[0.16em] text-center">
+                  Arrastra el pin verde para ajustar la ubicación
+                </p>
+              </div>
+            )}
+        </div>
+
+        {/* =========================================================
+    TARJETA DEL TAXISTA
+========================================================= */}
+        {taxistaAsignado && ["asignado", "encamino"].includes(estado) && (
+          <div className="relative z-[1100] mx-4 -mt-5">
+            <div className="bg-white border border-slate-200 rounded-3xl shadow-lg px-4 py-3">
+              {/* CABECERA DE LA UNIDAD */}
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 shrink-0 bg-green-50 rounded-2xl flex items-center justify-center text-xl">
+                  🚕
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <p className="text-[7px] font-black uppercase tracking-[0.18em] text-slate-400">
+                    Tu unidad
+                  </p>
+
+                  <p className="text-[12px] font-black text-slate-800 truncate">
+                    {taxistaAsignado.name || "Unidad asignada"}
+                  </p>
+
+                  <p className="text-[9px] font-black text-[#22c55e] uppercase tracking-widest">
+                    TAXI {taxistaAsignado.taxiNumber || "ECO"}
                   </p>
                 </div>
 
-                <span className="text-[#22c55e] font-black">
-                  →
-                </span>
-              </button>
-            )}
-
-        {destinoConfirmado && !searchFlowActivo && (
-  <button
-    onClick={solicitarTaxi}
-    className="w-full py-4 rounded-2xl bg-[#22c55e] text-white font-black text-[11px] tracking-widest shadow-xl shadow-green-900/20 hover:bg-[#16a34a] active:scale-[0.98] transition-all"
-  >
-    SOLICITAR TRANSPORTE
-  </button>
-)}
-          </div>
-        )}
-
-        {/* -------------------------------------------------------
-            BUSCANDO
-        ------------------------------------------------------- */}
-        {estado === "buscando" && (
-          <div className="space-y-3">
-
-            <div>
-              <p className="text-[8px] font-black text-amber-500 uppercase tracking-[0.2em]">
-                Solicitud activa
-              </p>
-
-              <h2 className="text-lg font-black text-slate-900">
-                Buscando una unidad...
-              </h2>
-
-              <p className="text-[9px] text-slate-400 mt-1">
-                Te avisaremos cuando un taxista acepte.
-              </p>
-            </div>
-
-            <button
-              onClick={cancelarSolicitud}
-              className="w-full py-3 rounded-2xl bg-red-50 text-red-500 border border-red-100 font-black text-[9px] uppercase tracking-widest active:bg-red-100 transition-all"
-            >
-              Cancelar solicitud
-            </button>
-          </div>
-        )}
-
-        {/* -------------------------------------------------------
-    ASIGNADO / EN CAMINO
-------------------------------------------------------- */}
-{["asignado", "encamino"].includes(estado) &&
-  taxistaAsignado && (
-    <div className="space-y-3">
-
-      {/* DESTINO */}
-      {(destinationAddress ||
-        taxistaAsignado?.destinationAddress) && (
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
-
-          <div className="flex items-center gap-3">
-
-            <div className="h-9 w-9 shrink-0 rounded-xl bg-green-50 flex items-center justify-center">
-              📍
-            </div>
-
-            <div className="min-w-0 flex-1">
-
-              <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                Destino
-              </p>
-
-              <div className="address-marquee">
-                <div className="address-marquee-track">
-
-                  <span className="!text-slate-700">
-                    {destinationAddress ||
-                      taxistaAsignado?.destinationAddress}
-                  </span>
-
-                  <span
-                    aria-hidden="true"
-                    className="!text-slate-700"
+                {/* ESTADO */}
+                <div className="shrink-0">
+                  <div
+                    className={`px-2.5 py-1.5 rounded-xl ${
+                      estado === "encamino" ? "bg-green-50" : "bg-slate-50"
+                    }`}
                   >
-                    {destinationAddress ||
-                      taxistaAsignado?.destinationAddress}
-                  </span>
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${
+                          estado === "encamino"
+                            ? "bg-[#22c55e] animate-pulse"
+                            : "bg-slate-400"
+                        }`}
+                      />
 
+                      <span
+                        className={`text-[7px] font-black uppercase tracking-widest ${
+                          estado === "encamino"
+                            ? "text-[#22c55e]"
+                            : "text-slate-500"
+                        }`}
+                      >
+                        {estado === "encamino" ? "En camino" : "Asignado"}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-            </div>
-
-          </div>
-
-        </div>
-      )}
-
-      {/* DISTANCIA + TARIFA */}
-      {tarifaEstimada !== null &&
-        distanciaEstimadaKm !== null && (
-          <div className="grid grid-cols-2 gap-2">
-
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
-
-              <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                Distancia
-              </p>
-
-              <p className="text-lg font-black text-slate-800 mt-0.5">
-                {distanciaEstimadaKm.toFixed(1)}
-                <span className="text-[9px] font-bold text-slate-400 ml-1">
-                  km
-                </span>
-              </p>
-
-            </div>
-
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
-
-              <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                Tarifa estimada
-              </p>
-
-              <p className="text-lg font-black text-[#22c55e] mt-0.5">
-                ${Math.round(tarifaEstimada)}
-                <span className="text-[9px] font-bold text-slate-400 ml-1">
-                  MXN
-                </span>
-              </p>
-
-            </div>
-
-          </div>
-        )}
-
-      {/* CANCELAR */}
-      <button
-        onClick={cancelarSolicitud}
-        className="w-full py-2.5 rounded-2xl bg-red-50 text-red-500 border border-red-100 font-black text-[8px] uppercase tracking-widest active:bg-red-100 transition-all"
-      >
-        Cancelar solicitud
-      </button>
-
-    </div>
-  )}
-        {/* -------------------------------------------------------
-            EN CURSO
-        ------------------------------------------------------- */}
-        {estado === "encurso" && (
-          <div className="space-y-3">
-
-            <div>
-              <p className="text-[8px] font-black text-[#22c55e] uppercase tracking-[0.2em]">
-                Viaje en curso
-              </p>
-
-              <h2 className="text-lg font-black text-slate-900">
-                Buen viaje por Valles
-              </h2>
-
-              <p className="text-[9px] text-slate-400 mt-1">
-                Tu ruta hacia el destino está activa.
-              </p>
-            </div>
-
-            {(destinationAddress || taxistaAsignado?.destinationAddress) && (
-  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-3">
-    <div className="h-9 w-9 rounded-xl bg-green-50 flex items-center justify-center">
-      📍
-    </div>
-
-    <div className="min-w-0 flex-1">
-      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-        Destino
-      </p>
-
-      {/* 🎯 MISMO MARQUEE QUE TAXISTAVIEW */}
-      <div className="address-marquee">
-        <div className="address-marquee-track">
-          <span className="!text-slate-700">
-            {destinationAddress || taxistaAsignado?.destinationAddress}
-          </span>
-
-          <span
-            aria-hidden="true"
-            className="!text-slate-700"
-          >
-            {destinationAddress || taxistaAsignado?.destinationAddress}
-          </span>
-        </div>
-      </div>
-    </div>
-  </div>
-)}
-
-            {tarifaEstimada !== null &&
-              distanciaEstimadaKm !== null && (
-                <div className="grid grid-cols-2 gap-2">
-
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+              {/* INFORMACIÓN GPS */}
+              {estado === "encamino" && (
+                <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
+                  <div className="min-w-0">
                     <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                      Distancia
+                      Estado
                     </p>
 
-                    <p className="text-base font-black text-slate-800">
-                      {distanciaEstimadaKm.toFixed(1)} km
+                    <p className="text-[9px] font-bold text-slate-700 truncate">
+                      Tu taxi se dirige hacia ti
                     </p>
                   </div>
 
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
-                    <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
-                      Tarifa estimada
-                    </p>
+                  <div className="shrink-0 ml-3 px-2.5 py-1.5 rounded-xl bg-green-50">
+                    <div className="flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#22c55e] animate-pulse" />
 
-                    <p className="text-base font-black text-slate-800">
-                      ${tarifaEstimada} MXN
-                    </p>
+                      <span className="text-[7px] font-black text-[#22c55e] uppercase tracking-widest">
+                        GPS EN VIVO
+                      </span>
+                    </div>
                   </div>
-
                 </div>
               )}
+            </div>
           </div>
         )}
-      </div>
-      )}
-    </main>
+        {/* =========================================================
+          PANEL INFERIOR
+      ========================================================= */}
+        {!selectorDestinoAbierto && (
+          <div
+            className={`${
+              compactoInferior ? "px-4 pt-3 pb-10" : "px-5 pt-4 pb-12"
+            } flex flex-col shrink-0 bg-white transition-all duration-300`}
+          >
+            {/* -------------------------------------------------------
+            PENDIENTE
+        ------------------------------------------------------- */}
+            {estado === "pendiente" && (
+              <div className="space-y-3">
+                <div>
+                  <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                    Servicio Valles
+                  </p>
 
-    {/* ===========================================================
+                  {destinoConfirmado ? (
+                    <>
+                      <h2 className="text-sm font-black text-slate-900 tracking-tight">
+                        📍{" "}
+                        {destinationAddress ||
+                          destinationQuery ||
+                          "Destino confirmado"}
+                      </h2>
+
+                      <div className="grid grid-cols-2 gap-3 mt-2">
+                        {/* TARIFA */}
+                        <div className="text-left">
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                            Tarifa estimada
+                          </p>
+                          <p className="text-lg font-black text-[#22c55e]">
+                            {tarifaEstimada !== null
+                              ? `$${Math.round(tarifaEstimada)}`
+                              : "Calculando..."}
+                          </p>
+                        </div>
+
+                        {/* DISTANCIA */}
+                        <div className="text-right">
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                            Distancia
+                          </p>
+                          <p className="text-lg font-black text-slate-700">
+                            {distanciaEstimadaKm !== null
+                              ? `${distanciaEstimadaKm.toFixed(1)} km`
+                              : "Calculando..."}
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <h2 className="text-xl font-black text-slate-900 tracking-tight">
+                        ¿A dónde vamos hoy?
+                      </h2>
+
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        Solicita una unidad cercana en segundos.
+                      </p>
+                    </>
+                  )}
+                </div>
+
+                {!selectorDestinoAbierto && (
+                  <button
+                    type="button"
+                    onClick={abrirSelectorDestino}
+                    className="w-full text-left bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-3 active:scale-[0.99] transition-all"
+                  >
+                    <div className="h-9 w-9 bg-white rounded-xl flex items-center justify-center shadow-sm">
+                      📍
+                    </div>
+
+                    <div className="flex-1">
+                      <p className="text-[10px] font-bold text-slate-600">
+                        Selecciona tu destino
+                      </p>
+                    </div>
+
+                    <span className="text-[#22c55e] font-black">→</span>
+                  </button>
+                )}
+
+                {destinoConfirmado && !searchFlowActivo && (
+                  <button
+                    onClick={solicitarTaxi}
+                    className="w-full py-4 rounded-2xl bg-[#22c55e] text-white font-black text-[11px] tracking-widest shadow-xl shadow-green-900/20 hover:bg-[#16a34a] active:scale-[0.98] transition-all"
+                  >
+                    SOLICITAR TRANSPORTE
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* -------------------------------------------------------
+            BUSCANDO
+        ------------------------------------------------------- */}
+            {estado === "buscando" && (
+              <div className="space-y-3">
+                <div>
+                  <p className="text-[8px] font-black text-amber-500 uppercase tracking-[0.2em]">
+                    Solicitud activa
+                  </p>
+
+                  <h2 className="text-lg font-black text-slate-900">
+                    Buscando una unidad...
+                  </h2>
+
+                  <p className="text-[9px] text-slate-400 mt-1">
+                    Te avisaremos cuando un taxista acepte.
+                  </p>
+                </div>
+
+                <button
+                  onClick={cancelarSolicitud}
+                  className="w-full py-3 rounded-2xl bg-red-50 text-red-500 border border-red-100 font-black text-[9px] uppercase tracking-widest active:bg-red-100 transition-all"
+                >
+                  Cancelar solicitud
+                </button>
+              </div>
+            )}
+
+            {/* -------------------------------------------------------
+    ASIGNADO / EN CAMINO
+------------------------------------------------------- */}
+            {["asignado", "encamino"].includes(estado) && taxistaAsignado && (
+              <div className="space-y-3">
+                {/* DESTINO */}
+                {(destinationAddress ||
+                  taxistaAsignado?.destinationAddress) && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 shrink-0 rounded-xl bg-green-50 flex items-center justify-center">
+                        📍
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                          Destino
+                        </p>
+
+                        <div className="address-marquee">
+                          <div className="address-marquee-track">
+                            <span className="!text-slate-700">
+                              {destinationAddress ||
+                                taxistaAsignado?.destinationAddress}
+                            </span>
+
+                            <span
+                              aria-hidden="true"
+                              className="!text-slate-700"
+                            >
+                              {destinationAddress ||
+                                taxistaAsignado?.destinationAddress}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* DISTANCIA + TARIFA */}
+                {tarifaEstimada !== null && distanciaEstimadaKm !== null && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                        Distancia
+                      </p>
+
+                      <p className="text-lg font-black text-slate-800 mt-0.5">
+                        {distanciaEstimadaKm.toFixed(1)}
+                        <span className="text-[9px] font-bold text-slate-400 ml-1">
+                          km
+                        </span>
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                        Tarifa estimada
+                      </p>
+
+                      <p className="text-lg font-black text-[#22c55e] mt-0.5">
+                        ${Math.round(tarifaEstimada)}
+                        <span className="text-[9px] font-bold text-slate-400 ml-1">
+                          MXN
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* CANCELAR */}
+                <button
+                  onClick={cancelarSolicitud}
+                  className="w-full py-2.5 rounded-2xl bg-red-50 text-red-500 border border-red-100 font-black text-[8px] uppercase tracking-widest active:bg-red-100 transition-all"
+                >
+                  Cancelar solicitud
+                </button>
+              </div>
+            )}
+            {/* -------------------------------------------------------
+            EN CURSO
+        ------------------------------------------------------- */}
+            {estado === "encurso" && (
+              <div className="space-y-3">
+                <div>
+                  <p className="text-[8px] font-black text-[#22c55e] uppercase tracking-[0.2em]">
+                    Viaje en curso
+                  </p>
+
+                  <h2 className="text-lg font-black text-slate-900">
+                    Buen viaje por Valles
+                  </h2>
+
+                  <p className="text-[9px] text-slate-400 mt-1">
+                    Tu ruta hacia el destino está activa.
+                  </p>
+                </div>
+
+                {(destinationAddress ||
+                  taxistaAsignado?.destinationAddress) && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-xl bg-green-50 flex items-center justify-center">
+                      📍
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                        Destino
+                      </p>
+
+                      {/* 🎯 MISMO MARQUEE QUE TAXISTAVIEW */}
+                      <div className="address-marquee">
+                        <div className="address-marquee-track">
+                          <span className="!text-slate-700">
+                            {destinationAddress ||
+                              taxistaAsignado?.destinationAddress}
+                          </span>
+
+                          <span aria-hidden="true" className="!text-slate-700">
+                            {destinationAddress ||
+                              taxistaAsignado?.destinationAddress}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {tarifaEstimada !== null && distanciaEstimadaKm !== null && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                        Distancia
+                      </p>
+
+                      <p className="text-base font-black text-slate-800">
+                        {distanciaEstimadaKm.toFixed(1)} km
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                      <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
+                        Tarifa estimada
+                      </p>
+
+                      <p className="text-base font-black text-slate-800">
+                        ${tarifaEstimada} MXN
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* ===========================================================
         CHAT
     =========================================================== */}
-    {taxistaAsignado?.email &&
-      ["asignado", "encamino"].includes(estado) && (
+      {taxistaAsignado?.email && ["asignado", "encamino"].includes(estado) && (
         <>
           {/* Panel */}
           <div
             className={`fixed z-[2000] bottom-24 ${
-              chatPanelOnLeft
-                ? "left-3 sm:left-4"
-                : "right-3 sm:right-4"
+              chatPanelOnLeft ? "left-3 sm:left-4" : "right-3 sm:right-4"
             } left-3 sm:left-auto sm:w-[340px] bg-white border border-slate-100 rounded-3xl shadow-2xl overflow-hidden transition-all duration-200 ${
               chatAbierto
                 ? "opacity-100 visible scale-100"
@@ -2127,7 +2268,6 @@ return (
             }`}
           >
             <div className="h-12 px-4 flex items-center justify-between bg-white border-b border-slate-100">
-
               <div className="flex items-center gap-2">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
@@ -2151,18 +2291,13 @@ return (
               <ChatBox
                 toEmail={
                   taxistaAsignado.email ||
-                  (taxistaAsignado as any)
-                    .taxistaEmail ||
+                  (taxistaAsignado as any).taxistaEmail ||
                   ""
                 }
-                userName={
-                  userPosition?.name || "Pasajero"
-                }
+                userName={userPosition?.name || "Pasajero"}
                 onIncomingMessage={() => {
                   if (!chatAbierto) {
-                    setUnreadChatCount((prev) =>
-                      Math.min(prev + 1, 99)
-                    );
+                    setUnreadChatCount((prev) => Math.min(prev + 1, 99));
                   }
                 }}
               />
@@ -2186,19 +2321,12 @@ return (
               }`}
               title="Chat con unidad"
               aria-label="Abrir chat con unidad"
-              data-dragging={
-                isDraggingChatBubble
-                  ? "true"
-                  : "false"
-              }
+              data-dragging={isDraggingChatBubble ? "true" : "false"}
             >
               💬
-
               {unreadChatCount > 0 && (
                 <span className="absolute -top-1 -right-1 min-w-[19px] h-[19px] px-1 rounded-full bg-red-500 border-2 border-white text-[9px] leading-none font-black flex items-center justify-center text-white">
-                  {unreadChatCount > 9
-                    ? "9+"
-                    : unreadChatCount}
+                  {unreadChatCount > 9 ? "9+" : unreadChatCount}
                 </span>
               )}
             </button>
@@ -2206,68 +2334,64 @@ return (
         </>
       )}
 
-    {/* ===========================================================
+      {/* ===========================================================
         FINALIZACIÓN
     =========================================================== */}
-    {estado === "finalizado" && (
-      <div className="fixed inset-0 z-[3000] bg-[#22c55e] flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in">
+      {estado === "finalizado" && (
+        <div className="fixed inset-0 z-[3000] bg-[#22c55e] flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in">
+          <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center text-center max-w-xs w-full">
+            <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center text-4xl mb-5">
+              ✓
+            </div>
 
-        <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center text-center max-w-xs w-full">
+            <p className="text-[8px] font-black uppercase tracking-[0.25em] text-[#22c55e] mb-2">
+              VallesViaje
+            </p>
 
-          <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center text-4xl mb-5">
-            ✓
+            <div className="text-2xl font-black text-slate-800 tracking-tight mb-2">
+              ¡Viaje finalizado!
+            </div>
+
+            <p className="text-[10px] text-slate-400 font-medium mb-6">
+              Gracias por viajar con nosotros.
+            </p>
+
+            <button
+              onClick={resetearApp}
+              className="w-full py-4 bg-[#22c55e] text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all"
+            >
+              Continuar
+            </button>
           </div>
-
-          <p className="text-[8px] font-black uppercase tracking-[0.25em] text-[#22c55e] mb-2">
-            VallesViaje
-          </p>
-
-          <div className="text-2xl font-black text-slate-800 tracking-tight mb-2">
-            ¡Viaje finalizado!
-          </div>
-
-          <p className="text-[10px] text-slate-400 font-medium mb-6">
-            Gracias por viajar con nosotros.
-          </p>
-
-          <button
-            onClick={resetearApp}
-            className="w-full py-4 bg-[#22c55e] text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all"
-          >
-            Continuar
-          </button>
         </div>
-      </div>
-    )}
+      )}
 
-    {/* ===========================================================
+      {/* ===========================================================
         REHIDRATACIÓN
     =========================================================== */}
-    {isRehydrating && (
-      <div className="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-md z-[3000] flex flex-col items-center justify-center gap-5">
+      {isRehydrating && (
+        <div className="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-md z-[3000] flex flex-col items-center justify-center gap-5">
+          <div className="relative">
+            <div className="w-14 h-14 border-4 border-white/20 border-t-[#22c55e] rounded-full animate-spin" />
 
-        <div className="relative">
-          <div className="w-14 h-14 border-4 border-white/20 border-t-[#22c55e] rounded-full animate-spin" />
+            <div className="absolute inset-0 flex items-center justify-center text-lg">
+              🚕
+            </div>
+          </div>
 
-          <div className="absolute inset-0 flex items-center justify-center text-lg">
-            🚕
+          <div className="text-center">
+            <p className="text-white font-black uppercase tracking-widest text-sm">
+              Recuperando viaje
+            </p>
+
+            <p className="text-white/50 text-[8px] font-bold uppercase tracking-widest mt-1">
+              Restaurando tu conexión...
+            </p>
           </div>
         </div>
-
-        <div className="text-center">
-          <p className="text-white font-black uppercase tracking-widest text-sm">
-            Recuperando viaje
-          </p>
-
-          <p className="text-white/50 text-[8px] font-bold uppercase tracking-widest mt-1">
-            Restaurando tu conexión...
-          </p>
-        </div>
-      </div>
-    )}
-  </div>
-);
+      )}
+    </div>
+  );
 };
 
 export default PasajeroView;
-

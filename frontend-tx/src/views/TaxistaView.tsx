@@ -1,7 +1,22 @@
-import React, { Suspense, lazy, useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from "react-leaflet"; // 🚩 Importamos Polyline
+import React, {
+  Suspense,
+  lazy,
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+} from "react";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Polyline,
+  Popup,
+  useMap,
+} from "react-leaflet"; // 🚩 Importamos Polyline
 import { toast, ToastContainer } from "react-toastify";
-import L, { icon } from 'leaflet';
+import L, { icon } from "leaflet";
 import axiosInstance from "../lib/axiosConfig";
 import "react-toastify/dist/ReactToastify.css";
 import "leaflet/dist/leaflet.css";
@@ -12,16 +27,25 @@ import { useGeolocation } from "../hooks/useGeolocation";
 import { Payload } from "../types/Payload";
 import { ChatBox } from "../components/ChatBox";
 import { HistorialViajes } from "../components/HistorialViajes";
-import { taxistaIcon, pasajeroIcon, banderaIcon, taxiValles } from "../utils/icons";
+import {
+  taxistaIcon,
+  pasajeroIcon,
+  banderaIcon,
+  taxiValles,
+} from "../utils/icons";
 import { calcularHeading } from "../utils/heading"; // Función para calcular el heading entre dos puntos
-import { POSITION_STATES, STATE_GROUPS, PositionState } from "../constants/states";
+import {
+  POSITION_STATES,
+  STATE_GROUPS,
+  PositionState,
+} from "../constants/states";
 import { shouldAcceptStateTransition } from "../utils/socketStateGuard";
 import { showToastOnce } from "../utils/toastGuard";
 
 const RoutingMachine = lazy(() =>
   import("../components/RoutingMachine").then((module) => ({
     default: module.RoutingMachine,
-  }))
+  })),
 );
 
 // --- UTILIDADES ---
@@ -40,7 +64,6 @@ const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || "";
 const ROUTE_RECALC_THRESHOLD_METERS = 45;
 const OFFROAD_TAIL_THRESHOLD_METERS = 22;
 const OFFER_RESPONSE_TIMEOUT_MS = 15000;
-
 
 const sanitizeRouteTail = (coords: L.LatLng[]) => {
   if (!coords || coords.length < 3) return coords;
@@ -134,7 +157,12 @@ const formatShortAddress = (value?: string | null) => {
     const normalized = part.toLowerCase();
     if (/^\d{5}(-\d{4})?$/.test(part)) return false;
     if (stateNames.has(normalized)) return false;
-    if (["mexico", "méxico", "usa", "united states", "estados unidos"].includes(normalized)) return false;
+    if (
+      ["mexico", "méxico", "usa", "united states", "estados unidos"].includes(
+        normalized,
+      )
+    )
+      return false;
     return true;
   });
 
@@ -145,7 +173,10 @@ const formatShortAddress = (value?: string | null) => {
   return filtered.slice(0, 3).join(", ");
 };
 
-const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ duration, onFinish }) => {
+const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({
+  duration,
+  onFinish,
+}) => {
   const [progress, setProgress] = useState(100);
   useEffect(() => {
     const startTime = Date.now();
@@ -163,7 +194,7 @@ const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({ durati
 
   return (
     <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden mt-3 border border-white/10">
-      <div 
+      <div
         className="h-full bg-white transition-all duration-75 ease-linear shadow-[0_0_8px_rgba(255,255,255,0.8)]"
         style={{ width: `${progress}%` }}
       />
@@ -187,7 +218,9 @@ const TaxistaView: React.FC = () => {
   const { userPosition, taxiPos, setTaxiPos } = useTravel();
   const [estado, setEstado] = useState<PositionState>(POSITION_STATES.ACTIVO);
   const [viajeSolicitado, setViajeSolicitado] = useState<Payload | null>(null);
-  const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(null);
+  const [pasajeroAsignado, setPasajeroAsignado] = useState<Payload | null>(
+    null,
+  );
   const [canRespondToOffer, setCanRespondToOffer] = useState(true);
   const [excludedEmails, setExcludedEmails] = useState<string[]>([]);
   const [chatAbierto, setChatAbierto] = useState(false);
@@ -197,12 +230,14 @@ const TaxistaView: React.FC = () => {
   const [isDraggingChatBubble, setIsDraggingChatBubble] = useState(false);
   const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
   const [tarifaEstimada, setTarifaEstimada] = useState<number | null>(null);
-  const [distanciaEstimadaKm, setDistanciaEstimadaKm] = useState<number | null>(null);
+  const [distanciaEstimadaKm, setDistanciaEstimadaKm] = useState<number | null>(
+    null,
+  );
 
   // 🚩 ESTADO PARA EL RASTRO DEL VIAJE
   const [historialRuta, setHistorialRuta] = useState<L.LatLngExpression[]>([]);
   // 🚩 ESTADO PARA LA LÍNEA QUE SE VA BORRANDO (Hacia el pasajero)
-const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
+  const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   const [rutaDestinoFinal, setRutaDestinoFinal] = useState<L.LatLng[]>([]);
   const [routeRefreshToken, setRouteRefreshToken] = useState(0);
 
@@ -223,19 +258,24 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   const activeOfferRequestIdRef = useRef<string | null>(null);
   const lastClosedOfferRequestIdRef = useRef<string | null>(null);
   const ignoreOffersUntilRef = useRef(0);
-  const pushRehydrateRef = useRef<{ pasajero: string | null; taxista: string | null; requestId: string | null; autoAccept: boolean }>({
+  const pushRehydrateRef = useRef<{
+    pasajero: string | null;
+    taxista: string | null;
+    requestId: string | null;
+    autoAccept: boolean;
+  }>({
     pasajero: null,
     taxista: null,
     requestId: null,
     autoAccept: false,
   });
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [vistaActual, setVistaActual] = useState('mapa'); // 'mapa' o 'historial'
+  const [vistaActual, setVistaActual] = useState("mapa"); // 'mapa' o 'historial'
   const [isAccepting, setIsAccepting] = useState(false);
   const [isRehydrating, setIsRehydrating] = useState(false);
   const lastBackPressedRef = useRef<number>(0);
 
-    // 🚨 MENSAJES ROTATIVOS PARA EL ESTADO ACTIVO
+  // 🚨 MENSAJES ROTATIVOS PARA EL ESTADO ACTIVO
   const mensajesEspera = [
     "Esperando solicitudes de pasajeros...",
     "En un momento solicitarán un taxi...",
@@ -245,14 +285,14 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
   ];
   const [mensajeActualIndex, setMensajeActualIndex] = useState(0);
 
-    // 🚨 ROTACIÓN AUTOMÁTICA DE MENSAJES CADA 3.5 SEGUNDOS
+  // 🚨 ROTACIÓN AUTOMÁTICA DE MENSAJES CADA 3.5 SEGUNDOS
   useEffect(() => {
     if (estado !== POSITION_STATES.ACTIVO) return; // Solo rota cuando está ACTIVO
-    
+
     const intervalo = setInterval(() => {
       setMensajeActualIndex((prev) => (prev + 1) % mensajesEspera.length);
     }, 3500);
-    
+
     return () => clearInterval(intervalo);
   }, [estado, mensajesEspera.length]);
 
@@ -268,252 +308,289 @@ const [geometriaRuta, setGeometriaRuta] = useState<L.LatLng[]>([]);
       return;
     }
 
-    const estadosLimpios: PositionState[] = [POSITION_STATES.ACTIVO, POSITION_STATES.FINALIZADO, POSITION_STATES.CANCELADO];
-if (estadosLimpios.includes(estado)) {
-  setRutaDestinoFinal([]);
-}
+    const estadosLimpios: PositionState[] = [
+      POSITION_STATES.ACTIVO,
+      POSITION_STATES.FINALIZADO,
+      POSITION_STATES.CANCELADO,
+    ];
+    if (estadosLimpios.includes(estado)) {
+      setRutaDestinoFinal([]);
+    }
   }, [estado]);
 
-// Sincronizador de referencia mutuable para hooks de hardware
-useEffect(() => {
-  estadoRef.current = estado;
-}, [estado]);
+  // Sincronizador de referencia mutuable para hooks de hardware
+  useEffect(() => {
+    estadoRef.current = estado;
+  }, [estado]);
 
-useEffect(() => {
+  useEffect(() => {
+    pasajeroAsignadoRef.current = pasajeroAsignado;
 
-  pasajeroAsignadoRef.current = pasajeroAsignado;
-
-  console.log("🔍 ESTADO pasajeroAsignado CAMBIÓ:", {
-    destinationAddress: pasajeroAsignado?.destinationAddress,
-    destinationLat: pasajeroAsignado?.destinationLat,
-    destinationLng: pasajeroAsignado?.destinationLng,
-    requestId: pasajeroAsignado?.requestId,
-  });
-
-  console.trace("🧭 ORIGEN CAMBIO pasajeroAsignado");
-
-}, [pasajeroAsignado]);
-
-useEffect(() => {
-  taxiPosRef.current = taxiPos;
-}, [taxiPos]);
-
-useEffect(() => {
-  const isTripActive = [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(estado as any);
-
-  if (!isTripActive) {
-    return;
-  }
-
-  const standalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as any).standalone === true;
-
-  const ensureHistoryEntry = () => {
-    try {
-      if (window.location.hash !== "#trip-guard") {
-        window.history.replaceState({ isTripActive: true }, '', '#trip-guard');
-      }
-      window.history.pushState({ isTripActive: true }, '', window.location.href);
-    } catch (e) {
-      console.warn("⚠️ No se pudo ajustar el historial para guard de retroceso:", e);
-    }
-  };
-
-  ensureHistoryEntry();
-
-  const handlePopState = (event: PopStateEvent) => {
-    if (!tripSessionActiveRef.current) {
-      return;
-    }
-
-    const now = Date.now();
-    if (now - lastBackPressedRef.current < 2000) {
-      ensureHistoryEntry();
-      return;
-    }
-
-    lastBackPressedRef.current = now;
-    toast.info("Presiona atrás nuevamente para salir", {
-      toastId: 'double-back-exit',
-      autoClose: 2000,
+    console.log("🔍 ESTADO pasajeroAsignado CAMBIÓ:", {
+      destinationAddress: pasajeroAsignado?.destinationAddress,
+      destinationLat: pasajeroAsignado?.destinationLat,
+      destinationLng: pasajeroAsignado?.destinationLng,
+      requestId: pasajeroAsignado?.requestId,
     });
 
-    if (!standalone) {
-      ensureHistoryEntry();
-    }
-  };
+    console.trace("🧭 ORIGEN CAMBIO pasajeroAsignado");
+  }, [pasajeroAsignado]);
 
-  window.addEventListener('popstate', handlePopState);
+  useEffect(() => {
+    taxiPosRef.current = taxiPos;
+  }, [taxiPos]);
 
-  return () => {
-    window.removeEventListener('popstate', handlePopState);
-  };
-}, [estado]);
+  useEffect(() => {
+    const isTripActive = [
+      POSITION_STATES.ASIGNADO,
+      POSITION_STATES.ENCAMINO,
+      POSITION_STATES.ENCURSO,
+    ].includes(estado as any);
 
-useEffect(() => {
-  if (!tripSessionActiveRef.current) return;
-
-  let startX = 0;
-  let startY = 0;
-
-  const handleTouchStart = (event: TouchEvent) => {
-    const touch = event.touches[0];
-    startX = touch.clientX;
-    startY = touch.clientY;
-  };
-
-  const handleTouchMove = (event: TouchEvent) => {
-    if (!tripSessionActiveRef.current) return;
-
-    const touch = event.touches[0];
-    const deltaX = touch.clientX - startX;
-    const deltaY = touch.clientY - startY;
-
-    if (startX < 25 && deltaX > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
-      const now = Date.now();
-      if (now - lastBackPressedRef.current >= 2000) {
-        lastBackPressedRef.current = now;
-        toast.info("Presiona atrás nuevamente para salir", {
-          toastId: 'double-back-exit',
-          autoClose: 2000,
-        });
-      }
-    }
-  };
-
-  window.addEventListener('touchstart', handleTouchStart, { passive: true });
-  window.addEventListener('touchmove', handleTouchMove, { passive: true });
-
-  return () => {
-    window.removeEventListener('touchstart', handleTouchStart);
-    window.removeEventListener('touchmove', handleTouchMove);
-  };
-}, [estado]);
-
-const getDestinoFinalLatLng = useCallback((payload?: Partial<Payload> | null) => {
-  if (!payload) return null;
-
-  const rawLat = payload.destinationLat;
-  const rawLng = payload.destinationLng;
-  if (rawLat === null || rawLat === undefined || rawLng === null || rawLng === undefined) {
-    return null;
-  }
-
-  const lat = Number(rawLat);
-  const lng = Number(rawLng);
-
-  // Evitar destinos inválidos (p.ej. null convertido a 0) que generan líneas fantasma.
-  const coordsInvalidas = !Number.isFinite(lat) || !Number.isFinite(lng) ||
-    Math.abs(lat) > 90 || Math.abs(lng) > 180 ||
-    (lat === 0 && lng === 0);
-
-  if (!coordsInvalidas) {
-    return L.latLng(lat, lng);
-  }
-
-  return null;
-}, []);
-
-
-
-// 🚩 REHIDRATACIÓN DESDE QUERY PARAMS O ACCIONES PUSH
-useEffect(() => {
-  const params = new URLSearchParams(window.location.search);
-  const pasajero = params.get("pasajero");
-  const taxista = params.get("taxista");
-  const requestId = params.get("requestId");
-  const autoAccept = params.get("autoAccept");
-  const isPushFlow = Boolean(pasajero && taxista && requestId);
-
-  pushRehydrateRef.current = {
-    pasajero,
-    taxista,
-    requestId,
-    autoAccept: autoAccept === "true",
-  };
-
-  if (isPushFlow) {
-    console.log("🔄 Rehidratando viaje desde notificación:", { pasajero, requestId, autoAccept });
-    
-    // Limpiar la URL inmediatamente para evitar reintentos si el usuario recarga
-    window.history.replaceState({}, document.title, window.location.pathname);
-
-    if (autoAccept === "true") {
-      setIsAccepting(true);
-      setEstado(POSITION_STATES.ENCAMINO); // Feedback visual inmediato
-
-      // 🎯 NUEVO: Si el socket ya está conectado, aceptamos proactivamente 
-      // en lugar de solo pedir rehidratación.
-      if (socket.connected) {
-        console.log("🚀 Auto-aceptando proactivamente vía Socket...");
-        socket.emit("taxi_response", {
-          requestEmail: pasajero,
-          accepted: true,
-          requestId: requestId,
-        });
-      } else {
-        // Si no está conectado, emitimos para cuando se conecte
-        socket.emit("request_rehydrate", { requestId, forceAccept: true });
-      }
-    } else {
-      // Si es solo un clic en la notificación (sin auto-aceptar), solo pedimos datos
-      if (socket.connected) {
-        socket.emit("request_rehydrate", { requestId });
-      }
-    }
-  }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []); // Se ejecuta solo una vez al montar
-
-
- // --- EFFECT DE SUSCRIPCIÓN PUSH OPTIMIZADO ---
-useEffect(() => {
-  const miEmail = userPosition?.email || localStorage.getItem("email");
-  if (!miEmail) return;
-
-  const gestionarSuscripcion = async () => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      console.warn("❌ Este dispositivo no soporta Notificaciones Push.");
+    if (!isTripActive) {
       return;
     }
 
-  // Verificar permiso del navegador antes de intentar suscribir
-      if (Notification.permission === 'denied') {
+    const standalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      (window.navigator as any).standalone === true;
+
+    const ensureHistoryEntry = () => {
+      try {
+        if (window.location.hash !== "#trip-guard") {
+          window.history.replaceState(
+            { isTripActive: true },
+            "",
+            "#trip-guard",
+          );
+        }
+        window.history.pushState(
+          { isTripActive: true },
+          "",
+          window.location.href,
+        );
+      } catch (e) {
+        console.warn(
+          "⚠️ No se pudo ajustar el historial para guard de retroceso:",
+          e,
+        );
+      }
+    };
+
+    ensureHistoryEntry();
+
+    const handlePopState = (event: PopStateEvent) => {
+      if (!tripSessionActiveRef.current) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastBackPressedRef.current < 2000) {
+        ensureHistoryEntry();
+        return;
+      }
+
+      lastBackPressedRef.current = now;
+      toast.info("Presiona atrás nuevamente para salir", {
+        toastId: "double-back-exit",
+        autoClose: 2000,
+      });
+
+      if (!standalone) {
+        ensureHistoryEntry();
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [estado]);
+
+  useEffect(() => {
+    if (!tripSessionActiveRef.current) return;
+
+    let startX = 0;
+    let startY = 0;
+
+    const handleTouchStart = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      startX = touch.clientX;
+      startY = touch.clientY;
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      if (!tripSessionActiveRef.current) return;
+
+      const touch = event.touches[0];
+      const deltaX = touch.clientX - startX;
+      const deltaY = touch.clientY - startY;
+
+      if (
+        startX < 25 &&
+        deltaX > 40 &&
+        Math.abs(deltaX) > Math.abs(deltaY) * 1.5
+      ) {
+        const now = Date.now();
+        if (now - lastBackPressedRef.current >= 2000) {
+          lastBackPressedRef.current = now;
+          toast.info("Presiona atrás nuevamente para salir", {
+            toastId: "double-back-exit",
+            autoClose: 2000,
+          });
+        }
+      }
+    };
+
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("touchmove", handleTouchMove, { passive: true });
+
+    return () => {
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
+    };
+  }, [estado]);
+
+  const getDestinoFinalLatLng = useCallback(
+    (payload?: Partial<Payload> | null) => {
+      if (!payload) return null;
+
+      const rawLat = payload.destinationLat;
+      const rawLng = payload.destinationLng;
+      if (
+        rawLat === null ||
+        rawLat === undefined ||
+        rawLng === null ||
+        rawLng === undefined
+      ) {
+        return null;
+      }
+
+      const lat = Number(rawLat);
+      const lng = Number(rawLng);
+
+      // Evitar destinos inválidos (p.ej. null convertido a 0) que generan líneas fantasma.
+      const coordsInvalidas =
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lng) ||
+        Math.abs(lat) > 90 ||
+        Math.abs(lng) > 180 ||
+        (lat === 0 && lng === 0);
+
+      if (!coordsInvalidas) {
+        return L.latLng(lat, lng);
+      }
+
+      return null;
+    },
+    [],
+  );
+
+  // 🚩 REHIDRATACIÓN DESDE QUERY PARAMS O ACCIONES PUSH
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const pasajero = params.get("pasajero");
+    const taxista = params.get("taxista");
+    const requestId = params.get("requestId");
+    const autoAccept = params.get("autoAccept");
+    const isPushFlow = Boolean(pasajero && taxista && requestId);
+
+    pushRehydrateRef.current = {
+      pasajero,
+      taxista,
+      requestId,
+      autoAccept: autoAccept === "true",
+    };
+
+    if (isPushFlow) {
+      console.log("🔄 Rehidratando viaje desde notificación:", {
+        pasajero,
+        requestId,
+        autoAccept,
+      });
+
+      // Limpiar la URL inmediatamente para evitar reintentos si el usuario recarga
+      window.history.replaceState({}, document.title, window.location.pathname);
+
+      if (autoAccept === "true") {
+        setIsAccepting(true);
+        setEstado(POSITION_STATES.ENCAMINO); // Feedback visual inmediato
+
+        // 🎯 NUEVO: Si el socket ya está conectado, aceptamos proactivamente
+        // en lugar de solo pedir rehidratación.
+        if (socket.connected) {
+          console.log("🚀 Auto-aceptando proactivamente vía Socket...");
+          socket.emit("taxi_response", {
+            requestEmail: pasajero,
+            accepted: true,
+            requestId: requestId,
+          });
+        } else {
+          // Si no está conectado, emitimos para cuando se conecte
+          socket.emit("request_rehydrate", { requestId, forceAccept: true });
+        }
+      } else {
+        // Si es solo un clic en la notificación (sin auto-aceptar), solo pedimos datos
+        if (socket.connected) {
+          socket.emit("request_rehydrate", { requestId });
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Se ejecuta solo una vez al montar
+
+  // --- EFFECT DE SUSCRIPCIÓN PUSH OPTIMIZADO ---
+  useEffect(() => {
+    const miEmail = userPosition?.email || localStorage.getItem("email");
+    if (!miEmail) return;
+
+    const gestionarSuscripcion = async () => {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+        console.warn("❌ Este dispositivo no soporta Notificaciones Push.");
+        return;
+      }
+
+      // Verificar permiso del navegador antes de intentar suscribir
+      if (Notification.permission === "denied") {
         console.warn("🚫 Permisos de notificación denegados por el usuario.");
         return;
       }
 
       if (!VAPID_PUBLIC_KEY) {
-        console.error("❌ VAPID_PUBLIC_KEY no está definida en el build. Verifica la variable de entorno VITE_VAPID_PUBLIC_KEY en Vercel/Render.");
+        console.error(
+          "❌ VAPID_PUBLIC_KEY no está definida en el build. Verifica la variable de entorno VITE_VAPID_PUBLIC_KEY en Vercel/Render.",
+        );
         return;
       }
 
       try {
-      const registration = await navigator.serviceWorker.ready;
-      let subscription = await registration.pushManager.getSubscription();
-      
-      if (!subscription) {
-        console.log("⚠️ Re-suscribiendo al Push Manager...");
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-        });
-      }
+        const registration = await navigator.serviceWorker.ready;
+        let subscription = await registration.pushManager.getSubscription();
 
-      if (subscription) {
-        console.log(`🔄 Sincronizando token push para: ${miEmail}`);
-        await axiosInstance.post(`/api/save-subscription`, {
-          email: miEmail.toLowerCase().trim(),
-          subscription: subscription
-        });
-        console.log("✅ Suscripción Push sincronizada.");
-      }
-    } catch (err: any) {
-      console.error("❌ Error en el ciclo de suscripción Push:", err);
-    }
-  };
+        if (!subscription) {
+          console.log("⚠️ Re-suscribiendo al Push Manager...");
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+          });
+        }
 
-  gestionarSuscripcion();
-}, [userPosition?.email]); // Dependencia clara y segura
+        if (subscription) {
+          console.log(`🔄 Sincronizando token push para: ${miEmail}`);
+          await axiosInstance.post(`/api/save-subscription`, {
+            email: miEmail.toLowerCase().trim(),
+            subscription: subscription,
+          });
+          console.log("✅ Suscripción Push sincronizada.");
+        }
+      } catch (err: any) {
+        console.error("❌ Error en el ciclo de suscripción Push:", err);
+      }
+    };
+
+    gestionarSuscripcion();
+  }, [userPosition?.email]); // Dependencia clara y segura
 
   // --- AUDIO & NOTIFICACIONES ---
   const detenerSonido = useCallback(() => {
@@ -526,18 +603,20 @@ useEffect(() => {
   const reproducirAlerta = useCallback(() => {
     if (audioRef.current) {
       audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(err => console.log("Audio bloqueado:", err));
+      audioRef.current
+        .play()
+        .catch((err) => console.log("Audio bloqueado:", err));
     }
   }, []);
 
   const resetSolicitudActiva = useCallback(() => {
     console.warn("🚨 RESET SOLICITUD ACTIVA", {
-  estado: estadoRef.current,
-  pasajero: pasajeroAsignadoRef.current,
-  requestId: pasajeroAsignadoRef.current?.requestId,
-  timestamp: new Date().toISOString(),
-  stack: new Error().stack,
-});
+      estado: estadoRef.current,
+      pasajero: pasajeroAsignadoRef.current,
+      requestId: pasajeroAsignadoRef.current?.requestId,
+      timestamp: new Date().toISOString(),
+      stack: new Error().stack,
+    });
     detenerSonido();
     tripSessionActiveRef.current = false;
     if (acceptanceTimerRef.current) {
@@ -559,35 +638,46 @@ useEffect(() => {
     setEstado(POSITION_STATES.ACTIVO);
   }, [detenerSonido]);
 
-  const handleResetTaxistaState = useCallback((payload?: { message?: string; estado?: string }) => {
-    if (payload?.estado && payload.estado !== POSITION_STATES.ACTIVO) {
-      setEstado(payload.estado as PositionState);
-    } else {
-      setEstado(POSITION_STATES.ACTIVO);
-    }
+  const handleResetTaxistaState = useCallback(
+    (payload?: { message?: string; estado?: string }) => {
+      if (payload?.estado && payload.estado !== POSITION_STATES.ACTIVO) {
+        setEstado(payload.estado as PositionState);
+      } else {
+        setEstado(POSITION_STATES.ACTIVO);
+      }
 
-    setCanRespondToOffer(false);
-    setIsAccepting(false);
-    setViajeSolicitado(null);
-    setPasajeroAsignado(null);
-    setExcludedEmails([]);
-    setChatAbierto(false);
-    setHistorialRuta([]);
-    setGeometriaRuta([]);
-    setRutaDestinoFinal([]);
-    lastClosedOfferRequestIdRef.current = activeOfferRequestIdRef.current;
-    activeOfferRequestIdRef.current = null;
-    ignoreOffersUntilRef.current = Date.now() + 3000;
-    tripSessionActiveRef.current = false;
-    setRouteRefreshToken((prev) => prev + 1);
-  }, []);
+      setCanRespondToOffer(false);
+      setIsAccepting(false);
+      setViajeSolicitado(null);
+      setPasajeroAsignado(null);
+      setExcludedEmails([]);
+      setChatAbierto(false);
+      setHistorialRuta([]);
+      setGeometriaRuta([]);
+      setRutaDestinoFinal([]);
+      lastClosedOfferRequestIdRef.current = activeOfferRequestIdRef.current;
+      activeOfferRequestIdRef.current = null;
+      ignoreOffersUntilRef.current = Date.now() + 3000;
+      tripSessionActiveRef.current = false;
+      setRouteRefreshToken((prev) => prev + 1);
+    },
+    [],
+  );
 
   const expireOfferResponse = useCallback(() => {
-    if ([POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO].includes(estadoRef.current as any)) {
+    if (
+      [
+        POSITION_STATES.ENCAMINO,
+        POSITION_STATES.ENCURSO,
+        POSITION_STATES.ASIGNADO,
+      ].includes(estadoRef.current as any)
+    ) {
       return;
     }
 
-    const passengerEmail = pasajeroAsignadoRef.current?.email?.toLowerCase().trim();
+    const passengerEmail = pasajeroAsignadoRef.current?.email
+      ?.toLowerCase()
+      .trim();
     const requestId = pasajeroAsignadoRef.current?.requestId;
 
     if (passengerEmail && tripSessionActiveRef.current && canRespondToOffer) {
@@ -620,92 +710,110 @@ useEffect(() => {
     };
   }, [detenerSonido]);
 
-// --- 🛰️ GEOLOCALIZACIÓN OPTIMIZADA Y BLINDADA CON HEADING REAL (TAXISTA) ---
-useGeolocation(
-  {
-    email: userPosition?.email || localStorage.getItem("email") || "",
-    name: localStorage.getItem("userName") || userPosition?.name || "Taxista",
-    role: "taxista",
-    taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "",
- // 🎯 CAST SEGURO: Le decimos a TS que confiamos en que el string es válido para el frontend
-    estado: estado as import("../types/Positions").EstadoUsuario, 
-  },
-  (pos) => {
-    if (pos.lat === null || pos.lng === null) return;
+  // --- 🛰️ GEOLOCALIZACIÓN OPTIMIZADA Y BLINDADA CON HEADING REAL (TAXISTA) ---
+  useGeolocation(
+    {
+      email: userPosition?.email || localStorage.getItem("email") || "",
+      name: localStorage.getItem("userName") || userPosition?.name || "Taxista",
+      role: "taxista",
+      taxiNumber:
+        userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "",
+      // 🎯 CAST SEGURO: Le decimos a TS que confiamos en que el string es válido para el frontend
+      estado: estado as import("../types/Positions").EstadoUsuario,
+    },
+    (pos) => {
+      if (pos.lat === null || pos.lng === null) return;
 
-    // 🎯 Capturamos el estado real y fresco directamente desde la referencia mutable
-    const estadoActual = estadoRef.current;
+      // 🎯 Capturamos el estado real y fresco directamente desde la referencia mutable
+      const estadoActual = estadoRef.current;
 
-    // 1. Guardamos de inmediato en el estado local calculando el ángulo de rumbo real
-    setTaxiPos((prev) => {
-      const heading = calcularHeading(
-        prev ? { lat: prev.lat, lng: prev.lng } : null,
-        { lat: Number(pos.lat), lng: Number(pos.lng) }, 
-        pasajeroAsignado ? { lat: Number(pasajeroAsignado.lat), lng: Number(pasajeroAsignado.lng) } : null,
-        estadoActual, // 🎯 CORRECCIÓN CRÍTICA: Cambiado 'estado' por 'estadoActual' (evita el closure)
-        prev?.heading || 0
-      );
-      
-      return {
-        lat: Number(pos.lat), 
-        lng: Number(pos.lng), 
-        heading: heading || 0, // Si da nulo, mantiene la última dirección frontal
-        taxiNumber: localStorage.getItem("taxiNumber") || userPosition?.taxiNumber || "S/N"
-      };
-    });  
+      // 1. Guardamos de inmediato en el estado local calculando el ángulo de rumbo real
+      setTaxiPos((prev) => {
+        const heading = calcularHeading(
+          prev ? { lat: prev.lat, lng: prev.lng } : null,
+          { lat: Number(pos.lat), lng: Number(pos.lng) },
+          pasajeroAsignado
+            ? {
+                lat: Number(pasajeroAsignado.lat),
+                lng: Number(pasajeroAsignado.lng),
+              }
+            : null,
+          estadoActual, // 🎯 CORRECCIÓN CRÍTICA: Cambiado 'estado' por 'estadoActual' (evita el closure)
+          prev?.heading || 0,
+        );
 
-    // 🎯 EXTRACCIÓN SINCRA ANTI-CLOSURE DEL HARDWARE:
-    const miEmailLimpio = localStorage.getItem("email") || userPosition?.email;
-    const miTaxiEco = localStorage.getItem("taxiNumber") || userPosition?.taxiNumber || "S/N";
-    
-    if (!miEmailLimpio) return; 
+        return {
+          lat: Number(pos.lat),
+          lng: Number(pos.lng),
+          heading: heading || 0, // Si da nulo, mantiene la última dirección frontal
+          taxiNumber:
+            localStorage.getItem("taxiNumber") ||
+            userPosition?.taxiNumber ||
+            "S/N",
+        };
+      });
 
-    // 2. Envío de telemetría limpia en tiempo real (Dentro de useGeolocation en TaxistaView.tsx)
-    if (["asignado", "encamino", "encurso"].includes(estadoActual)) {
-      const latNum = Number(pos.lat);
-      const lngNum = Number(pos.lng);
+      // 🎯 EXTRACCIÓN SINCRA ANTI-CLOSURE DEL HARDWARE:
+      const miEmailLimpio =
+        localStorage.getItem("email") || userPosition?.email;
+      const miTaxiEco =
+        localStorage.getItem("taxiNumber") || userPosition?.taxiNumber || "S/N";
 
-      // 🎯 RESPALDO EN BASE DE DATOS MEDIANTE TU NUEVO ENDPOINT DE AUTH:
-      // Si el WebSocket parpadea, Axios se encarga de guardar el avance real directamente en Atlas
-      axiosInstance.post(`/api/auth/positions/update-gps`, {
-        email: miEmailLimpio.toLowerCase().trim(),
-        lat: latNum,
-        lng: lngNum,
-        estado: estadoActual
-      }).catch(err => console.warn("🛰️ [GPS Backup] Esperando red para actualizar Atlas..."));
+      if (!miEmailLimpio) return;
 
-      // 3. Envío al canal virtual del Socket si hay señal de datos activa
-      if (socket && socket.connected) {
-        if (estadoActual === "encurso") {
-          const nuevaCoord: L.LatLngExpression = [latNum, lngNum];
-          setHistorialRuta((prev) => [...prev, nuevaCoord]);
-          
-          socket.emit("update_trip_path", {
-            pasajeroEmail: pasajeroAsignado?.email || pasajeroAsignado?.pasajeroEmail,
-            lat: latNum, 
-            lng: lngNum, 
-          });
-        } else {
-          socket.emit("taxi_moved", {
-            lat: latNum, 
-            lng: lngNum, 
+      // 2. Envío de telemetría limpia en tiempo real (Dentro de useGeolocation en TaxistaView.tsx)
+      if (["asignado", "encamino", "encurso"].includes(estadoActual)) {
+        const latNum = Number(pos.lat);
+        const lngNum = Number(pos.lng);
+
+        // 🎯 RESPALDO EN BASE DE DATOS MEDIANTE TU NUEVO ENDPOINT DE AUTH:
+        // Si el WebSocket parpadea, Axios se encarga de guardar el avance real directamente en Atlas
+        axiosInstance
+          .post(`/api/auth/positions/update-gps`, {
             email: miEmailLimpio.toLowerCase().trim(),
-            taxiNumber: miTaxiEco,
-            role: "taxista"
-          });
+            lat: latNum,
+            lng: lngNum,
+            estado: estadoActual,
+          })
+          .catch((err) =>
+            console.warn(
+              "🛰️ [GPS Backup] Esperando red para actualizar Atlas...",
+            ),
+          );
+
+        // 3. Envío al canal virtual del Socket si hay señal de datos activa
+        if (socket && socket.connected) {
+          if (estadoActual === "encurso") {
+            const nuevaCoord: L.LatLngExpression = [latNum, lngNum];
+            setHistorialRuta((prev) => [...prev, nuevaCoord]);
+
+            socket.emit("update_trip_path", {
+              pasajeroEmail:
+                pasajeroAsignado?.email || pasajeroAsignado?.pasajeroEmail,
+              lat: latNum,
+              lng: lngNum,
+            });
+          } else {
+            socket.emit("taxi_moved", {
+              lat: latNum,
+              lng: lngNum,
+              email: miEmailLimpio.toLowerCase().trim(),
+              taxiNumber: miTaxiEco,
+              role: "taxista",
+            });
+          }
         }
       }
-    }
-  },
-);
+    },
+  );
   // --- 🔄 LÓGICA DE SOCKETS ---
   const checkStatus = useCallback(() => {
     const miEmail = userPosition?.email || localStorage.getItem("email");
     const miRole = localStorage.getItem("role");
     if (miEmail && socket.connected) {
-      socket.emit("reproducir_estado_viaje", { 
+      socket.emit("reproducir_estado_viaje", {
         email: miEmail.toLowerCase().trim(),
-        role: miRole 
+        role: miRole,
       });
     }
   }, [userPosition?.email]);
@@ -716,12 +824,21 @@ useGeolocation(
 
     if (!miEmail || !miRole) return;
 
-    if ([POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO, POSITION_STATES.ASIGNADO].includes(estadoRef.current as any)) {
+    if (
+      [
+        POSITION_STATES.ENCAMINO,
+        POSITION_STATES.ENCURSO,
+        POSITION_STATES.ASIGNADO,
+      ].includes(estadoRef.current as any)
+    ) {
       setRouteRefreshToken((prev) => prev + 1);
     }
 
     if (socket.connected) {
-      socket.emit("reproducir_estado_viaje", { email: miEmail.toLowerCase().trim(), role: miRole });
+      socket.emit("reproducir_estado_viaje", {
+        email: miEmail.toLowerCase().trim(),
+        role: miRole,
+      });
       socket.emit("request_rehydrate", {});
     } else {
       socket.connect();
@@ -756,46 +873,48 @@ useGeolocation(
             name: raw.passenger.name,
             lat: raw.passenger.lat,
             lng: raw.passenger.lng,
-            pickupAddress: raw.passenger.pickupAddress || "Calculando ubicación...",
-            destinationAddress: raw.passenger.destinationAddress || "Rumbo al destino...",
+            pickupAddress:
+              raw.passenger.pickupAddress || "Calculando ubicación...",
+            destinationAddress:
+              raw.passenger.destinationAddress || "Rumbo al destino...",
             destinationLat: raw.passenger.destinationLat ?? null,
             destinationLng: raw.passenger.destinationLng ?? null,
           }
         : null;
       setEstado(nextState as PositionState);
       console.log("🟣 REHYDRATE passengerPayload:", {
-  destinationAddress: passengerPayload?.destinationAddress,
-  destinationLat: passengerPayload?.destinationLat,
-  destinationLng: passengerPayload?.destinationLng,
-  requestId: passengerPayload?.requestId,
-});
+        destinationAddress: passengerPayload?.destinationAddress,
+        destinationLat: passengerPayload?.destinationLat,
+        destinationLng: passengerPayload?.destinationLng,
+        requestId: passengerPayload?.requestId,
+      });
       setPasajeroAsignado((prev: Payload | null) => ({
-  ...prev,
-  ...passengerPayload,
+        ...prev,
+        ...passengerPayload,
 
-  destinationAddress:
-    passengerPayload?.destinationAddress &&
-    passengerPayload.destinationAddress !== "Calculando..." &&
-    passengerPayload.destinationAddress !== "Calculando ubicación..." &&
-    passengerPayload.destinationAddress !== "Rumbo al destino..."
-      ? passengerPayload.destinationAddress
-      : prev?.destinationAddress ?? "Rumbo al destino...",
+        destinationAddress:
+          passengerPayload?.destinationAddress &&
+          passengerPayload.destinationAddress !== "Calculando..." &&
+          passengerPayload.destinationAddress !== "Calculando ubicación..." &&
+          passengerPayload.destinationAddress !== "Rumbo al destino..."
+            ? passengerPayload.destinationAddress
+            : (prev?.destinationAddress ?? "Rumbo al destino..."),
 
-  destinationLat:
-    passengerPayload?.destinationLat ??
-    prev?.destinationLat ??
-    null,
+        destinationLat:
+          passengerPayload?.destinationLat ?? prev?.destinationLat ?? null,
 
-  destinationLng:
-    passengerPayload?.destinationLng ??
-    prev?.destinationLng ??
-    null,
-}));
+        destinationLng:
+          passengerPayload?.destinationLng ?? prev?.destinationLng ?? null,
+      }));
       tripSessionActiveRef.current = true;
       setIsRehydrating(false);
-      showToastOnce("taxista:trip-rehydrated", () => {
-        toast.success("Sesión de viaje recuperada.");
-      }, { cooldownMs: 3000 });
+      showToastOnce(
+        "taxista:trip-rehydrated",
+        () => {
+          toast.success("Sesión de viaje recuperada.");
+        },
+        { cooldownMs: 3000 },
+      );
     };
 
     const onTripRehydrated = () => {
@@ -817,14 +936,20 @@ useGeolocation(
 
     socket.on("connect", checkStatus);
     socket.on("connect", onConnectRehydrate);
-    window.addEventListener("socket-trip-rehydrated", onTripRehydrated as EventListener);
+    window.addEventListener(
+      "socket-trip-rehydrated",
+      onTripRehydrated as EventListener,
+    );
     document.addEventListener("visibilitychange", onResume);
     window.addEventListener("focus", onResume);
 
     return () => {
       socket.off("connect", checkStatus);
       socket.off("connect", onConnectRehydrate);
-      window.removeEventListener("socket-trip-rehydrated", onTripRehydrated as EventListener);
+      window.removeEventListener(
+        "socket-trip-rehydrated",
+        onTripRehydrated as EventListener,
+      );
       document.removeEventListener("visibilitychange", onResume);
       window.removeEventListener("focus", onResume);
     };
@@ -832,191 +957,212 @@ useGeolocation(
   // ========================================================================
   // 🎯 1. MANEJO DE ASIGNACIÓN Y REHIDRATACIÓN
   // ========================================================================
-  const handleAsignacion = useCallback((data: any) => {
-    console.log("📩 Nueva asignación o rehidratación recibida:", data);
+  const handleAsignacion = useCallback(
+    (data: any) => {
+      console.log("📩 Nueva asignación o rehidratación recibida:", data);
 
-    const rawData = data._doc ? data._doc : data;
-    if (!rawData.email) {
-      console.error("❌ Error crítico: Los datos recibidos no tienen email", data);
-      return;
-    }
-
-    const incomingEmail = String(rawData.email).toLowerCase().trim();
-    const estadoActual = estadoRef.current;
-    const requestId = String(rawData.requestId || data.requestId || "").trim();
-
-    // 🛡️ Guardias de seguridad existentes (¡Muy bien!)
-    if (requestId && answeredOfferRequestIdsRef.current.has(requestId)) {
-      console.warn("🛡️ Oferta ignorada: ya respondimos a esta solicitud.", requestId);
-      return;
-    }
-
-    if (requestId && !tripSessionActiveRef.current && lastClosedOfferRequestIdRef.current === requestId) {
-      console.warn("🛡️ Oferta vieja ignorada tras el reset local de esta solicitud.", requestId);
-      return;
-    }
-
-    if (ignoreOffersUntilRef.current > Date.now()) {
-      console.warn("🛡️ Oferta ignorada por cooldown post-rechazo/reset.", requestId || incomingEmail);
-      return;
-    }
-
-    if (!tripSessionActiveRef.current && !["encamino", "encurso"].includes(estadoActual)) {
-      tripSessionActiveRef.current = true;
-    }
-
-    setCanRespondToOffer(true);
-
-    if (["encamino", "encurso"].includes(estadoActual)) {
-      if (!pasajeroAsignadoRef.current?.email || pasajeroAsignadoRef.current.email.toLowerCase().trim() === incomingEmail) {
-        console.warn("🛡️ Oferta tardía ignorada: el viaje ya está en estado activo.");
+      const rawData = data._doc ? data._doc : data;
+      if (!rawData.email) {
+        console.error(
+          "❌ Error crítico: Los datos recibidos no tienen email",
+          data,
+        );
         return;
       }
-    }
 
-    if (isAccepting && data.isNewOffer) {
-      console.warn("🛡️ Oferta ignorada durante confirmación push.");
-      return;
-    }
+      const incomingEmail = String(rawData.email).toLowerCase().trim();
+      const estadoActual = estadoRef.current;
+      const requestId = String(
+        rawData.requestId || data.requestId || "",
+      ).trim();
 
-    setTimeout(() => {
-      if (requestId) {
-        lastClosedOfferRequestIdRef.current = null;
-        activeOfferRequestIdRef.current = requestId;
-        
-        // 🚨 NUEVO: Unirse a la sala del viaje apenas se tiene el requestId
-        if (socket?.connected) {
-          console.log(`🔗 Uniéndose a la sala del viaje: ${requestId}`);
-          socket.emit("join_trip_room", requestId);
+      // 🛡️ Guardias de seguridad existentes (¡Muy bien!)
+      if (requestId && answeredOfferRequestIdsRef.current.has(requestId)) {
+        console.warn(
+          "🛡️ Oferta ignorada: ya respondimos a esta solicitud.",
+          requestId,
+        );
+        return;
+      }
+
+      if (
+        requestId &&
+        !tripSessionActiveRef.current &&
+        lastClosedOfferRequestIdRef.current === requestId
+      ) {
+        console.warn(
+          "🛡️ Oferta vieja ignorada tras el reset local de esta solicitud.",
+          requestId,
+        );
+        return;
+      }
+
+      if (ignoreOffersUntilRef.current > Date.now()) {
+        console.warn(
+          "🛡️ Oferta ignorada por cooldown post-rechazo/reset.",
+          requestId || incomingEmail,
+        );
+        return;
+      }
+
+      if (
+        !tripSessionActiveRef.current &&
+        !["encamino", "encurso"].includes(estadoActual)
+      ) {
+        tripSessionActiveRef.current = true;
+      }
+
+      setCanRespondToOffer(true);
+
+      if (["encamino", "encurso"].includes(estadoActual)) {
+        if (
+          !pasajeroAsignadoRef.current?.email ||
+          pasajeroAsignadoRef.current.email.toLowerCase().trim() ===
+            incomingEmail
+        ) {
+          console.warn(
+            "🛡️ Oferta tardía ignorada: el viaje ya está en estado activo.",
+          );
+          return;
         }
       }
 
-      const pEmail = incomingEmail;
-      setPasajeroAsignado((prev: Payload | null) => {
-  const incomingDestinationAddress = rawData.destinationAddress;
-  const incomingDestinationLat = rawData.destinationLat;
-  const incomingDestinationLng = rawData.destinationLng;
+      if (isAccepting && data.isNewOffer) {
+        console.warn("🛡️ Oferta ignorada durante confirmación push.");
+        return;
+      }
 
-  const hasIncomingDestination =
-    incomingDestinationLat != null &&
-    incomingDestinationLng != null;
+      setTimeout(() => {
+        if (requestId) {
+          lastClosedOfferRequestIdRef.current = null;
+          activeOfferRequestIdRef.current = requestId;
 
-  const hasPreviousDestination =
-    prev?.destinationLat != null &&
-    prev?.destinationLng != null;
+          // 🚨 NUEVO: Unirse a la sala del viaje apenas se tiene el requestId
+          if (socket?.connected) {
+            console.log(`🔗 Uniéndose a la sala del viaje: ${requestId}`);
+            socket.emit("join_trip_room", requestId);
+          }
+        }
 
-  const destinationAddress =
-    incomingDestinationAddress &&
-    incomingDestinationAddress !== "Calculando..." &&
-    incomingDestinationAddress !== "Calculando ubicación..." &&
-    incomingDestinationAddress !== "Rumbo al destino..."
-      ? incomingDestinationAddress
-      : prev?.destinationAddress ||
-        "Rumbo al destino...";
+        const pEmail = incomingEmail;
+        setPasajeroAsignado((prev: Payload | null) => {
+          const incomingDestinationAddress = rawData.destinationAddress;
+          const incomingDestinationLat = rawData.destinationLat;
+          const incomingDestinationLng = rawData.destinationLng;
 
-  const destinationLat =
-    hasIncomingDestination
-      ? incomingDestinationLat
-      : hasPreviousDestination
-        ? prev!.destinationLat
-        : null;
+          const hasIncomingDestination =
+            incomingDestinationLat != null && incomingDestinationLng != null;
 
-  const destinationLng =
-    hasIncomingDestination
-      ? incomingDestinationLng
-      : hasPreviousDestination
-        ? prev!.destinationLng
-        : null;
+          const hasPreviousDestination =
+            prev?.destinationLat != null && prev?.destinationLng != null;
 
-  console.log("🛡️ ASIGNACIÓN PROTEGIDA:", {
-    anterior: {
-      address: prev?.destinationAddress,
-      lat: prev?.destinationLat,
-      lng: prev?.destinationLng,
-    },
-    recibido: {
-      address: incomingDestinationAddress,
-      lat: incomingDestinationLat,
-      lng: incomingDestinationLng,
-    },
-    aplicado: {
-      address: destinationAddress,
-      lat: destinationLat,
-      lng: destinationLng,
-    },
-  });
+          const destinationAddress =
+            incomingDestinationAddress &&
+            incomingDestinationAddress !== "Calculando..." &&
+            incomingDestinationAddress !== "Calculando ubicación..." &&
+            incomingDestinationAddress !== "Rumbo al destino..."
+              ? incomingDestinationAddress
+              : prev?.destinationAddress || "Rumbo al destino...";
 
-  return {
-    ...prev,
-    ...rawData,
+          const destinationLat = hasIncomingDestination
+            ? incomingDestinationLat
+            : hasPreviousDestination
+              ? prev!.destinationLat
+              : null;
 
-    email: pEmail,
-    attempt: data.attempt,
+          const destinationLng = hasIncomingDestination
+            ? incomingDestinationLng
+            : hasPreviousDestination
+              ? prev!.destinationLng
+              : null;
 
-    pasajeroEmail:
-      rawData.pasajeroEmail || pEmail,
+          console.log("🛡️ ASIGNACIÓN PROTEGIDA:", {
+            anterior: {
+              address: prev?.destinationAddress,
+              lat: prev?.destinationLat,
+              lng: prev?.destinationLng,
+            },
+            recibido: {
+              address: incomingDestinationAddress,
+              lat: incomingDestinationLat,
+              lng: incomingDestinationLng,
+            },
+            aplicado: {
+              address: destinationAddress,
+              lat: destinationLat,
+              lng: destinationLng,
+            },
+          });
 
-   pasajeroLat:
-  rawData.pasajeroLat ?? rawData.lat,
+          return {
+            ...prev,
+            ...rawData,
 
-pasajeroLng:
-  rawData.pasajeroLng ?? rawData.lng,
+            email: pEmail,
+            attempt: data.attempt,
 
-distancia:
-  rawData.distancia ?? null,
+            pasajeroEmail: rawData.pasajeroEmail || pEmail,
 
-    // 🛡️ Nunca permitir que una asignación incompleta borre el destino
-    destinationLat,
-    destinationLng,
-    destinationAddress,
+            pasajeroLat: rawData.pasajeroLat ?? rawData.lat,
 
-    pickupAddress:
-      rawData.pickupAddress &&
-      rawData.pickupAddress !== "Calculando ubicación..."
-        ? rawData.pickupAddress
-        : prev?.pickupAddress || "Calculando ubicación...",
-  };
-});
-      setExcludedEmails(data.excludedEmails || []);
-      
-      const estadoServidor = String(data.estado || rawData.estado || "").toLowerCase().trim();
+            pasajeroLng: rawData.pasajeroLng ?? rawData.lng,
 
-      // 🛡️ PRIORIDAD 1: Si es rehidratación, confiamos ciegamente en el estado del servidor
-      if (data.rehydrated) {
-        if (estadoServidor === "encurso") {
+            distancia: rawData.distancia ?? null,
+
+            // 🛡️ Nunca permitir que una asignación incompleta borre el destino
+            destinationLat,
+            destinationLng,
+            destinationAddress,
+
+            pickupAddress:
+              rawData.pickupAddress &&
+              rawData.pickupAddress !== "Calculando ubicación..."
+                ? rawData.pickupAddress
+                : prev?.pickupAddress || "Calculando ubicación...",
+          };
+        });
+        setExcludedEmails(data.excludedEmails || []);
+
+        const estadoServidor = String(data.estado || rawData.estado || "")
+          .toLowerCase()
+          .trim();
+
+        // 🛡️ PRIORIDAD 1: Si es rehidratación, confiamos ciegamente en el estado del servidor
+        if (data.rehydrated) {
+          if (estadoServidor === "encurso") {
+            setEstado(POSITION_STATES.ENCURSO);
+            detenerSonido();
+          } else if (estadoServidor === "encamino") {
+            setEstado(POSITION_STATES.ENCAMINO);
+            detenerSonido();
+          } else {
+            setEstado(POSITION_STATES.ASIGNADO);
+            detenerSonido();
+          }
+          return; // Salimos temprano, no es una oferta nueva
+        }
+
+        // 🛡️ PRIORIDAD 2: Lógica normal de flujo
+        if (data.isNewOffer) {
+          setEstado(POSITION_STATES.ASIGNADO);
+          reproducirAlerta();
+        } else if (estadoServidor === "encurso") {
           setEstado(POSITION_STATES.ENCURSO);
           detenerSonido();
         } else if (estadoServidor === "encamino") {
           setEstado(POSITION_STATES.ENCAMINO);
           detenerSonido();
-        } else {
+        } else if (estadoServidor === "asignado") {
           setEstado(POSITION_STATES.ASIGNADO);
           detenerSonido();
+        } else {
+          setEstado(POSITION_STATES.ASIGNADO);
+          reproducirAlerta();
         }
-        return; // Salimos temprano, no es una oferta nueva
-      }
-
-      // 🛡️ PRIORIDAD 2: Lógica normal de flujo
-      if (data.isNewOffer) {
-        setEstado(POSITION_STATES.ASIGNADO); 
-        reproducirAlerta();
-      } else if (estadoServidor === "encurso") {
-        setEstado(POSITION_STATES.ENCURSO);
-        detenerSonido();
-      } else if (estadoServidor === "encamino") {
-        setEstado(POSITION_STATES.ENCAMINO);
-        detenerSonido();
-      } else if (estadoServidor === "asignado") {
-        setEstado(POSITION_STATES.ASIGNADO);
-        detenerSonido();
-      } else {
-        setEstado(POSITION_STATES.ASIGNADO); 
-        reproducirAlerta();
-      }
-
-    }, 10);
-  }, [detenerSonido, reproducirAlerta, isAccepting, socket]);
-
+      }, 10);
+    },
+    [detenerSonido, reproducirAlerta, isAccepting, socket],
+  );
 
   // ========================================================================
   // 🎯 2. USE EFFECT DE SOCKETS Y LISTENERS
@@ -1026,129 +1172,151 @@ distancia:
 
     // 🔄 LISTENER DE CAMBIO DE ESTADO (BLINDADO)
     const handleTripStatusUpdate = (data: any) => {
-    console.log("🔄 [Socket Test] Cambio de estado recibido:", data);
+      console.log("🔄 [Socket Test] Cambio de estado recibido:", data);
 
-    const nextEstado = String(data.estado || "").toLowerCase().trim();
-    const normalizedNextEstado = nextEstado === "buscando" ? POSITION_STATES.ACTIVO : nextEstado;
+      const nextEstado = String(data.estado || "")
+        .toLowerCase()
+        .trim();
+      const normalizedNextEstado =
+        nextEstado === "buscando" ? POSITION_STATES.ACTIVO : nextEstado;
 
-    if (!tripSessionActiveRef.current && ["encamino", "encurso", "asignado"].includes(normalizedNextEstado)) {
-      console.warn("🛡️ trip_status_update ignorado: la sesión local ya fue cerrada.", { nextEstado });
-      return;
-    }
+      if (
+        !tripSessionActiveRef.current &&
+        ["encamino", "encurso", "asignado"].includes(normalizedNextEstado)
+      ) {
+        console.warn(
+          "🛡️ trip_status_update ignorado: la sesión local ya fue cerrada.",
+          { nextEstado },
+        );
+        return;
+      }
 
-    if (!shouldAcceptStateTransition(estadoRef.current, normalizedNextEstado as PositionState)) {
-      console.warn("🛡️ Estado del taxista ignorado por guard de sincronización:", { current: estadoRef.current, next: normalizedNextEstado });
-      return;
-    }
+      if (
+        !shouldAcceptStateTransition(
+          estadoRef.current,
+          normalizedNextEstado as PositionState,
+        )
+      ) {
+        console.warn(
+          "🛡️ Estado del taxista ignorado por guard de sincronización:",
+          { current: estadoRef.current, next: normalizedNextEstado },
+        );
+        return;
+      }
 
-    if (["encurso", "finalizado", "pendiente"].includes(estadoRef.current) && normalizedNextEstado === POSITION_STATES.ACTIVO) {
-      console.warn("🛡️ Ignorado salto a activo porque el viaje ya está cerrado o en curso.");
-      return;
-    }
+      if (
+        ["encurso", "finalizado", "pendiente"].includes(estadoRef.current) &&
+        normalizedNextEstado === POSITION_STATES.ACTIVO
+      ) {
+        console.warn(
+          "🛡️ Ignorado salto a activo porque el viaje ya está cerrado o en curso.",
+        );
+        return;
+      }
 
-    if (normalizedNextEstado) {
-      setEstado(normalizedNextEstado as PositionState);
-    }
+      if (normalizedNextEstado) {
+        setEstado(normalizedNextEstado as PositionState);
+      }
 
-    if (data.estado === "encamino") {
-  setPasajeroAsignado((prev: Payload | null) => {
-    const incoming = data.pasajeroAsignado || {};
+      if (data.estado === "encamino") {
+        setPasajeroAsignado((prev: Payload | null) => {
+          const incoming = data.pasajeroAsignado || {};
 
-    return {
-      ...prev,
-      ...incoming,
+          return {
+            ...prev,
+            ...incoming,
 
-      // 🛡️ Nunca borrar el destino activo si el evento no lo trae
-      destinationAddress:
-        incoming.destinationAddress ??
-        prev?.destinationAddress ??
-        "Rumbo al destino...",
+            // 🛡️ Nunca borrar el destino activo si el evento no lo trae
+            destinationAddress:
+              incoming.destinationAddress ??
+              prev?.destinationAddress ??
+              "Rumbo al destino...",
 
-      destinationLat:
-        incoming.destinationLat ??
-        prev?.destinationLat ??
-        null,
+            destinationLat:
+              incoming.destinationLat ?? prev?.destinationLat ?? null,
 
-      destinationLng:
-        incoming.destinationLng ??
-        prev?.destinationLng ??
-        null,
+            destinationLng:
+              incoming.destinationLng ?? prev?.destinationLng ?? null,
 
-      // 🛡️ Mantener pickup válido
-      pickupAddress:
-        incoming.pickupAddress &&
-        incoming.pickupAddress !== "Calculando ubicación..."
-          ? incoming.pickupAddress
-          : prev?.pickupAddress || "Calculando ubicación...",
-    };
-  });
-}
+            // 🛡️ Mantener pickup válido
+            pickupAddress:
+              incoming.pickupAddress &&
+              incoming.pickupAddress !== "Calculando ubicación..."
+                ? incoming.pickupAddress
+                : prev?.pickupAddress || "Calculando ubicación...",
+          };
+        });
+      }
 
-    if (data.estado === "encurso") {
-  detenerSonido();
-  setChatAbierto(false);
+      if (data.estado === "encurso") {
+        detenerSonido();
+        setChatAbierto(false);
 
-  setPasajeroAsignado((prev: Payload | null) => {
-    if (!prev) return prev;
+        setPasajeroAsignado((prev: Payload | null) => {
+          if (!prev) return prev;
 
-    const incomingAddress =
-      data.destinationAddress ??
-      data.pasajeroAsignado?.destinationAddress;
+          const incomingAddress =
+            data.destinationAddress ??
+            data.pasajeroAsignado?.destinationAddress;
 
-    // 🛡️ Si viene una dirección nueva válida, usarla.
-    // De lo contrario, priorizar prev.destinationAddress si NO es genérica.
-    let finalAddress = prev.destinationAddress;
+          // 🛡️ Si viene una dirección nueva válida, usarla.
+          // De lo contrario, priorizar prev.destinationAddress si NO es genérica.
+          let finalAddress = prev.destinationAddress;
 
-    if (
-      incomingAddress &&
-      incomingAddress !== "Calculando..." &&
-      incomingAddress !== "Calculando ubicación..." &&
-      incomingAddress !== "Rumbo al destino..."
-    ) {
-      finalAddress = incomingAddress;
-    } else if (
-      !finalAddress ||
-      finalAddress === "Calculando..." ||
-      finalAddress === "Calculando ubicación..."
-    ) {
-      finalAddress = "Rumbo al destino...";
-    }
+          if (
+            incomingAddress &&
+            incomingAddress !== "Calculando..." &&
+            incomingAddress !== "Calculando ubicación..." &&
+            incomingAddress !== "Rumbo al destino..."
+          ) {
+            finalAddress = incomingAddress;
+          } else if (
+            !finalAddress ||
+            finalAddress === "Calculando..." ||
+            finalAddress === "Calculando ubicación..."
+          ) {
+            finalAddress = "Rumbo al destino...";
+          }
 
-    return {
-      ...prev,
-      pickupAddress:
-        prev.pickupAddress &&
-        prev.pickupAddress !== "Calculando ubicación..."
-          ? prev.pickupAddress
-          : "Pasajero a bordo",
+          return {
+            ...prev,
+            pickupAddress:
+              prev.pickupAddress &&
+              prev.pickupAddress !== "Calculando ubicación..."
+                ? prev.pickupAddress
+                : "Pasajero a bordo",
 
-      destinationAddress: finalAddress,
+            destinationAddress: finalAddress,
 
-      destinationLat:
-        data.destinationLat ??
-        data.pasajeroAsignado?.destinationLat ??
-        prev.destinationLat ??
-        null,
+            destinationLat:
+              data.destinationLat ??
+              data.pasajeroAsignado?.destinationLat ??
+              prev.destinationLat ??
+              null,
 
-      destinationLng:
-        data.destinationLng ??
-        data.pasajeroAsignado?.destinationLng ??
-        prev.destinationLng ??
-        null,
-    };
-  });
+            destinationLng:
+              data.destinationLng ??
+              data.pasajeroAsignado?.destinationLng ??
+              prev.destinationLng ??
+              null,
+          };
+        });
 
-  showToastOnce("taxista:trip-started", () => {
-    toast.info("¡Viaje iniciado! Rumbo al destino final.");
-  }, { cooldownMs: 4000 });
+        showToastOnce(
+          "taxista:trip-started",
+          () => {
+            toast.info("¡Viaje iniciado! Rumbo al destino final.");
+          },
+          { cooldownMs: 4000 },
+        );
 
-  if (data.estimatedFare != null) {
-    setTarifaEstimada(data.estimatedFare);
-  }
-  if (data.estimatedDistanceKm != null) {
-    setDistanciaEstimadaKm(data.estimatedDistanceKm);
-  }
-}
+        if (data.estimatedFare != null) {
+          setTarifaEstimada(data.estimatedFare);
+        }
+        if (data.estimatedDistanceKm != null) {
+          setDistanciaEstimadaKm(data.estimatedDistanceKm);
+        }
+      }
     };
 
     const handleUpdateTripPath = (data: { lat: number; lng: number }) => {
@@ -1162,7 +1330,9 @@ distancia:
       }));
 
       if (estadoRef.current === POSITION_STATES.ENCURSO) {
-        const destinoFinal = hasRealFinalDestination(pasajeroAsignadoRef.current)
+        const destinoFinal = hasRealFinalDestination(
+          pasajeroAsignadoRef.current,
+        )
           ? getDestinoFinalLatLng(pasajeroAsignadoRef.current)
           : null;
 
@@ -1178,250 +1348,250 @@ distancia:
     };
 
     // 🚩 LISTENER DE REHIDRATACIÓN (CORREGIDO)
-const handleRehydrateTripResult = (data: any) => {
-  console.log("🔎 REHYDRATE ENTRANTE:", {
-    success: data?.success,
-    estado: data?.estado,
-    requestId: data?.requestId,
-    counterpartRequestId: data?.counterpart?.requestId,
-    pasajeroRequestId: data?.pasajero?.requestId,
-    activeOfferRequestId: activeOfferRequestIdRef.current,
-    tripSessionActive: tripSessionActiveRef.current,
-    estadoLocal: estadoRef.current,
-    pasajeroLocal: pasajeroAsignadoRef.current?.email,
-  });
+    const handleRehydrateTripResult = (data: any) => {
+      console.log("🔎 REHYDRATE ENTRANTE:", {
+        success: data?.success,
+        estado: data?.estado,
+        requestId: data?.requestId,
+        counterpartRequestId: data?.counterpart?.requestId,
+        pasajeroRequestId: data?.pasajero?.requestId,
+        activeOfferRequestId: activeOfferRequestIdRef.current,
+        tripSessionActive: tripSessionActiveRef.current,
+        estadoLocal: estadoRef.current,
+        pasajeroLocal: pasajeroAsignadoRef.current?.email,
+      });
 
-  if (!data?.success) {
-    const hayViajeActivoLocalmente =
-      tripSessionActiveRef.current ||
-      ["asignado", "encamino", "encurso"].includes(estadoRef.current) ||
-      !!pasajeroAsignadoRef.current?.requestId;
+      if (!data?.success) {
+        const hayViajeActivoLocalmente =
+          tripSessionActiveRef.current ||
+          ["asignado", "encamino", "encurso"].includes(estadoRef.current) ||
+          !!pasajeroAsignadoRef.current?.requestId;
 
-    if (hayViajeActivoLocalmente) {
-      console.warn(
-        "🛡️ REHYDRATE success=false PERO HAY VIAJE ACTIVO → NO SE LIMPIA",
-        {
-          estado: estadoRef.current,
-          requestId: pasajeroAsignadoRef.current?.requestId,
-          pasajero: pasajeroAsignadoRef.current?.email,
-          destinationAddress:
-            pasajeroAsignadoRef.current?.destinationAddress,
-          destinationLat:
-            pasajeroAsignadoRef.current?.destinationLat,
-          destinationLng:
-            pasajeroAsignadoRef.current?.destinationLng,
+        if (hayViajeActivoLocalmente) {
+          console.warn(
+            "🛡️ REHYDRATE success=false PERO HAY VIAJE ACTIVO → NO SE LIMPIA",
+            {
+              estado: estadoRef.current,
+              requestId: pasajeroAsignadoRef.current?.requestId,
+              pasajero: pasajeroAsignadoRef.current?.email,
+              destinationAddress:
+                pasajeroAsignadoRef.current?.destinationAddress,
+              destinationLat: pasajeroAsignadoRef.current?.destinationLat,
+              destinationLng: pasajeroAsignadoRef.current?.destinationLng,
+            },
+          );
+
+          setIsRehydrating(false);
+          return;
         }
-      );
 
-      setIsRehydrating(false);
-      return;
-    }
+        resetSolicitudActiva();
+        return;
+      }
 
-    resetSolicitudActiva();
-    return;
-  }
+      const nextState = String(data.estado || "")
+        .toLowerCase()
+        .trim();
+      const activeStates = ["asignado", "encamino", "encurso", "preasignado"];
+      const counterpart = data.counterpart || data.pasajero || data;
+      const hasActiveTrip = activeStates.includes(nextState) && counterpart;
 
-  const nextState = String(data.estado || "").toLowerCase().trim();
-  const activeStates = ["asignado", "encamino", "encurso", "preasignado"];
-  const counterpart = data.counterpart || data.pasajero || data;
-  const hasActiveTrip = activeStates.includes(nextState) && counterpart;
+      if (hasActiveTrip) {
+        setEstado(nextState as PositionState);
 
-  if (hasActiveTrip) {
-    setEstado(nextState as PositionState);
-    
-    // 🛡️ Extraer el requestId garantizando fallback al estado/ref previo o data directo
-    const resolvedRequestId = 
-      counterpart?.requestId || 
-      data?.requestId || 
-      pasajeroAsignadoRef.current?.requestId || 
-      activeOfferRequestIdRef.current;
+        // 🛡️ Extraer el requestId garantizando fallback al estado/ref previo o data directo
+        const resolvedRequestId =
+          counterpart?.requestId ||
+          data?.requestId ||
+          pasajeroAsignadoRef.current?.requestId ||
+          activeOfferRequestIdRef.current;
 
-    console.log("🟠 REHYDRATE counterpart:", {
-      destinationAddress: counterpart?.destinationAddress,
-      destinationLat: counterpart?.destinationLat,
-      destinationLng: counterpart?.destinationLng,
-      requestId: resolvedRequestId,
-    });
+        console.log("🟠 REHYDRATE counterpart:", {
+          destinationAddress: counterpart?.destinationAddress,
+          destinationLat: counterpart?.destinationLat,
+          destinationLng: counterpart?.destinationLng,
+          requestId: resolvedRequestId,
+        });
 
-    setPasajeroAsignado((prev: Payload | null) => ({
-      ...prev,
-      ...counterpart,
-      requestId: resolvedRequestId, // 👈 Mantener requestId preservado
-      destinationAddress:
-        counterpart?.destinationAddress && 
-        counterpart?.destinationAddress !== "Calculando..." &&
-        counterpart?.destinationAddress !== "Calculando ubicación..."
-          ? counterpart.destinationAddress
-          : prev?.destinationAddress || "Rumbo al destino...",
-      destinationLat:
-        counterpart?.destinationLat ??
-        prev?.destinationLat ??
-        null,
-      destinationLng:
-        counterpart?.destinationLng ??
-        prev?.destinationLng ??
-        null,
-    }));
+        setPasajeroAsignado((prev: Payload | null) => ({
+          ...prev,
+          ...counterpart,
+          requestId: resolvedRequestId, // 👈 Mantener requestId preservado
+          destinationAddress:
+            counterpart?.destinationAddress &&
+            counterpart?.destinationAddress !== "Calculando..." &&
+            counterpart?.destinationAddress !== "Calculando ubicación..."
+              ? counterpart.destinationAddress
+              : prev?.destinationAddress || "Rumbo al destino...",
+          destinationLat:
+            counterpart?.destinationLat ?? prev?.destinationLat ?? null,
+          destinationLng:
+            counterpart?.destinationLng ?? prev?.destinationLng ?? null,
+        }));
 
-    if (resolvedRequestId) {
-      activeOfferRequestIdRef.current = resolvedRequestId;
-    }
+        if (resolvedRequestId) {
+          activeOfferRequestIdRef.current = resolvedRequestId;
+        }
 
-    tripSessionActiveRef.current = true;
-    
-    if (typeof data.estimatedFare === "number") {
-      setTarifaEstimada(data.estimatedFare);
-    }
+        tripSessionActiveRef.current = true;
 
-    if (typeof data.estimatedDistanceKm === "number") {
-      setDistanciaEstimadaKm(data.estimatedDistanceKm);
-    }
+        if (typeof data.estimatedFare === "number") {
+          setTarifaEstimada(data.estimatedFare);
+        }
 
-    showToastOnce("taxista:rehydrated", () => {
-      toast.success("¡Viaje recuperado con éxito!");
-    }, { cooldownMs: 4000 });
+        if (typeof data.estimatedDistanceKm === "number") {
+          setDistanciaEstimadaKm(data.estimatedDistanceKm);
+        }
 
-    } else {
-    const teniaViajeActivoLocalmente =
-  tripSessionActiveRef.current ||
-  ["asignado", "encamino", "encurso"].includes(estadoRef.current) ||
-  !!pasajeroAsignadoRef.current?.requestId ||
-  !!activeOfferRequestIdRef.current;
+        showToastOnce(
+          "taxista:rehydrated",
+          () => {
+            toast.success("¡Viaje recuperado con éxito!");
+          },
+          { cooldownMs: 4000 },
+        );
+      } else {
+        const teniaViajeActivoLocalmente =
+          tripSessionActiveRef.current ||
+          ["asignado", "encamino", "encurso"].includes(estadoRef.current) ||
+          !!pasajeroAsignadoRef.current?.requestId ||
+          !!activeOfferRequestIdRef.current;
 
-    if (teniaViajeActivoLocalmente) {
-     console.warn(
-  "🛡️ REHYDRATE SIN VIAJE PERO HAY VIAJE LOCAL ACTIVO → NO SE LIMPIA",
-  {
-    estado: estadoRef.current,
-    requestId: pasajeroAsignadoRef.current?.requestId,
-    activeOfferRequestId: activeOfferRequestIdRef.current,
-    tripSessionActive: tripSessionActiveRef.current,
-    pasajero: pasajeroAsignadoRef.current?.email,
-  }
-);
+        if (teniaViajeActivoLocalmente) {
+          console.warn(
+            "🛡️ REHYDRATE SIN VIAJE PERO HAY VIAJE LOCAL ACTIVO → NO SE LIMPIA",
+            {
+              estado: estadoRef.current,
+              requestId: pasajeroAsignadoRef.current?.requestId,
+              activeOfferRequestId: activeOfferRequestIdRef.current,
+              tripSessionActive: tripSessionActiveRef.current,
+              pasajero: pasajeroAsignadoRef.current?.email,
+            },
+          );
 
-      setIsRehydrating(false);
-      return;
-    }
+          setIsRehydrating(false);
+          return;
+        }
 
-    resetSolicitudActiva();
-    setEstado("activo" as PositionState);
-  }
-};
-  // 🚩 LISTENER DE ACTUALIZACIÓN DE DESTINO (CORREGIDO)
-const handleTripDestinationUpdated = (data: any) => {
-  console.log("🚩 TAXISTA RECIBIÓ trip_destination_updated:", data);
+        resetSolicitudActiva();
+        setEstado("activo" as PositionState);
+      }
+    };
+    // 🚩 LISTENER DE ACTUALIZACIÓN DE DESTINO (CORREGIDO)
+    const handleTripDestinationUpdated = (data: any) => {
+      console.log("🚩 TAXISTA RECIBIÓ trip_destination_updated:", data);
 
-  const passengerEmail =
-    pasajeroAsignadoRef.current?.email?.toLowerCase().trim();
+      const passengerEmail = pasajeroAsignadoRef.current?.email
+        ?.toLowerCase()
+        .trim();
 
-  const incomingEmail =
-    String(data?.pasajeroEmail || "").toLowerCase().trim();
+      const incomingEmail = String(data?.pasajeroEmail || "")
+        .toLowerCase()
+        .trim();
 
-  if (
-    incomingEmail &&
-    passengerEmail &&
-    incomingEmail !== passengerEmail
-  ) {
-    return;
-  }
+      if (incomingEmail && passengerEmail && incomingEmail !== passengerEmail) {
+        return;
+      }
 
-  const previousLat = pasajeroAsignadoRef.current?.destinationLat ?? null;
-  const previousLng = pasajeroAsignadoRef.current?.destinationLng ?? null;
+      const previousLat = pasajeroAsignadoRef.current?.destinationLat ?? null;
+      const previousLng = pasajeroAsignadoRef.current?.destinationLng ?? null;
 
-  const nextLat = data?.destinationLat ?? previousLat;
-  const nextLng = data?.destinationLng ?? previousLng;
+      const nextLat = data?.destinationLat ?? previousLat;
+      const nextLng = data?.destinationLng ?? previousLng;
 
-  // 🛡️ Preservar la dirección si la nueva trama no la incluye o incluye texto genérico
-  const incomingAddress = data?.destinationAddress;
-  const previousAddress = pasajeroAsignadoRef.current?.destinationAddress;
+      // 🛡️ Preservar la dirección si la nueva trama no la incluye o incluye texto genérico
+      const incomingAddress = data?.destinationAddress;
+      const previousAddress = pasajeroAsignadoRef.current?.destinationAddress;
 
-  const nextAddress =
-    incomingAddress &&
-    incomingAddress !== "Calculando..." &&
-    incomingAddress !== "Calculando ubicación..."
-      ? incomingAddress
-      : previousAddress &&
-        previousAddress !== "Calculando..." &&
-        previousAddress !== "Calculando ubicación..."
-      ? previousAddress
-      : "Rumbo al destino...";
+      const nextAddress =
+        incomingAddress &&
+        incomingAddress !== "Calculando..." &&
+        incomingAddress !== "Calculando ubicación..."
+          ? incomingAddress
+          : previousAddress &&
+              previousAddress !== "Calculando..." &&
+              previousAddress !== "Calculando ubicación..."
+            ? previousAddress
+            : "Rumbo al destino...";
 
-  const destinationChanged =
-    previousLat !== nextLat ||
-    previousLng !== nextLng;
+      const destinationChanged =
+        previousLat !== nextLat || previousLng !== nextLng;
 
-  console.log("🟡 CAMBIO DE DESTINO TAXISTA:", {
-    anteriorLat: previousLat,
-    anteriorLng: previousLng,
-    nuevoLat: nextLat,
-    nuevoLng: nextLng,
-    anteriorAddress: previousAddress,
-    nuevoAddress: nextAddress,
-    destinationChanged,
-  });
+      console.log("🟡 CAMBIO DE DESTINO TAXISTA:", {
+        anteriorLat: previousLat,
+        anteriorLng: previousLng,
+        nuevoLat: nextLat,
+        nuevoLng: nextLng,
+        anteriorAddress: previousAddress,
+        nuevoAddress: nextAddress,
+        destinationChanged,
+      });
 
-  // 💰 Actualizar tarifa y distancia
-  if (typeof data?.estimatedFare === "number") {
-    setTarifaEstimada(data.estimatedFare);
-  }
+      // 💰 Actualizar tarifa y distancia
+      if (typeof data?.estimatedFare === "number") {
+        setTarifaEstimada(data.estimatedFare);
+      }
 
-  if (typeof data?.estimatedDistanceKm === "number") {
-    setDistanciaEstimadaKm(data.estimatedDistanceKm);
-  }
+      if (typeof data?.estimatedDistanceKm === "number") {
+        setDistanciaEstimadaKm(data.estimatedDistanceKm);
+      }
 
-  // 👤 Actualizar pasajero asignado en el estado reactivo
-  setPasajeroAsignado((prev: Payload | null) => {
-    if (!prev) return prev;
+      // 👤 Actualizar pasajero asignado en el estado reactivo
+      setPasajeroAsignado((prev: Payload | null) => {
+        if (!prev) return prev;
 
-    return {
-      ...prev,
-      destinationLat: nextLat,
-      destinationLng: nextLng,
-      destinationAddress: nextAddress,
-      estimatedFare:
-        typeof data?.estimatedFare === "number"
-          ? data.estimatedFare
-          : prev.estimatedFare,
-      estimatedDistanceKm:
-        typeof data?.estimatedDistanceKm === "number"
-          ? data.estimatedDistanceKm
-          : prev.estimatedDistanceKm,
-    } as Payload;
-  });
+        return {
+          ...prev,
+          destinationLat: nextLat,
+          destinationLng: nextLng,
+          destinationAddress: nextAddress,
+          estimatedFare:
+            typeof data?.estimatedFare === "number"
+              ? data.estimatedFare
+              : prev.estimatedFare,
+          estimatedDistanceKm:
+            typeof data?.estimatedDistanceKm === "number"
+              ? data.estimatedDistanceKm
+              : prev.estimatedDistanceKm,
+        } as Payload;
+      });
 
-  // 🔄 Sincronizar también la referencia mutable inmediatamente
-  if (pasajeroAsignadoRef.current) {
-    pasajeroAsignadoRef.current = {
-      ...pasajeroAsignadoRef.current,
-      destinationLat: nextLat,
-      destinationLng: nextLng,
-      destinationAddress: nextAddress,
-      estimatedFare:
-        typeof data?.estimatedFare === "number"
-          ? data.estimatedFare
-          : pasajeroAsignadoRef.current.estimatedFare,
-      estimatedDistanceKm:
-        typeof data?.estimatedDistanceKm === "number"
-          ? data.estimatedDistanceKm
-          : pasajeroAsignadoRef.current.estimatedDistanceKm,
-    } as Payload;
-  }
+      // 🔄 Sincronizar también la referencia mutable inmediatamente
+      if (pasajeroAsignadoRef.current) {
+        pasajeroAsignadoRef.current = {
+          ...pasajeroAsignadoRef.current,
+          destinationLat: nextLat,
+          destinationLng: nextLng,
+          destinationAddress: nextAddress,
+          estimatedFare:
+            typeof data?.estimatedFare === "number"
+              ? data.estimatedFare
+              : pasajeroAsignadoRef.current.estimatedFare,
+          estimatedDistanceKm:
+            typeof data?.estimatedDistanceKm === "number"
+              ? data.estimatedDistanceKm
+              : pasajeroAsignadoRef.current.estimatedDistanceKm,
+        } as Payload;
+      }
 
-  // 🗺️ Recalcular la ruta visual si las coordenadas cambiaron
-  if (destinationChanged && nextLat !== null && nextLng !== null) {
-    console.log("🗺️ DESTINO CAMBIÓ → RECALCULANDO RUTA");
-    setRutaDestinoFinal([]);
-    setRouteRefreshToken((prev) => prev + 1);
-  }
-};
+      // 🗺️ Recalcular la ruta visual si las coordenadas cambiaron
+      if (destinationChanged && nextLat !== null && nextLng !== null) {
+        console.log("🗺️ DESTINO CAMBIÓ → RECALCULANDO RUTA");
+        setRutaDestinoFinal([]);
+        setRouteRefreshToken((prev) => prev + 1);
+      }
+    };
     // 🚨 NUEVO: Listeners de la Trip Room (Coordinación)
     const handlePeerReconnected = (data: any) => {
       if (data.who === "pasajero") {
         console.log("🔄 El pasajero se reconectó al viaje");
-        showToastOnce("taxista:peer-reconnected", () => {
-          toast.info("📱 El pasajero volvió a conectarse");
-        }, { cooldownMs: 5000 });
+        showToastOnce(
+          "taxista:peer-reconnected",
+          () => {
+            toast.info("📱 El pasajero volvió a conectarse");
+          },
+          { cooldownMs: 5000 },
+        );
       }
     };
 
@@ -1437,19 +1607,21 @@ const handleTripDestinationUpdated = (data: any) => {
     // 🏁 LISTENER DE CONFIRMACIÓN OFICIAL (Aceptar viaje)
     const handleAssignmentConfirmed = (data: any) => {
       if (!tripSessionActiveRef.current) {
-        console.warn("🛡️ assignment_confirmed ignorado: la sesión local ya fue cerrada.");
+        console.warn(
+          "🛡️ assignment_confirmed ignorado: la sesión local ya fue cerrada.",
+        );
         return;
       }
 
       if (data.success) {
         console.log("✅ Confirmación recibida del servidor:", data);
-        
+
         if (acceptanceTimerRef.current) {
           window.clearTimeout(acceptanceTimerRef.current);
           acceptanceTimerRef.current = null;
         }
 
-        setEstado(POSITION_STATES.ENCAMINO); 
+        setEstado(POSITION_STATES.ENCAMINO);
         detenerSonido();
         setIsAccepting(false);
         setViajeSolicitado(null);
@@ -1462,42 +1634,43 @@ const handleTripDestinationUpdated = (data: any) => {
           setDistanciaEstimadaKm(data.estimatedDistanceKm);
         }
 
-        showToastOnce("taxista:assignment-confirmed", () => {
-          toast.success("¡Viaje vinculado! Dirígete al pasajero.");
-        }, { cooldownMs: 4000 });
+        showToastOnce(
+          "taxista:assignment-confirmed",
+          () => {
+            toast.success("¡Viaje vinculado! Dirígete al pasajero.");
+          },
+          { cooldownMs: 4000 },
+        );
 
         if (data.pasajero) {
           const pEmail = data.pasajero.email.toLowerCase().trim();
-          const direccionDetectada = data.pasajero.pickupAddress || data.pasajero.direccionOrigen;
-          
+          const direccionDetectada =
+            data.pasajero.pickupAddress || data.pasajero.direccionOrigen;
+
           setPasajeroAsignado((prev: Payload | null) => ({
-  ...prev,
-  ...data.pasajero,
+            ...prev,
+            ...data.pasajero,
 
-  email: pEmail,
+            email: pEmail,
 
-  pickupAddress:
-    direccionDetectada &&
-    direccionDetectada !== "Calculando ubicación..."
-      ? direccionDetectada
-      : (prev?.pickupAddress || "Calle Detectada"),
+            pickupAddress:
+              direccionDetectada &&
+              direccionDetectada !== "Calculando ubicación..."
+                ? direccionDetectada
+                : prev?.pickupAddress || "Calle Detectada",
 
-  // 🛡️ No borrar el destino activo si la confirmación no lo trae
-  destinationAddress:
-    data.pasajero.destinationAddress ??
-    prev?.destinationAddress ??
-    "Rumbo al destino...",
+            // 🛡️ No borrar el destino activo si la confirmación no lo trae
+            destinationAddress:
+              data.pasajero.destinationAddress ??
+              prev?.destinationAddress ??
+              "Rumbo al destino...",
 
-  destinationLat:
-    data.pasajero.destinationLat ??
-    prev?.destinationLat ??
-    null,
+            destinationLat:
+              data.pasajero.destinationLat ?? prev?.destinationLat ?? null,
 
-  destinationLng:
-    data.pasajero.destinationLng ??
-    prev?.destinationLng ??
-    null,
-}));
+            destinationLng:
+              data.pasajero.destinationLng ?? prev?.destinationLng ?? null,
+          }));
 
           // 🚨 NUEVO: Unirse a la sala al confirmar aceptación
           if (data.pasajero.requestId && socket?.connected) {
@@ -1515,36 +1688,40 @@ const handleTripDestinationUpdated = (data: any) => {
       }
     };
 
-    
-// 🚩 AQUÍ PONES EL CANDADO DEL LADO DEL CLIENTE
+    // 🚩 AQUÍ PONES EL CANDADO DEL LADO DEL CLIENTE
     const handleLateOffer = (data: { message?: string } = {}) => {
-      showToastOnce("taxista:trip-already-taken", () => {
-        toast.info(data.message || "El viaje ya fue tomado por otro conductor.", {
-            position: "top-center",
-            autoClose: 4000,
-            icon: <span>⏳</span>
-        });
-      }, { cooldownMs: 4000 });
+      showToastOnce(
+        "taxista:trip-already-taken",
+        () => {
+          toast.info(
+            data.message || "El viaje ya fue tomado por otro conductor.",
+            {
+              position: "top-center",
+              autoClose: 4000,
+              icon: <span>⏳</span>,
+            },
+          );
+        },
+        { cooldownMs: 4000 },
+      );
 
       setCanRespondToOffer(false);
       resetSolicitudActiva();
     };
 
-        
-
-
-
-     socket.on("trip_destination_updated", handleTripDestinationUpdated);
-      // 🔄 LISTENERS DE ESTADO Y RUTA
-      socket.on("trip_status_update", handleTripStatusUpdate);
-      socket.on("update_trip_path", handleUpdateTripPath);
-      socket.on("rehydrate_trip_result", handleRehydrateTripResult);
-      socket.on("pasajero_asignado", handleAsignacion);
-      socket.on("assignment_confirmed", handleAssignmentConfirmed);
+    socket.on("trip_destination_updated", handleTripDestinationUpdated);
+    // 🔄 LISTENERS DE ESTADO Y RUTA
+    socket.on("trip_status_update", handleTripStatusUpdate);
+    socket.on("update_trip_path", handleUpdateTripPath);
+    socket.on("rehydrate_trip_result", handleRehydrateTripResult);
+    socket.on("pasajero_asignado", handleAsignacion);
+    socket.on("assignment_confirmed", handleAssignmentConfirmed);
 
     socket.on("dispatch_timeout", () => {
       if (["encamino", "encurso"].includes(estadoRef.current)) {
-        console.warn("🛡️ dispatch_timeout tardío ignorado: viaje ya confirmado.");
+        console.warn(
+          "🛡️ dispatch_timeout tardío ignorado: viaje ya confirmado.",
+        );
         return;
       }
       resetSolicitudActiva();
@@ -1553,100 +1730,112 @@ const handleTripDestinationUpdated = (data: any) => {
       console.warn("🛡️ Asignación revocada por el servidor:", payload);
       setCanRespondToOffer(false);
       resetSolicitudActiva();
-      showToastOnce("taxista:dispatch-revoked", () => {
-        toast.info(payload?.message || "La asignación fue revocada.", {
-          position: "top-center",
-          autoClose: 4000,
-        });
-      }, { cooldownMs: 4000 });
+      showToastOnce(
+        "taxista:dispatch-revoked",
+        () => {
+          toast.info(payload?.message || "La asignación fue revocada.", {
+            position: "top-center",
+            autoClose: 4000,
+          });
+        },
+        { cooldownMs: 4000 },
+      );
     });
     socket.on("trip_cancelled_by_passenger", () => {
       resetSolicitudActiva();
-      showToastOnce("taxista:trip-cancelled", () => {
-        toast.info("El pasajero canceló la solicitud.");
-      }, { cooldownMs: 4000 });
+      showToastOnce(
+        "taxista:trip-cancelled",
+        () => {
+          toast.info("El pasajero canceló la solicitud.");
+        },
+        { cooldownMs: 4000 },
+      );
     });
 
-   socket.on("trip_finished", (payload) => {
-  const requestIdLocal =
-    pasajeroAsignadoRef.current?.requestId ||
-    activeOfferRequestIdRef.current ||
-    null;
+    socket.on("trip_finished", (payload) => {
+      const requestIdLocal =
+        pasajeroAsignadoRef.current?.requestId ||
+        activeOfferRequestIdRef.current ||
+        null;
 
-  const requestIdRecibido = payload?.requestId || null;
+      const requestIdRecibido = payload?.requestId || null;
 
-  console.warn("🚨🚨 TRIP_FINISHED RECIBIDO", {
-    requestIdPayload: requestIdRecibido,
-    requestIdLocal,
-    activeOfferRequestId: activeOfferRequestIdRef.current,
-    estadoLocal: estadoRef.current,
-  });
-
-  if (
-    requestIdLocal &&
-    requestIdRecibido &&
-    requestIdLocal !== requestIdRecibido
-  ) {
-    console.warn(
-      "🛡️ TRIP_FINISHED IGNORADO: requestId no corresponde al viaje actual",
-      {
-        requestIdRecibido,
+      console.warn("🚨🚨 TRIP_FINISHED RECIBIDO", {
+        requestIdPayload: requestIdRecibido,
         requestIdLocal,
+        activeOfferRequestId: activeOfferRequestIdRef.current,
+        estadoLocal: estadoRef.current,
+      });
+
+      if (
+        requestIdLocal &&
+        requestIdRecibido &&
+        requestIdLocal !== requestIdRecibido
+      ) {
+        console.warn(
+          "🛡️ TRIP_FINISHED IGNORADO: requestId no corresponde al viaje actual",
+          {
+            requestIdRecibido,
+            requestIdLocal,
+          },
+        );
+        return;
       }
-    );
-    return;
-  }
 
-  if (requestIdLocal && !requestIdRecibido) {
-    console.warn(
-      "🛡️ TRIP_FINISHED IGNORADO: llegó sin requestId mientras hay un viaje activo",
-      {
-        requestIdLocal,
+      if (requestIdLocal && !requestIdRecibido) {
+        console.warn(
+          "🛡️ TRIP_FINISHED IGNORADO: llegó sin requestId mientras hay un viaje activo",
+          {
+            requestIdLocal,
+          },
+        );
+        return;
       }
-    );
-    return;
-  }
 
-  detenerSonido();
+      detenerSonido();
 
-  tripSessionActiveRef.current = false;
+      tripSessionActiveRef.current = false;
 
-  if (acceptanceTimerRef.current) {
-    window.clearTimeout(acceptanceTimerRef.current);
-    acceptanceTimerRef.current = null;
-  }
+      if (acceptanceTimerRef.current) {
+        window.clearTimeout(acceptanceTimerRef.current);
+        acceptanceTimerRef.current = null;
+      }
 
-  // 1. Actualizamos los datos del pasajero con la dirección que viene del server
-  if (payload?.destinationAddress) {
-    setPasajeroAsignado((prev: any) => ({
-      ...prev,
-      destinationAddress: payload.destinationAddress,
-      distancia: payload.distancia || prev?.distancia || null
-    }));
-  }
+      // 1. Actualizamos los datos del pasajero con la dirección que viene del server
+      if (payload?.destinationAddress) {
+        setPasajeroAsignado((prev: any) => ({
+          ...prev,
+          destinationAddress: payload.destinationAddress,
+          distancia: payload.distancia || prev?.distancia || null,
+        }));
+      }
 
-  // 2. Cambiamos el estado para que la interfaz sepa que terminó
-  setEstado(POSITION_STATES.FINALIZADO);
-  setChatAbierto(false);
-  setHistorialRuta([]);
-  setGeometriaRuta([]);
-  setRutaDestinoFinal([]);
+      // 2. Cambiamos el estado para que la interfaz sepa que terminó
+      setEstado(POSITION_STATES.FINALIZADO);
+      setChatAbierto(false);
+      setHistorialRuta([]);
+      setGeometriaRuta([]);
+      setRutaDestinoFinal([]);
 
-  showToastOnce("taxista:trip-finished", () => {
-    toast.success("¡Viaje finalizado!");
-  }, { cooldownMs: 4000 });
+      showToastOnce(
+        "taxista:trip-finished",
+        () => {
+          toast.success("¡Viaje finalizado!");
+        },
+        { cooldownMs: 4000 },
+      );
 
-  // 3. ESPERA DE CORTESÍA: dejamos la info en pantalla 5 segundos
-  setTimeout(() => {
-    setEstado(POSITION_STATES.ACTIVO);
-    setPasajeroAsignado(null);
-    setRutaDestinoFinal([]);
-    setGeometriaRuta([]);
-    setHistorialRuta([]);
-  }, 5000);
-});
+      // 3. ESPERA DE CORTESÍA: dejamos la info en pantalla 5 segundos
+      setTimeout(() => {
+        setEstado(POSITION_STATES.ACTIVO);
+        setPasajeroAsignado(null);
+        setRutaDestinoFinal([]);
+        setGeometriaRuta([]);
+        setHistorialRuta([]);
+      }, 5000);
+    });
 
-if (socket.connected) checkStatus();
+    if (socket.connected) checkStatus();
 
     return () => {
       socket.off("pasajero_asignado");
@@ -1665,9 +1854,15 @@ if (socket.connected) checkStatus();
       socket.off("trip_peer_reconnected", handlePeerReconnected);
       socket.off("trip_boarding_confirmed", handleBoardingConfirmed);
       socket.off("trip_finished_coordinated", handleTripFinished);
-
     };
-  }, [handleAsignacion, checkStatus, detenerSonido, getDestinoFinalLatLng, handleResetTaxistaState, resetSolicitudActiva]);
+  }, [
+    handleAsignacion,
+    checkStatus,
+    detenerSonido,
+    getDestinoFinalLatLng,
+    handleResetTaxistaState,
+    resetSolicitudActiva,
+  ]);
 
   useEffect(() => {
     if (!taxiPos) {
@@ -1720,155 +1915,179 @@ if (socket.connected) checkStatus();
     }
   }, [taxiPos, estado, geometriaRuta, rutaDestinoFinal]); // 🎯 CORRECCIÓN: Quitamos .length
 
-useEffect(() => {
-  if (chatAbierto) {
-    setUnreadChatCount(0);
-  }
-}, [chatAbierto]);
+  useEffect(() => {
+    if (chatAbierto) {
+      setUnreadChatCount(0);
+    }
+  }, [chatAbierto]);
 
- // --- ACCIONES DEL TAXISTA ---
+  // --- ACCIONES DEL TAXISTA ---
 
-const aceptarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.PointerEvent<HTMLButtonElement>) => {
-  if (event) {
-    event.preventDefault();
-    event.stopPropagation();
-  }
+  const aceptarViaje = (
+    event?:
+      | React.MouseEvent<HTMLButtonElement>
+      | React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
 
-  // 🛡️ Guardias de seguridad
-  if (!tripSessionActiveRef.current || isAccepting || !canRespondToOffer || !pasajeroAsignado?.email) {
-    if (!pasajeroAsignado?.email) console.error("❌ Error: No hay email de pasajero para aceptar.");
-    return;
-  }
-
-  setIsAccepting(true);
-  tripSessionActiveRef.current = true;
-  ignoreOffersUntilRef.current = Date.now() + 1500;
-  detenerSonido();
-
-  if (pasajeroAsignado?.requestId) {
-    answeredOfferRequestIdsRef.current.add(String(pasajeroAsignado.requestId));
-  }
-  
-  // 1. Emitimos la aceptación al servidor
-  socket.emit("taxi_response", { 
-    requestEmail: pasajeroAsignado.email.toLowerCase().trim(), 
-    accepted: true, 
-    excludedEmails 
-  });
-
-  // 2. Configuramos el timer de seguridad (fallback por si el servidor no responde)
-  if (acceptanceTimerRef.current) {
-    window.clearTimeout(acceptanceTimerRef.current);
-  }
-  
-  acceptanceTimerRef.current = window.setTimeout(() => {
-    const estadosActivos: PositionState[] = [
-      POSITION_STATES.ENCAMINO,
-      POSITION_STATES.ENCURSO,
-      POSITION_STATES.ASIGNADO
-    ];
-
-    // Si el servidor ya confirmó y cambió el estado, cancelamos el timer y no hacemos nada.
-    if (estadosActivos.includes(estadoRef.current)) {
-      if (acceptanceTimerRef.current) {
-        window.clearTimeout(acceptanceTimerRef.current);
-        acceptanceTimerRef.current = null;
-      }
+    // 🛡️ Guardias de seguridad
+    if (
+      !tripSessionActiveRef.current ||
+      isAccepting ||
+      !canRespondToOffer ||
+      !pasajeroAsignado?.email
+    ) {
+      if (!pasajeroAsignado?.email)
+        console.error("❌ Error: No hay email de pasajero para aceptar.");
       return;
     }
 
-    // Si pasaron 15s y el estado NO cambió, asumimos que el servidor no respondió y expiramos.
-    console.warn("⚠️ Timeout de aceptación: El servidor no respondió a tiempo.");
-    expireOfferResponse();
-  }, OFFER_RESPONSE_TIMEOUT_MS);
-};
+    setIsAccepting(true);
+    tripSessionActiveRef.current = true;
+    ignoreOffersUntilRef.current = Date.now() + 1500;
+    detenerSonido();
 
-const rechazarViaje = (event?: React.MouseEvent<HTMLButtonElement> | React.PointerEvent<HTMLButtonElement>) => {
-  if (event) {
-    event.preventDefault();
-    event.stopPropagation();
-  }
+    if (pasajeroAsignado?.requestId) {
+      answeredOfferRequestIdsRef.current.add(
+        String(pasajeroAsignado.requestId),
+      );
+    }
 
-  if (!pasajeroAsignado?.email || isAccepting || !canRespondToOffer) return;
+    // 1. Emitimos la aceptación al servidor
+    socket.emit("taxi_response", {
+      requestEmail: pasajeroAsignado.email.toLowerCase().trim(),
+      accepted: true,
+      excludedEmails,
+    });
 
-  setIsAccepting(true);
-  ignoreOffersUntilRef.current = Date.now() + 3000;
-  detenerSonido();
-  
-  if (pasajeroAsignado?.requestId) {
-    answeredOfferRequestIdsRef.current.add(String(pasajeroAsignado.requestId));
-  }
+    // 2. Configuramos el timer de seguridad (fallback por si el servidor no responde)
+    if (acceptanceTimerRef.current) {
+      window.clearTimeout(acceptanceTimerRef.current);
+    }
 
-  // 1. Emitimos el rechazo
-  socket.emit("taxi_response", { 
-    requestEmail: pasajeroAsignado.email.toLowerCase().trim(), 
-    accepted: false, 
-    excludedEmails 
-  });
+    acceptanceTimerRef.current = window.setTimeout(() => {
+      const estadosActivos: PositionState[] = [
+        POSITION_STATES.ENCAMINO,
+        POSITION_STATES.ENCURSO,
+        POSITION_STATES.ASIGNADO,
+      ];
 
-  // 2. Limpiamos todo el estado local (esto ya incluye setIsAccepting(false))
-  resetSolicitudActiva();
-};
+      // Si el servidor ya confirmó y cambió el estado, cancelamos el timer y no hacemos nada.
+      if (estadosActivos.includes(estadoRef.current)) {
+        if (acceptanceTimerRef.current) {
+          window.clearTimeout(acceptanceTimerRef.current);
+          acceptanceTimerRef.current = null;
+        }
+        return;
+      }
 
-const confirmarAbordo = () => {
-  const tEmail = userPosition?.email || localStorage.getItem("email");
-  const pEmail = pasajeroAsignado?.email;
+      // Si pasaron 15s y el estado NO cambió, asumimos que el servidor no respondió y expiramos.
+      console.warn(
+        "⚠️ Timeout de aceptación: El servidor no respondió a tiempo.",
+      );
+      expireOfferResponse();
+    }, OFFER_RESPONSE_TIMEOUT_MS);
+  };
 
-  if (!tripSessionActiveRef.current || !tEmail || !pEmail) {
-    toast.error("No hay un viaje activo para confirmar.");
-    return;
-  }
+  const rechazarViaje = (
+    event?:
+      | React.MouseEvent<HTMLButtonElement>
+      | React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
 
-  // 🛡️ Actualización optimista para feedback visual inmediato
-  setEstado(POSITION_STATES.ENCURSO);
-  setChatAbierto(false);
+    if (!pasajeroAsignado?.email || isAccepting || !canRespondToOffer) return;
 
-  if (taxiPos?.lat && taxiPos?.lng) {
-    setHistorialRuta([L.latLng(Number(taxiPos.lat), Number(taxiPos.lng))]);
-  }
+    setIsAccepting(true);
+    ignoreOffersUntilRef.current = Date.now() + 3000;
+    detenerSonido();
 
-  // Emitimos al servidor para que valide la relación y oficialice el estado
-  socket.emit("passenger_on_board", { 
-    taxistaEmail: tEmail.toLowerCase().trim(), 
-    pasajeroEmail: pEmail.toLowerCase().trim() 
-  });
-};
+    if (pasajeroAsignado?.requestId) {
+      answeredOfferRequestIdsRef.current.add(
+        String(pasajeroAsignado.requestId),
+      );
+    }
 
-const finalizarViaje = () => {
-  const tEmail = userPosition?.email || localStorage.getItem("email");
-  const pEmail = pasajeroAsignado?.email;
+    // 1. Emitimos el rechazo
+    socket.emit("taxi_response", {
+      requestEmail: pasajeroAsignado.email.toLowerCase().trim(),
+      accepted: false,
+      excludedEmails,
+    });
 
-  if (!tripSessionActiveRef.current || !tEmail || !pEmail) {
+    // 2. Limpiamos todo el estado local (esto ya incluye setIsAccepting(false))
     resetSolicitudActiva();
-    return;
-  }
+  };
 
-  // 🛡️ Aquí NO hacemos actualización optimista del estado. 
-  // Dejamos que el servidor procese el cobro/cierre y nos envíe "trip_finished".
-  // Esto evita que el viaje se marque como finalizado si hay un error en el servidor.
- socket.emit("end_trip", {
-  pasajeroEmail: pEmail.toLowerCase().trim(),
-  taxistaEmail: tEmail.toLowerCase().trim(),
-  requestId:
-    pasajeroAsignadoRef.current?.requestId ||
-    activeOfferRequestIdRef.current ||
-    null,
-});
-};
+  const confirmarAbordo = () => {
+    const tEmail = userPosition?.email || localStorage.getItem("email");
+    const pEmail = pasajeroAsignado?.email;
 
-   // --- OBJETO DE USUARIO PARA EL MENÚ LATERAL ---
+    if (!tripSessionActiveRef.current || !tEmail || !pEmail) {
+      toast.error("No hay un viaje activo para confirmar.");
+      return;
+    }
+
+    // 🛡️ Actualización optimista para feedback visual inmediato
+    setEstado(POSITION_STATES.ENCURSO);
+    setChatAbierto(false);
+
+    if (taxiPos?.lat && taxiPos?.lng) {
+      setHistorialRuta([L.latLng(Number(taxiPos.lat), Number(taxiPos.lng))]);
+    }
+
+    // Emitimos al servidor para que valide la relación y oficialice el estado
+    socket.emit("passenger_on_board", {
+      taxistaEmail: tEmail.toLowerCase().trim(),
+      pasajeroEmail: pEmail.toLowerCase().trim(),
+    });
+  };
+
+  const finalizarViaje = () => {
+    const tEmail = userPosition?.email || localStorage.getItem("email");
+    const pEmail = pasajeroAsignado?.email;
+
+    if (!tripSessionActiveRef.current || !tEmail || !pEmail) {
+      resetSolicitudActiva();
+      return;
+    }
+
+    // 🛡️ Aquí NO hacemos actualización optimista del estado.
+    // Dejamos que el servidor procese el cobro/cierre y nos envíe "trip_finished".
+    // Esto evita que el viaje se marque como finalizado si hay un error en el servidor.
+    socket.emit("end_trip", {
+      pasajeroEmail: pEmail.toLowerCase().trim(),
+      taxistaEmail: tEmail.toLowerCase().trim(),
+      requestId:
+        pasajeroAsignadoRef.current?.requestId ||
+        activeOfferRequestIdRef.current ||
+        null,
+    });
+  };
+
+  // --- OBJETO DE USUARIO PARA EL MENÚ LATERAL ---
   const user = {
     name: localStorage.getItem("userName") || userPosition?.name || "Taxista",
     email: userPosition?.email || localStorage.getItem("email") || "",
-    taxiNumber: userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "S/N"
+    taxiNumber:
+      userPosition?.taxiNumber || localStorage.getItem("taxiNumber") || "S/N",
   };
 
   const handleLogout = () => {
     if (tripSessionActiveRef.current) {
-      toast.warning("Tienes un viaje en curso. Presiona atrás dos veces para salir.", {
-        toastId: 'logout-blocked-active-trip',
-        autoClose: 2500,
-      });
+      toast.warning(
+        "Tienes un viaje en curso. Presiona atrás dos veces para salir.",
+        {
+          toastId: "logout-blocked-active-trip",
+          autoClose: 2500,
+        },
+      );
       return;
     }
 
@@ -1887,7 +2106,12 @@ const finalizarViaje = () => {
   };
 
   const isCompactTripPanel = ["encamino", "encurso"].includes(estado);
-  const hasSystemTripActive = [POSITION_STATES.PREASIGNADO, POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(estado as any);
+  const hasSystemTripActive = [
+    POSITION_STATES.PREASIGNADO,
+    POSITION_STATES.ASIGNADO,
+    POSITION_STATES.ENCAMINO,
+    POSITION_STATES.ENCURSO,
+  ].includes(estado as any);
 
   const destinoFinalMarkerPosition = useMemo<L.LatLngExpression | null>(() => {
     if (!hasRealFinalDestination(pasajeroAsignado)) {
@@ -1913,20 +2137,36 @@ const finalizarViaje = () => {
     }
 
     if (pasajeroAsignado?.lat && pasajeroAsignado?.lng) {
-      return L.latLng(Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng));
+      return L.latLng(
+        Number(pasajeroAsignado.lat),
+        Number(pasajeroAsignado.lng),
+      );
     }
 
     return null;
-  }, [estado, taxiPos?.lat, taxiPos?.lng, pasajeroAsignado?.lat, pasajeroAsignado?.lng]);
+  }, [
+    estado,
+    taxiPos?.lat,
+    taxiPos?.lng,
+    pasajeroAsignado?.lat,
+    pasajeroAsignado?.lng,
+  ]);
 
   const destinationRouteKey = useMemo(() => {
     const destino = getDestinoFinalLatLng(pasajeroAsignado);
-    const origen = pasajeroAsignado?.lat && pasajeroAsignado?.lng
-      ? L.latLng(Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng))
-      : null;
+    const origen =
+      pasajeroAsignado?.lat && pasajeroAsignado?.lng
+        ? L.latLng(Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng))
+        : null;
 
     return `${origen?.lat ?? "na"}-${origen?.lng ?? "na"}-${destino?.lat ?? "na"}-${destino?.lng ?? "na"}-${routeRefreshToken}`;
-  }, [pasajeroAsignado?.lat, pasajeroAsignado?.lng, pasajeroAsignado?.destinationLat, pasajeroAsignado?.destinationLng, routeRefreshToken]);
+  }, [
+    pasajeroAsignado?.lat,
+    pasajeroAsignado?.lng,
+    pasajeroAsignado?.destinationLat,
+    pasajeroAsignado?.destinationLng,
+    routeRefreshToken,
+  ]);
 
   const taxiToPassengerWaypoints = useMemo<L.LatLng[] | null>(() => {
     if (
@@ -1949,13 +2189,19 @@ const finalizarViaje = () => {
     pasajeroAsignado?.lng,
   ]);
 
-  const handleApproachRouteFound = useCallback(({ coords }: { coords: L.LatLng[] }) => {
-    setGeometriaRuta(sanitizeRouteTail(coords));
-  }, []);
+  const handleApproachRouteFound = useCallback(
+    ({ coords }: { coords: L.LatLng[] }) => {
+      setGeometriaRuta(sanitizeRouteTail(coords));
+    },
+    [],
+  );
 
-  const handleDestinationRouteFound = useCallback(({ coords }: { coords: L.LatLng[] }) => {
-    setRutaDestinoFinal(sanitizeRouteTail(coords));
-  }, []);
+  const handleDestinationRouteFound = useCallback(
+    ({ coords }: { coords: L.LatLng[] }) => {
+      setRutaDestinoFinal(sanitizeRouteTail(coords));
+    },
+    [],
+  );
 
   const statusBadgeConfig = useMemo(() => {
     switch (estado) {
@@ -1971,12 +2217,6 @@ const finalizarViaje = () => {
           label: "OCUPADO",
           container: "bg-amber-500/20 border-amber-400/40 text-amber-100",
         };
-      case POSITION_STATES.INACTIVO:
-        return {
-          dot: "bg-slate-500",
-          label: "INACTIVO",
-          container: "bg-slate-700/60 border-slate-500/40 text-slate-200",
-        };
       default:
         return {
           dot: "bg-orange-500 animate-ping",
@@ -1986,20 +2226,29 @@ const finalizarViaje = () => {
     }
   }, [estado]);
 
-  const cambiarEstadoManual = useCallback((nextState: PositionState) => {
-    if (hasSystemTripActive) return;
+  const cambiarEstadoManual = useCallback(
+    (nextState: PositionState) => {
+      if (hasSystemTripActive) return;
 
-    socket.emit("update_driver_status", { estado: nextState }, (response: { success: boolean; estado?: string; message?: string }) => {
-      if (!response?.success || !response.estado) {
-        toast.error(response?.message || "No se pudo cambiar el estado del taxista.");
-        return;
-      }
+      socket.emit(
+        "update_driver_status",
+        { estado: nextState },
+        (response: { success: boolean; estado?: string; message?: string }) => {
+          if (!response?.success || !response.estado) {
+            toast.error(
+              response?.message || "No se pudo cambiar el estado del taxista.",
+            );
+            return;
+          }
 
-      setEstado(response.estado as PositionState);
-      setIsStatusMenuOpen(false);
-      toast.success(`Estado actualizado a ${response.estado}.`);
-    });
-  }, [hasSystemTripActive]);
+          setEstado(response.estado as PositionState);
+          setIsStatusMenuOpen(false);
+          toast.success(`Estado actualizado a ${response.estado}.`);
+        },
+      );
+    },
+    [hasSystemTripActive],
+  );
 
   const clampBubbleX = useCallback((x: number) => {
     if (typeof window === "undefined") return x;
@@ -2034,11 +2283,21 @@ const finalizarViaje = () => {
       setIsAccepting(false);
       setIsStatusMenuOpen(false);
       setRouteRefreshToken((prev) => prev + 1);
-      toast.warn("Se abrió otra sesión para esta cuenta. Se limpió el estado del viaje.", { autoClose: 3500 });
+      toast.warn(
+        "Se abrió otra sesión para esta cuenta. Se limpió el estado del viaje.",
+        { autoClose: 3500 },
+      );
     };
 
-    window.addEventListener("socket-session-replaced", handleSessionReplaced as EventListener);
-    return () => window.removeEventListener("socket-session-replaced", handleSessionReplaced as EventListener);
+    window.addEventListener(
+      "socket-session-replaced",
+      handleSessionReplaced as EventListener,
+    );
+    return () =>
+      window.removeEventListener(
+        "socket-session-replaced",
+        handleSessionReplaced as EventListener,
+      );
   }, []);
 
   useEffect(() => {
@@ -2051,8 +2310,12 @@ const finalizarViaje = () => {
   useEffect(() => {
     const handleResize = () => {
       if (chatBubbleX === null) return;
-      setChatBubbleX((current) => (current === null ? current : clampBubbleX(current)));
-      setChatBubbleY((current) => (current === null ? current : clampBubbleY(current)));
+      setChatBubbleX((current) =>
+        current === null ? current : clampBubbleX(current),
+      );
+      setChatBubbleY((current) =>
+        current === null ? current : clampBubbleY(current),
+      );
     };
 
     window.addEventListener("resize", handleResize);
@@ -2065,7 +2328,9 @@ const finalizarViaje = () => {
     }
   }, [hasSystemTripActive]);
 
-  const handleChatBubblePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const handleChatBubblePointerDown = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
 
     event.preventDefault();
@@ -2084,7 +2349,9 @@ const finalizarViaje = () => {
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const handleChatBubblePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const handleChatBubblePointerMove = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
     if (!isDraggingChatBubble) return;
 
     event.preventDefault();
@@ -2101,7 +2368,9 @@ const finalizarViaje = () => {
     setChatBubbleY(nextY);
   };
 
-  const finishChatBubbleDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const finishChatBubbleDrag = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
     if (!isDraggingChatBubble) return;
 
     event.currentTarget.releasePointerCapture(event.pointerId);
@@ -2114,7 +2383,8 @@ const finalizarViaje = () => {
     const snapLeft = CHAT_BUBBLE_MARGIN;
     const snapRight = window.innerWidth - CHAT_BUBBLE_SIZE - CHAT_BUBBLE_MARGIN;
     const middle = window.innerWidth / 2;
-    const nextSnap = currentX + CHAT_BUBBLE_SIZE / 2 < middle ? snapLeft : snapRight;
+    const nextSnap =
+      currentX + CHAT_BUBBLE_SIZE / 2 < middle ? snapLeft : snapRight;
 
     setChatBubbleX(nextSnap);
     setChatBubbleY(clampBubbleY(currentY));
@@ -2132,16 +2402,19 @@ const finalizarViaje = () => {
   const chatPanelTop =
     typeof window !== "undefined" && chatBubbleY !== null
       ? Math.min(
-          Math.max(chatBubbleY - CHAT_PANEL_HEIGHT + CHAT_BUBBLE_SIZE, CHAT_BUBBLE_MARGIN),
-          window.innerHeight - CHAT_PANEL_HEIGHT - CHAT_BUBBLE_MARGIN
+          Math.max(
+            chatBubbleY - CHAT_PANEL_HEIGHT + CHAT_BUBBLE_SIZE,
+            CHAT_BUBBLE_MARGIN,
+          ),
+          window.innerHeight - CHAT_PANEL_HEIGHT - CHAT_BUBBLE_MARGIN,
         )
       : CHAT_BUBBLE_MARGIN;
 
-    
-      // 🚨 FUNCIÓN AUXILIAR PARA EL ICONO CON EFECTO RADAR (TAMAÑO AJUSTADO)
-  const getRadarTaxiIcon = (heading: number) => L.divIcon({
-    className: 'bg-transparent',
-    html: `
+  // 🚨 FUNCIÓN AUXILIAR PARA EL ICONO CON EFECTO RADAR (TAMAÑO AJUSTADO)
+  const getRadarTaxiIcon = (heading: number) =>
+    L.divIcon({
+      className: "bg-transparent",
+      html: `
       <div class="relative flex items-center justify-center w-32 h-32">
         <!-- Onda de radar expansiva (GRANDE) -->
         <div class="absolute w-32 h-32 border-2 border-[#22c55e] rounded-full animate-ping opacity-75"></div>
@@ -2155,17 +2428,17 @@ const finalizarViaje = () => {
         />
       </div>
     `,
-    iconSize: [128, 128],   // 🎯 Tamaño total del contenedor (más grande para el círculo)
-    iconAnchor: [64, 64],   // 🎯 Centra el ícono en las coordenadas
-  });
+      iconSize: [128, 128], // 🎯 Tamaño total del contenedor (más grande para el círculo)
+      iconAnchor: [64, 64], // 🎯 Centra el ícono en las coordenadas
+    });
 
   return (
     <div className="h-dvh bg-[#0f172a] flex flex-col overflow-hidden font-sans relative text-slate-100">
       <ToastContainer theme="dark" />
-      
+
       {/* OVERLAY OSCURO */}
       {isMenuOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1004] transition-opacity"
           onClick={() => setIsMenuOpen(false)}
         />
@@ -2175,38 +2448,50 @@ const finalizarViaje = () => {
       {isRehydrating && (
         <div className="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-md z-[3000] flex flex-col items-center justify-center gap-4">
           <div className="w-12 h-12 border-4 border-[#22c55e] border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-white font-black uppercase tracking-widest text-sm">Recuperando viaje...</p>
+          <p className="text-white font-black uppercase tracking-widest text-sm">
+            Recuperando viaje...
+          </p>
         </div>
       )}
 
       {/* MENÚ LATERAL */}
-      <div className={`fixed top-0 left-0 h-full w-72 bg-[#1e293b] z-[1005] transform ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out shadow-2xl border-r border-white/10`}>
+      <div
+        className={`fixed top-0 left-0 h-full w-72 bg-[#1e293b] z-[1005] transform ${isMenuOpen ? "translate-x-0" : "-translate-x-full"} transition-transform duration-300 ease-in-out shadow-2xl border-r border-white/10`}
+      >
         <div className="p-8 bg-gradient-to-br from-[#22c55e] to-[#16a34a] text-[#0f172a]">
           <div className="h-16 w-16 bg-white rounded-2xl mb-4 flex items-center justify-center text-2xl shadow-lg font-black">
             {user.name?.charAt(0)}
           </div>
           <h2 className="font-bold text-xl leading-tight">{user.name}</h2>
-          <p className="text-xs font-black opacity-70 uppercase tracking-widest">Unidad: {user.taxiNumber}</p>
+          <p className="text-xs font-black opacity-70 uppercase tracking-widest">
+            Unidad: {user.taxiNumber}
+          </p>
         </div>
 
         <nav className="p-4 mt-4 space-y-2">
-          <button 
-            onClick={() => { setVistaActual('mapa'); setIsMenuOpen(false); }}
-            className={`w-full flex items-center gap-4 p-4 rounded-2xl font-bold transition-all ${vistaActual === 'mapa' ? 'bg-[#22c55e] text-[#0f172a]' : 'text-slate-400 hover:bg-white/5'}`}
+          <button
+            onClick={() => {
+              setVistaActual("mapa");
+              setIsMenuOpen(false);
+            }}
+            className={`w-full flex items-center gap-4 p-4 rounded-2xl font-bold transition-all ${vistaActual === "mapa" ? "bg-[#22c55e] text-[#0f172a]" : "text-slate-400 hover:bg-white/5"}`}
           >
             <span className="text-xl">📍</span> Mapa en Vivo
           </button>
-          
-          <button 
-            onClick={() => { setVistaActual('historial'); setIsMenuOpen(false); }}
-            className={`w-full flex items-center gap-4 p-4 rounded-2xl font-bold transition-all ${vistaActual === 'historial' ? 'bg-[#22c55e] text-[#0f172a]' : 'text-slate-400 hover:bg-white/5'}`}
+
+          <button
+            onClick={() => {
+              setVistaActual("historial");
+              setIsMenuOpen(false);
+            }}
+            className={`w-full flex items-center gap-4 p-4 rounded-2xl font-bold transition-all ${vistaActual === "historial" ? "bg-[#22c55e] text-[#0f172a]" : "text-slate-400 hover:bg-white/5"}`}
           >
             <span className="text-xl">📋</span> Mis Viajes
           </button>
 
           <div className="border-t border-white/5 my-6"></div>
 
-          <button 
+          <button
             onClick={handleLogout}
             className="w-full flex items-center gap-4 p-4 rounded-2xl font-bold text-red-400 hover:bg-red-500/10 transition-all"
           >
@@ -2222,70 +2507,174 @@ const finalizarViaje = () => {
             onClick={() => setIsMenuOpen(true)}
             className="pointer-events-auto bg-[#1e293b]/95 p-2.5 rounded-full shadow-lg border border-white/10 active:scale-90 transition-transform"
           >
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+            <svg
+              className="w-5 h-5 text-white"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M4 6h16M4 12h16M4 18h16"
+              />
             </svg>
           </button>
 
           <div className="flex items-center gap-2 bg-[#1e293b]/95 px-3 py-1 rounded-full border border-white/10 backdrop-blur-sm">
-            <div className={`h-1.5 w-1.5 rounded-full ${taxiPos?.lat && taxiPos?.lng ? 'bg-[#22c55e]' : 'bg-red-500 animate-ping'}`}></div>
+            <div
+              className={`h-1.5 w-1.5 rounded-full ${taxiPos?.lat && taxiPos?.lng ? "bg-[#22c55e]" : "bg-red-500 animate-ping"}`}
+            ></div>
             <span className="text-[8px] font-black text-slate-300 uppercase tracking-widest">
               ECO-{user.taxiNumber}
             </span>
           </div>
         </div>
 
-        {vistaActual === 'mapa' ? (
+        {vistaActual === "mapa" ? (
           taxiPos?.lat ? (
             <div className="relative w-full h-full">
-              
               {/* 🚨 MODAL FLOTANTE DE ACCIÓN MEDIA-ALTA */}
-              {estado === POSITION_STATES.ASIGNADO && pasajeroAsignado && canRespondToOffer ? (
+              {estado === POSITION_STATES.ASIGNADO &&
+              pasajeroAsignado &&
+              canRespondToOffer ? (
                 <div className="absolute inset-x-0 top-6 mx-4 z-[4000] bg-slate-900/95 border-2 border-[#22c55e] rounded-[2.5rem] p-5 shadow-[0_15px_40px_rgba(0,0,0,0.6)] backdrop-blur-md animate-pulse-subtle">
                   <div className="flex items-center gap-4 mb-3">
-                    <div className="w-12 h-12 rounded-2xl bg-[#22c55e] flex items-center justify-center text-2xl shadow-lg">⚡</div>
+                    <div className="w-12 h-12 rounded-2xl bg-[#22c55e] flex items-center justify-center text-2xl shadow-lg">
+                      ⚡
+                    </div>
                     <div className="flex-1">
-                      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#22c55e]">¡SOLICITUD INMEDIATA!</p>
-                      <h3 className="text-lg font-black leading-tight text-white">{pasajeroAsignado.name}</h3>
+                      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#22c55e]">
+                        ¡SOLICITUD INMEDIATA!
+                      </p>
+                      <h3 className="text-lg font-black leading-tight text-white">
+                        {pasajeroAsignado.name}
+                      </h3>
                     </div>
                   </div>
 
                   <div className="bg-white/5 p-3 rounded-2xl flex items-start gap-3 mb-4">
                     <span className="text-xl">📍</span>
                     <div className="flex flex-col w-full">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Recoger en:</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                        Recoger en:
+                      </span>
                       <p className="text-sm font-bold text-amber-300 leading-tight">
-                        {pasajeroAsignado.pickupAddress || pasajeroAsignado.direccion || pasajeroAsignado.address || "Calculando ubicación..."}
+                        {pasajeroAsignado.pickupAddress ||
+                          pasajeroAsignado.direccion ||
+                          pasajeroAsignado.address ||
+                          "Calculando ubicación..."}
                       </p>
+                    </div>
+                  </div>
+                  {/* DESTINO DEL VIAJE */}
+                  <div className="bg-white/5 p-3 rounded-2xl flex items-start gap-3 mb-4">
+                    <span className="text-xl">🏁</span>
+
+                    <div className="flex flex-col w-full min-w-0">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                        Destino:
+                      </span>
+
+                      <div className="address-marquee">
+                        <div className="address-marquee-track">
+                          <span className="!text-green-300">
+                            {pasajeroAsignado.destinationAddress ||
+                              "Calculando destino..."}
+                          </span>
+
+                          <span aria-hidden="true" className="!text-green-300">
+                            {pasajeroAsignado.destinationAddress ||
+                              "Calculando destino..."}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  {/* DISTANCIA + TARIFA */}
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    {/* DISTANCIA */}
+                    <div className="bg-white/5 border border-white/5 rounded-2xl p-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">📏</span>
+
+                        <div>
+                          <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
+                            Distancia
+                          </p>
+
+                          <p className="text-base font-black text-white">
+                            {typeof pasajeroAsignado.estimatedDistanceKm ===
+                            "number"
+                              ? `${pasajeroAsignado.estimatedDistanceKm.toFixed(1)} km`
+                              : "Calculando..."}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* TARIFA */}
+                    <div className="bg-white/5 border border-white/5 rounded-2xl p-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">💰</span>
+
+                        <div>
+                          <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
+                            Tarifa
+                          </p>
+
+                          <p className="text-base font-black text-[#22c55e]">
+                            {typeof pasajeroAsignado.estimatedFare === "number"
+                              ? `$${Math.round(pasajeroAsignado.estimatedFare)} MXN`
+                              : "Calculando..."}
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
                   <div className="mb-4">
-                    <TimerBar duration={OFFER_RESPONSE_TIMEOUT_MS} onFinish={expireOfferResponse} />
+                    <TimerBar
+                      duration={OFFER_RESPONSE_TIMEOUT_MS}
+                      onFinish={expireOfferResponse}
+                    />
                   </div>
 
                   <div className="grid grid-cols-5 gap-3">
-                    <button 
+                    <button
                       type="button"
                       onPointerDown={(event) => aceptarViaje(event)}
                       onClick={(event) => aceptarViaje(event)}
-                      disabled={isAccepting || !canRespondToOffer || estado !== POSITION_STATES.ASIGNADO}
+                      disabled={
+                        isAccepting ||
+                        !canRespondToOffer ||
+                        estado !== POSITION_STATES.ASIGNADO
+                      }
                       className={`col-span-3 py-4 rounded-2xl font-black text-xl border-b-4 shadow-lg transition-all active:translate-y-1 ${
-                        isAccepting || !canRespondToOffer || estado !== POSITION_STATES.ASIGNADO
-                          ? "bg-gray-500 animate-pulse border-gray-700 text-white cursor-not-allowed" 
+                        isAccepting ||
+                        !canRespondToOffer ||
+                        estado !== POSITION_STATES.ASIGNADO
+                          ? "bg-gray-500 animate-pulse border-gray-700 text-white cursor-not-allowed"
                           : "bg-[#22c55e] border-[#16a34a] text-[#0f172a] active:bg-[#16a34a]"
                       }`}
                     >
                       {isAccepting ? "⏳ ESPERA..." : "ACEPTAR"}
                     </button>
-                    <button 
+                    <button
                       type="button"
                       onPointerDown={(event) => rechazarViaje(event)}
                       onClick={(event) => rechazarViaje(event)}
-                      disabled={isAccepting || !canRespondToOffer || estado !== POSITION_STATES.ASIGNADO}
+                      disabled={
+                        isAccepting ||
+                        !canRespondToOffer ||
+                        estado !== POSITION_STATES.ASIGNADO
+                      }
                       className={`col-span-2 py-4 rounded-2xl font-black text-xs uppercase tracking-widest active:translate-y-1 transition-all ${
-                        (isAccepting || !canRespondToOffer || estado !== POSITION_STATES.ASIGNADO) 
-                          ? "bg-slate-700 text-slate-500 cursor-not-allowed" 
+                        isAccepting ||
+                        !canRespondToOffer ||
+                        estado !== POSITION_STATES.ASIGNADO
+                          ? "bg-slate-700 text-slate-500 cursor-not-allowed"
                           : "bg-slate-800 border-b-4 border-slate-950 text-slate-400"
                       }`}
                     >
@@ -2295,25 +2684,29 @@ const finalizarViaje = () => {
                 </div>
               ) : null}
 
-              <MapContainer 
-                center={[taxiPos.lat, taxiPos.lng]} 
-                zoom={15} 
+              <MapContainer
+                center={[taxiPos.lat, taxiPos.lng]}
+                zoom={15}
                 style={{ height: "100%", width: "100%" }}
                 zoomControl={false}
               >
                 <MapFixer />
                 <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-                {estado === POSITION_STATES.ENCAMINO && pasajeroAsignado?.lat && pasajeroAsignado?.lng && geometriaRuta.length === 0 && (
-                  <Suspense fallback={null}>
-                    <RoutingMachine
-                      waypoints={taxiToPassengerWaypoints!}
-                      onRouteFound={handleApproachRouteFound}
-                    />
-                  </Suspense>
-                )}
+                {estado === POSITION_STATES.ENCAMINO &&
+                  pasajeroAsignado?.lat &&
+                  pasajeroAsignado?.lng &&
+                  geometriaRuta.length === 0 && (
+                    <Suspense fallback={null}>
+                      <RoutingMachine
+                        waypoints={taxiToPassengerWaypoints!}
+                        onRouteFound={handleApproachRouteFound}
+                      />
+                    </Suspense>
+                  )}
 
-                {(estado === POSITION_STATES.ENCAMINO || estado === POSITION_STATES.ENCURSO) &&
+                {(estado === POSITION_STATES.ENCAMINO ||
+                  estado === POSITION_STATES.ENCURSO) &&
                   hasRealFinalDestination(pasajeroAsignado) &&
                   getDestinoFinalLatLng(pasajeroAsignado) &&
                   rutaDestinoFinal.length === 0 && (
@@ -2325,94 +2718,123 @@ const finalizarViaje = () => {
                     </Marker>
                   )}
 
-                {(estado === POSITION_STATES.ENCAMINO) && geometriaRuta.length > 0 && (
-                  <Polyline positions={geometriaRuta} pathOptions={{ color: 'rgb(245, 33, 65)', weight: 4, lineJoin: 'round' }} />
-                )}
+                {estado === POSITION_STATES.ENCAMINO &&
+                  geometriaRuta.length > 0 && (
+                    <Polyline
+                      positions={geometriaRuta}
+                      pathOptions={{
+                        color: "rgb(245, 33, 65)",
+                        weight: 4,
+                        lineJoin: "round",
+                      }}
+                    />
+                  )}
 
-               {(estado === POSITION_STATES.ENCAMINO || estado === POSITION_STATES.ENCURSO) &&
-  pasajeroAsignado?.lat &&
-  pasajeroAsignado?.lng &&
-  hasRealFinalDestination(pasajeroAsignado) &&
-  getDestinoFinalLatLng(pasajeroAsignado) &&
-  rutaDestinoFinal.length === 0 && (
-    <Suspense fallback={null}>
-      <RoutingMachine
-        key={destinationRouteKey}
-        waypoints={[
-          routeOriginForDestination as L.LatLng,
-          getDestinoFinalLatLng(pasajeroAsignado) as L.LatLng,
-        ]}
-        onRouteFound={handleDestinationRouteFound}
-      />
-    </Suspense>
-  )}
+                {(estado === POSITION_STATES.ENCAMINO ||
+                  estado === POSITION_STATES.ENCURSO) &&
+                  pasajeroAsignado?.lat &&
+                  pasajeroAsignado?.lng &&
+                  hasRealFinalDestination(pasajeroAsignado) &&
+                  getDestinoFinalLatLng(pasajeroAsignado) &&
+                  rutaDestinoFinal.length === 0 && (
+                    <Suspense fallback={null}>
+                      <RoutingMachine
+                        key={destinationRouteKey}
+                        waypoints={[
+                          routeOriginForDestination as L.LatLng,
+                          getDestinoFinalLatLng(pasajeroAsignado) as L.LatLng,
+                        ]}
+                        onRouteFound={handleDestinationRouteFound}
+                      />
+                    </Suspense>
+                  )}
 
-                {(estado === POSITION_STATES.ENCAMINO || estado === POSITION_STATES.ENCURSO) && hasRealFinalDestination(pasajeroAsignado) && rutaDestinoFinal.length > 0 && (
-                  <Polyline
-                    positions={rutaDestinoFinal}
-                    pathOptions={{
-                      color: '#22c55e',
-                      weight: 5,
-                      opacity: 0.95,
-                      lineJoin: 'round',
-                      lineCap: 'round',
-                    }}
-                  />
-                )}
+                {(estado === POSITION_STATES.ENCAMINO ||
+                  estado === POSITION_STATES.ENCURSO) &&
+                  hasRealFinalDestination(pasajeroAsignado) &&
+                  rutaDestinoFinal.length > 0 && (
+                    <Polyline
+                      positions={rutaDestinoFinal}
+                      pathOptions={{
+                        color: "#22c55e",
+                        weight: 5,
+                        opacity: 0.95,
+                        lineJoin: "round",
+                        lineCap: "round",
+                      }}
+                    />
+                  )}
 
-                {(estado === POSITION_STATES.ENCAMINO || estado === POSITION_STATES.ENCURSO) && destinoFinalMarkerPosition && (
-                  <Marker
-                    position={destinoFinalMarkerPosition}
-                    icon={banderaIcon}
-                  >
-                    <Popup>Meta del destino</Popup>
-                  </Marker>
-                )}
+                {(estado === POSITION_STATES.ENCAMINO ||
+                  estado === POSITION_STATES.ENCURSO) &&
+                  destinoFinalMarkerPosition && (
+                    <Marker
+                      position={destinoFinalMarkerPosition}
+                      icon={banderaIcon}
+                    >
+                      <Popup>Meta del destino</Popup>
+                    </Marker>
+                  )}
 
-                {estado === POSITION_STATES.ENCURSO && historialRuta.length > 0 && (
-                  <Polyline positions={historialRuta} pathOptions={{ color: 'rgb(55, 227, 55)', weight: 4 }} />
-                )}
+                {estado === POSITION_STATES.ENCURSO &&
+                  historialRuta.length > 0 && (
+                    <Polyline
+                      positions={historialRuta}
+                      pathOptions={{ color: "rgb(55, 227, 55)", weight: 4 }}
+                    />
+                  )}
 
                 {/* 8. 🚨 MARCADOR DEL TAXI CON LÓGICA CONDICIONAL (RADAR vs NORMAL) */}
-                {taxiPos?.lat && taxiPos?.lng && (
-                  estado === POSITION_STATES.ACTIVO ? (
+                {taxiPos?.lat &&
+                  taxiPos?.lng &&
+                  (estado === POSITION_STATES.ACTIVO ? (
                     // MODO RADAR: Efecto de búsqueda cuando está libre
-                    <Marker 
-                      position={[taxiPos.lat, taxiPos.lng]} 
+                    <Marker
+                      position={[taxiPos.lat, taxiPos.lng]}
                       icon={getRadarTaxiIcon(taxiPos.heading || 0)}
                     >
-                      <Popup>Unidad {taxiPos.taxiNumber} - Esperando viaje</Popup>
+                      <Popup>
+                        Unidad {taxiPos.taxiNumber} - Esperando viaje
+                      </Popup>
                     </Marker>
                   ) : (
                     // MODO NORMAL: Icono estándar durante el servicio
-                    <RotatedMarker 
-                      position={[taxiPos.lat, taxiPos.lng]} 
-                      icon={taxistaIcon} 
+                    <RotatedMarker
+                      position={[taxiPos.lat, taxiPos.lng]}
+                      icon={taxistaIcon}
                       rotationAngle={taxiPos.heading || 0}
                     >
                       <Popup>Unidad {taxiPos.taxiNumber}</Popup>
                     </RotatedMarker>
-                  )
-                )}
-                
-                {pasajeroAsignado?.lat && 
-                 estado !== POSITION_STATES.FINALIZADO && 
-                 estado !== POSITION_STATES.ACTIVO && 
-                 estado !== POSITION_STATES.CANCELADO && 
-                 estado !== POSITION_STATES.ENCURSO && (
-                  <Marker 
-                    position={
-                      estado === POSITION_STATES.ENCAMINO && geometriaRuta.length > 0
-                        ? [geometriaRuta[geometriaRuta.length - 1].lat, geometriaRuta[geometriaRuta.length - 1].lng]
-                        : [Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng)]
-                    }
-                    icon={pasajeroIcon}
-                  />
-                )}
+                  ))}
+
+                {pasajeroAsignado?.lat &&
+                  estado !== POSITION_STATES.FINALIZADO &&
+                  estado !== POSITION_STATES.ACTIVO &&
+                  estado !== POSITION_STATES.CANCELADO &&
+                  estado !== POSITION_STATES.ENCURSO && (
+                    <Marker
+                      position={
+                        estado === POSITION_STATES.ENCAMINO &&
+                        geometriaRuta.length > 0
+                          ? [
+                              geometriaRuta[geometriaRuta.length - 1].lat,
+                              geometriaRuta[geometriaRuta.length - 1].lng,
+                            ]
+                          : [
+                              Number(pasajeroAsignado.lat),
+                              Number(pasajeroAsignado.lng),
+                            ]
+                      }
+                      icon={pasajeroIcon}
+                    />
+                  )}
               </MapContainer>
             </div>
           ) : (
-            <div className="h-full w-full flex items-center justify-center text-slate-500 text-[10px] font-black uppercase italic animate-pulse">🛰️ Sincronizando GPS...</div>
+            <div className="h-full w-full flex items-center justify-center text-slate-500 text-[10px] font-black uppercase italic animate-pulse">
+              🛰️ Sincronizando GPS...
+            </div>
           )
         ) : (
           <div className="h-full w-full bg-[#0f172a] overflow-y-auto pt-4">
@@ -2421,16 +2843,24 @@ const finalizarViaje = () => {
         )}
 
         {/* Badge de estado flotante */}
-        {vistaActual === 'mapa' && (
+        {vistaActual === "mapa" && (
           <div className="absolute top-14 sm:top-16 right-3 sm:right-4 z-[1000]">
             <button
               type="button"
-              onClick={() => !hasSystemTripActive && setIsStatusMenuOpen((prev) => !prev)}
+              onClick={() =>
+                !hasSystemTripActive && setIsStatusMenuOpen((prev) => !prev)
+              }
               className={`backdrop-blur-md px-3 py-1.5 rounded-2xl border flex items-center gap-2 ${statusBadgeConfig.container} ${hasSystemTripActive ? "cursor-default opacity-90" : "cursor-pointer"}`}
             >
-              <div className={`h-2 w-2 rounded-full ${statusBadgeConfig.dot}`}></div>
-              <span className="text-[8px] sm:text-[11px] font-black uppercase tracking-widest">{statusBadgeConfig.label}</span>
-              {!hasSystemTripActive && <span className="text-[10px] text-white/70">▾</span>}
+              <div
+                className={`h-2 w-2 rounded-full ${statusBadgeConfig.dot}`}
+              ></div>
+              <span className="text-[8px] sm:text-[11px] font-black uppercase tracking-widest">
+                {statusBadgeConfig.label}
+              </span>
+              {!hasSystemTripActive && (
+                <span className="text-[10px] text-white/70">▾</span>
+              )}
             </button>
 
             {isStatusMenuOpen && !hasSystemTripActive && (
@@ -2451,126 +2881,194 @@ const finalizarViaje = () => {
                   <span className="h-2 w-2 rounded-full bg-amber-400"></span>
                   Ocupado
                 </button>
-                <button
-                  type="button"
-                  onClick={() => cambiarEstadoManual(POSITION_STATES.INACTIVO)}
-                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/5"
-                >
-                  <span className="h-2 w-2 rounded-full bg-slate-500"></span>
-                  Inactivo
-                </button>
               </div>
             )}
           </div>
         )}
 
         {/* CHAT FLOTANTE (ENCAMINO) */}
-        {vistaActual === 'mapa' && estado === POSITION_STATES.ENCAMINO && pasajeroAsignado && (
-          <>
-            <div
-              className={`fixed z-[2000] sm:w-[340px] bg-[#0f172a]/95 border border-white/10 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md transition-all duration-200 ${chatAbierto ? "opacity-100 scale-100 pointer-events-auto" : "opacity-0 scale-95 pointer-events-none"}`}
-              style={{
-                left: chatPanelOnLeft ? "12px" : "auto",
-                right: chatPanelOnLeft ? "auto" : "12px",
-                top: `${chatPanelTop}px`,
-              }}
-            >
-              <div className="h-11 px-4 flex items-center justify-between bg-white/5 border-b border-white/10">
-                <span className="text-[10px] font-black text-white uppercase tracking-widest">Chat con Pasajero</span>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setChatAbierto(false)}
-                    className="text-slate-300 hover:text-white text-xs font-black uppercase tracking-widest"
-                  >
-                    Minimizar
-                  </button>
-                  <button
-                    onClick={() => setChatAbierto(false)}
-                    className="text-slate-400 hover:text-white text-sm font-black"
-                    aria-label="Cerrar chat"
-                  >
-                    ×
-                  </button>
+        {vistaActual === "mapa" &&
+          estado === POSITION_STATES.ENCAMINO &&
+          pasajeroAsignado && (
+            <>
+              <div
+                className={`fixed z-[2000] sm:w-[340px] bg-[#0f172a]/95 border border-white/10 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md transition-all duration-200 ${chatAbierto ? "opacity-100 scale-100 pointer-events-auto" : "opacity-0 scale-95 pointer-events-none"}`}
+                style={{
+                  left: chatPanelOnLeft ? "12px" : "auto",
+                  right: chatPanelOnLeft ? "auto" : "12px",
+                  top: `${chatPanelTop}px`,
+                }}
+              >
+                <div className="h-11 px-4 flex items-center justify-between bg-white/5 border-b border-white/10">
+                  <span className="text-[10px] font-black text-white uppercase tracking-widest">
+                    Chat con Pasajero
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setChatAbierto(false)}
+                      className="text-slate-300 hover:text-white text-xs font-black uppercase tracking-widest"
+                    >
+                      Minimizar
+                    </button>
+                    <button
+                      onClick={() => setChatAbierto(false)}
+                      className="text-slate-400 hover:text-white text-sm font-black"
+                      aria-label="Cerrar chat"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+                <div className="h-[260px]">
+                  <ChatBox
+                    toEmail={pasajeroAsignado.email}
+                    userName={`Taxi Valles`}
+                    onIncomingMessage={() => {
+                      if (!chatAbierto) {
+                        setUnreadChatCount((prev) => Math.min(prev + 1, 99));
+                      }
+                    }}
+                  />
                 </div>
               </div>
-              <div className="h-[260px]">
-                <ChatBox
-                  toEmail={pasajeroAsignado.email}
-                  userName={`Taxi Valles`}
-                  onIncomingMessage={() => {
-                    if (!chatAbierto) {
-                      setUnreadChatCount((prev) => Math.min(prev + 1, 99));
-                    }
-                  }}
-                />
-              </div>
-            </div>
 
-            <button
-              onPointerDown={handleChatBubblePointerDown}
-              onPointerMove={handleChatBubblePointerMove}
-              onPointerUp={finishChatBubbleDrag}
-              onPointerCancel={finishChatBubbleDrag}
-              style={{
-                left: `${chatBubbleX ?? CHAT_BUBBLE_MARGIN}px`,
-                top: `${chatBubbleY ?? CHAT_BUBBLE_MARGIN}px`,
-              }}
-              className={`fixed z-[2000] h-[52px] w-[52px] bg-[#22c55e] text-[#0f172a] rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-lg flex items-center justify-center active:translate-y-1 select-none touch-none transition-opacity duration-150 ${chatAbierto ? "opacity-0 pointer-events-none" : "opacity-100"} ${unreadChatCount > 0 ? "animate-pulse ring-4 ring-[#22c55e]/45" : ""}`}
-              title="Chat con pasajero"
-              aria-label="Abrir chat con pasajero"
-              data-dragging={isDraggingChatBubble ? "true" : "false"}
-            >
-              💬
-              {unreadChatCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 border-2 border-[#0f172a] text-[9px] leading-none font-black flex items-center justify-center text-white">
-                  {unreadChatCount > 9 ? "9+" : unreadChatCount}
-                </span>
-              )}
-            </button>
-          </>
-        )}
+              <button
+                onPointerDown={handleChatBubblePointerDown}
+                onPointerMove={handleChatBubblePointerMove}
+                onPointerUp={finishChatBubbleDrag}
+                onPointerCancel={finishChatBubbleDrag}
+                style={{
+                  left: `${chatBubbleX ?? CHAT_BUBBLE_MARGIN}px`,
+                  top: `${chatBubbleY ?? CHAT_BUBBLE_MARGIN}px`,
+                }}
+                className={`fixed z-[2000] h-[52px] w-[52px] bg-[#22c55e] text-[#0f172a] rounded-full border-b-4 border-[#15803d] shadow-2xl font-black text-lg flex items-center justify-center active:translate-y-1 select-none touch-none transition-opacity duration-150 ${chatAbierto ? "opacity-0 pointer-events-none" : "opacity-100"} ${unreadChatCount > 0 ? "animate-pulse ring-4 ring-[#22c55e]/45" : ""}`}
+                title="Chat con pasajero"
+                aria-label="Abrir chat con pasajero"
+                data-dragging={isDraggingChatBubble ? "true" : "false"}
+              >
+                💬
+                {unreadChatCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 border-2 border-[#0f172a] text-[9px] leading-none font-black flex items-center justify-center text-white">
+                    {unreadChatCount > 9 ? "9+" : unreadChatCount}
+                  </span>
+                )}
+              </button>
+            </>
+          )}
       </main>
-    
-           {/* PANEL DE ACCIONES INFERIOR */}
+
+      {/* PANEL DE ACCIONES INFERIOR */}
       <div className="w-full max-w-md mx-auto bg-[#1e293b] rounded-t-[2.5rem] shadow-[0_-25px_60px_rgba(0,0,0,0.5)] shrink-0 z-[1001] relative border-t border-white/5">
         <div className="absolute top-3 left-1/2 -translate-x-1/2 w-12 h-1 bg-slate-700 rounded-full"></div>
 
         {/* 🎯 SOLO SE MUESTRA SI EL VIAJE ESTÁ EN CAMINO O EN CURSO */}
-        {pasajeroAsignado && (estado === POSITION_STATES.ENCAMINO || estado === POSITION_STATES.ENCURSO) ? (
+        {pasajeroAsignado &&
+        (estado === POSITION_STATES.ENCAMINO ||
+          estado === POSITION_STATES.ENCURSO) ? (
           <div className="flex flex-col">
-            <div className={isCompactTripPanel ? "px-4 pt-4 pb-1" : "px-6 pt-6 pb-2"}>
-              <div className={isCompactTripPanel ? "p-3 rounded-[1.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-2" : "p-5 rounded-[2.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-3"}>
-                <div className={isCompactTripPanel ? "flex items-center gap-3" : "flex items-center gap-4"}>
-                  <div className={isCompactTripPanel ? "w-9 h-9 rounded-xl bg-white flex items-center justify-center text-lg shadow-lg" : "w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shadow-lg"}>👤</div>
+            <div
+              className={
+                isCompactTripPanel ? "px-4 pt-4 pb-1" : "px-6 pt-6 pb-2"
+              }
+            >
+              <div
+                className={
+                  isCompactTripPanel
+                    ? "p-3 rounded-[1.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-2"
+                    : "p-5 rounded-[2.5rem] bg-[#0f172a]/50 border border-white/5 flex flex-col gap-3"
+                }
+              >
+                <div
+                  className={
+                    isCompactTripPanel
+                      ? "flex items-center gap-3"
+                      : "flex items-center gap-4"
+                  }
+                >
+                  <div
+                    className={
+                      isCompactTripPanel
+                        ? "w-9 h-9 rounded-xl bg-white flex items-center justify-center text-lg shadow-lg"
+                        : "w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-2xl shadow-lg"
+                    }
+                  >
+                    👤
+                  </div>
                   <div className="flex-1">
-                    <p className={isCompactTripPanel ? "text-[7px] font-black uppercase tracking-[0.18em] text-slate-500" : "text-[8px] font-black uppercase tracking-[0.2em] text-slate-500"}>
-                      {estado === POSITION_STATES.ENCURSO ? "Viaje Activo" : "Trayecto de Recogida"}
+                    <p
+                      className={
+                        isCompactTripPanel
+                          ? "text-[7px] font-black uppercase tracking-[0.18em] text-slate-500"
+                          : "text-[8px] font-black uppercase tracking-[0.2em] text-slate-500"
+                      }
+                    >
+                      {estado === POSITION_STATES.ENCURSO
+                        ? "Viaje Activo"
+                        : "Trayecto de Recogida"}
                     </p>
-                    <h3 className={isCompactTripPanel ? "text-sm font-black leading-tight text-white" : "text-lg font-black leading-tight text-white"}>{pasajeroAsignado.name}</h3>
+                    <h3
+                      className={
+                        isCompactTripPanel
+                          ? "text-sm font-black leading-tight text-white"
+                          : "text-lg font-black leading-tight text-white"
+                      }
+                    >
+                      {pasajeroAsignado.name}
+                    </h3>
                   </div>
                 </div>
 
-                                <div className={isCompactTripPanel ? "p-2 rounded-xl flex items-start gap-2 bg-white/5" : "p-3 rounded-2xl flex items-start gap-3 bg-white/5"}>
-                  <span className={isCompactTripPanel ? "text-base" : "text-xl"}>
+                <div
+                  className={
+                    isCompactTripPanel
+                      ? "p-2 rounded-xl flex items-start gap-2 bg-white/5"
+                      : "p-3 rounded-2xl flex items-start gap-3 bg-white/5"
+                  }
+                >
+                  <span
+                    className={isCompactTripPanel ? "text-base" : "text-xl"}
+                  >
                     {estado === POSITION_STATES.ENCURSO ? "🚖" : "📍"}
                   </span>
                   <div className="flex flex-col min-w-0 flex-1">
-                    <span className={isCompactTripPanel ? "text-[8px] font-black uppercase tracking-widest text-slate-400" : "text-[9px] font-black uppercase tracking-widest text-slate-400"}>
-                      {estado === POSITION_STATES.ENCURSO ? "Destino final:" : "Punto de recogida:"}
+                    <span
+                      className={
+                        isCompactTripPanel
+                          ? "text-[8px] font-black uppercase tracking-widest text-slate-400"
+                          : "text-[9px] font-black uppercase tracking-widest text-slate-400"
+                      }
+                    >
+                      {estado === POSITION_STATES.ENCURSO
+                        ? "Destino final:"
+                        : "Punto de recogida:"}
                     </span>
-                    
+
                     {/* 🎯 AMBOS USAN EL MISMO EFECTO MARQUEE */}
                     <div className="address-marquee">
                       <div className="address-marquee-track">
                         {estado === POSITION_STATES.ENCURSO ? (
                           <>
-                            <span>{formatShortAddress(pasajeroAsignado.destinationAddress)}</span>
-                            <span aria-hidden="true">{formatShortAddress(pasajeroAsignado.destinationAddress)}</span>
+                            <span>
+                              {formatShortAddress(
+                                pasajeroAsignado.destinationAddress,
+                              )}
+                            </span>
+                            <span aria-hidden="true">
+                              {formatShortAddress(
+                                pasajeroAsignado.destinationAddress,
+                              )}
+                            </span>
                           </>
                         ) : (
                           <>
-                            <span>{pasajeroAsignado.pickupAddress || "Calculando ubicación..."}</span>
-                            <span aria-hidden="true">{pasajeroAsignado.pickupAddress || "Calculando ubicación..."}</span>
+                            <span>
+                              {pasajeroAsignado.pickupAddress ||
+                                "Calculando ubicación..."}
+                            </span>
+                            <span aria-hidden="true">
+                              {pasajeroAsignado.pickupAddress ||
+                                "Calculando ubicación..."}
+                            </span>
                           </>
                         )}
                       </div>
@@ -2580,9 +3078,29 @@ const finalizarViaje = () => {
 
                 {tarifaEstimada !== null && distanciaEstimadaKm !== null && (
                   <div className="bg-white/5 border border-white/10 rounded-xl p-3 mt-2">
-                    <p className="text-[8px] font-black uppercase tracking-[0.18em] text-slate-400 mb-1">Tarifa estimada</p>
-                    <p className="text-base font-black text-white">${tarifaEstimada} MXN</p>
-                    <p className="text-[10px] font-bold text-slate-400">{distanciaEstimadaKm.toFixed(1)} km</p>
+                    <div className="grid grid-cols-2 divide-x divide-white/10">
+                      {/* TARIFA */}
+                      <div className="pr-3">
+                        <p className="text-[8px] font-black uppercase tracking-[0.18em] text-slate-400 mb-1">
+                          Tarifa estimada
+                        </p>
+
+                        <p className="text-base font-black text-[#22c55e]">
+                          ${Math.round(tarifaEstimada)} MXN
+                        </p>
+                      </div>
+
+                      {/* DISTANCIA */}
+                      <div className="pl-3">
+                        <p className="text-[8px] font-black uppercase tracking-[0.18em] text-slate-400 mb-1">
+                          Distancia
+                        </p>
+
+                        <p className="text-base font-black text-white">
+                          {distanciaEstimadaKm.toFixed(1)} km
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -2591,20 +3109,20 @@ const finalizarViaje = () => {
             {/* BOTONES OPERATIVOS EN RUTA */}
             <div className={isCompactTripPanel ? "p-4 pb-6" : "p-6 pb-10"}>
               {estado === POSITION_STATES.ENCAMINO && (
-                <button 
-                  onClick={confirmarAbordo} 
+                <button
+                  onClick={confirmarAbordo}
                   disabled={!pasajeroAsignado}
-                  className={`w-full py-4 bg-white text-[#0f172a] rounded-2xl font-black text-lg flex items-center justify-center gap-3 border-b-4 border-slate-300 active:translate-y-1 transition-all shadow-lg ${!pasajeroAsignado ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`w-full py-4 bg-white text-[#0f172a] rounded-2xl font-black text-lg flex items-center justify-center gap-3 border-b-4 border-slate-300 active:translate-y-1 transition-all shadow-lg ${!pasajeroAsignado ? "opacity-50 cursor-not-allowed" : ""}`}
                 >
                   📍 CONFIRMAR ABORDO
                 </button>
               )}
 
               {estado === POSITION_STATES.ENCURSO && (
-                <button 
-                  onClick={finalizarViaje} 
+                <button
+                  onClick={finalizarViaje}
                   disabled={!pasajeroAsignado}
-                  className={`w-full py-4 bg-red-600 text-white rounded-2xl font-black text-lg border-b-4 border-red-900 shadow-xl active:translate-y-1 transition-all ${!pasajeroAsignado ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`w-full py-4 bg-red-600 text-white rounded-2xl font-black text-lg border-b-4 border-red-900 shadow-xl active:translate-y-1 transition-all ${!pasajeroAsignado ? "opacity-50 cursor-not-allowed" : ""}`}
                 >
                   🏁 FINALIZAR SERVICIO
                 </button>
@@ -2614,20 +3132,14 @@ const finalizarViaje = () => {
         ) : estado === POSITION_STATES.ASIGNADO ? (
           /* PANEL DE ESPERA MIENTRAS LA ALERTA ESTÁ ARRIBA */
           <div className="py-8 flex flex-col items-center justify-center">
-            <p className="text-slate-400 text-xs font-black uppercase tracking-widest animate-pulse">⚡ Responde arriba ⚡</p>
+            <p className="text-slate-400 text-xs font-black uppercase tracking-widest animate-pulse">
+              ⚡ Responde arriba ⚡
+            </p>
           </div>
-                ) : (
+        ) : (
           /* ESTADO LIBRE / DEFAULT (Se muestra al finalizar o cancelar) */
           <div className="w-full py-6 px-4 flex flex-col items-center justify-center gap-4">
             <div className="flex w-full max-w-[560px] items-center justify-center gap-3 sm:gap-6">
-              <div className="flex-shrink-0 rounded-[2rem] bg-white/5 p-3 shadow-[0_10px_30px_rgba(0,0,0,0.25)] border border-white/10">
-                <img
-                  src={taxiValles.options.iconUrl}
-                  alt="Taxi Icon"
-                  className="w-24 h-24 sm:w-28 sm:h-28 object-contain"
-                />
-              </div>
-
               <div className="flex flex-col items-center justify-center">
                 <div className="relative flex h-28 w-28 sm:h-32 sm:w-32 items-center justify-center rounded-full border-[5px] border-[#22c55e] bg-gradient-to-br from-[#0f172a] via-[#111827] to-[#0f172a] shadow-[0_0_30px_rgba(34,197,94,0.35)] animate-bounce">
                   <div className="absolute inset-2 rounded-full border border-[#22c55e]/30" />
@@ -2640,7 +3152,7 @@ const finalizarViaje = () => {
                   <h2 className="text-[1.05rem] sm:text-[1.25rem] font-black text-white uppercase italic tracking-[0.18em]">
                     VALLES<span className="ml-1 text-[#22c55e]">CONECTA</span>
                   </h2>
-                  
+
                   {/* 🚨 MENSAJE ROTATIVO CON ANIMACIÓN */}
                   <div className="mt-2 h-6 flex items-center justify-center overflow-hidden">
                     <p
