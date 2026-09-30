@@ -27,12 +27,7 @@ import { useGeolocation } from "../hooks/useGeolocation";
 import { Payload } from "../types/Payload";
 import { ChatBox } from "../components/ChatBox";
 import { HistorialViajes } from "../components/HistorialViajes";
-import {
-  taxistaIcon,
-  pasajeroIcon,
-  banderaIcon,
-  taxiValles,
-} from "../utils/icons";
+import { taxistaIcon, pasajeroIcon, banderaIcon } from "../utils/icons";
 import { calcularHeading } from "../utils/heading"; // Función para calcular el heading entre dos puntos
 import {
   POSITION_STATES,

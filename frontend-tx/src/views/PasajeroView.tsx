@@ -179,6 +179,8 @@ const PasajeroView: React.FC = () => {
   // REFS CENTRALIZADAS - Evitan closures obsoletos en listeners
   const taxistaAsignadoRef = useRef<Payload | null>(null);
   const estadoRef = useRef<ViajeEstado>(TRIP_STATES.PENDIENTE);
+  const tripSessionActiveRef = useRef(false);
+  const lastBackPressedRef = useRef(0);
   const taxiPosRef = useRef<any>(null);
   const userPositionRef = useRef<any>(null);
   const previewRouteSeedRef = useRef<{
@@ -203,11 +205,151 @@ const PasajeroView: React.FC = () => {
     estadoRef.current = estado;
   }, [estado]);
   useEffect(() => {
+    tripSessionActiveRef.current =
+      estado === TRIP_STATES.ASIGNADO ||
+      estado === TRIP_STATES.ENCAMINO ||
+      estado === TRIP_STATES.ENCURSO;
+
+    console.log("🛡️ PASAJERO TRIP SESSION", {
+      estado,
+      tripSessionActive: tripSessionActiveRef.current,
+    });
+
+    if (!tripSessionActiveRef.current) {
+      lastBackPressedRef.current = 0;
+    }
+  }, [estado]);
+  useEffect(() => {
     taxiPosRef.current = taxiPos;
   }, [taxiPos]);
   useEffect(() => {
     userPositionRef.current = userPosition;
   }, [userPosition]);
+
+  useEffect(() => {
+    const standalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      (window.navigator as any).standalone === true;
+
+    const ensureHistoryEntry = () => {
+      try {
+        if (window.location.hash !== "#trip-guard") {
+          window.history.replaceState(
+            { isTripActive: true },
+            "",
+            "#trip-guard",
+          );
+        }
+
+        window.history.pushState(
+          { isTripActive: true },
+          "",
+          window.location.href,
+        );
+      } catch (e) {
+        console.warn(
+          "⚠️ No se pudo ajustar el historial para guard de retroceso:",
+          e,
+        );
+      }
+    };
+
+    ensureHistoryEntry();
+
+    const handlePopState = (_event: PopStateEvent) => {
+      console.log("🛡️ PASAJERO POPSTATE", {
+        estado: estadoRef.current,
+        tripSessionActive: tripSessionActiveRef.current,
+        lastBackPressed: lastBackPressedRef.current,
+        hash: window.location.hash,
+        href: window.location.href,
+        standalone,
+      });
+
+      if (!tripSessionActiveRef.current) {
+        console.log("🛡️ POPSTATE ignorado: viaje no activo");
+        return;
+      }
+
+      const now = Date.now();
+
+      console.log("🛡️ POPSTATE viaje activo", {
+        elapsed: now - lastBackPressedRef.current,
+      });
+
+      if (now - lastBackPressedRef.current < 2000) {
+        console.log("🛡️ SEGUNDO ATRÁS: permitir salida");
+        ensureHistoryEntry();
+        return;
+      }
+
+      lastBackPressedRef.current = now;
+
+      console.log("🛡️ PRIMER ATRÁS: mostrar advertencia");
+
+      toast.info("Presiona atrás nuevamente para salir", {
+        toastId: "double-back-exit",
+        autoClose: 2000,
+      });
+
+      if (!standalone) {
+        console.log("🛡️ Reinsertando entrada de historial");
+        ensureHistoryEntry();
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [estado]);
+
+  useEffect(() => {
+    if (!tripSessionActiveRef.current) return;
+
+    let startX = 0;
+    let startY = 0;
+
+    const handleTouchStart = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      startX = touch.clientX;
+      startY = touch.clientY;
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      if (!tripSessionActiveRef.current) return;
+
+      const touch = event.touches[0];
+      const deltaX = touch.clientX - startX;
+      const deltaY = touch.clientY - startY;
+
+      if (
+        startX < 25 &&
+        deltaX > 40 &&
+        Math.abs(deltaX) > Math.abs(deltaY) * 1.5
+      ) {
+        const now = Date.now();
+
+        if (now - lastBackPressedRef.current >= 2000) {
+          lastBackPressedRef.current = now;
+
+          toast.info("Presiona atrás nuevamente para salir", {
+            toastId: "double-back-exit",
+            autoClose: 2000,
+          });
+        }
+      }
+    };
+
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("touchmove", handleTouchMove, { passive: true });
+
+    return () => {
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
+    };
+  }, [estado]);
 
   useEffect(() => {
     const savedQuery = localStorage.getItem("taxi_destination_query") || "";
