@@ -233,18 +233,10 @@ const PasajeroView: React.FC = () => {
 
     const ensureHistoryEntry = () => {
       try {
-        if (window.location.hash !== "#trip-guard") {
-          window.history.replaceState(
-            { isTripActive: true },
-            "",
-            "#trip-guard",
-          );
-        }
-
         window.history.pushState(
           { isTripActive: true },
           "",
-          window.location.href,
+          window.location.pathname + window.location.search,
         );
       } catch (e) {
         console.warn(
@@ -1262,6 +1254,10 @@ const PasajeroView: React.FC = () => {
     };
 
     const handleRehydrateSuccess = (data: any) => {
+      console.log("🚨 ENTRA REHYDRATE_TRIP_RESULT", {
+        estadoActual: estadoRef.current,
+        data,
+      });
       if (!data?.success || !data?.pasajero) {
         setIsRehydrating(false);
         return;
@@ -1270,6 +1266,13 @@ const PasajeroView: React.FC = () => {
       const nextEstado = String(data.estado || "")
         .toLowerCase()
         .trim();
+      console.log("🔄 PASAJERO REHYDRATE_RESULT", {
+        estadoActual: estadoRef.current,
+        nextEstado,
+        taxistaAsignado: data.pasajero,
+        estimatedFare: data.estimatedFare,
+        estimatedDistanceKm: data.estimatedDistanceKm,
+      });
       const isInactiveTrip = [
         "activo",
         "pendiente",
@@ -1300,12 +1303,24 @@ const PasajeroView: React.FC = () => {
     };
 
     const handleTripRehydrateSuccess = (data: any) => {
+      console.log("🚨 ENTRA TRIP_REHYDRATE_SUCCESS", {
+        estadoActual: estadoRef.current,
+        data,
+      });
       if (!data?.requestId || !data?.status) {
         setIsRehydrating(false);
         return;
       }
 
       const nextEstado = String(data.status).toLowerCase().trim();
+      console.log("🔄 PASAJERO TRIP_REHYDRATE_SUCCESS", {
+        estadoActual: estadoRef.current,
+        nextEstado,
+        requestId: data.requestId,
+        passenger: data.passenger,
+        estimatedFare: data.estimatedFare,
+        estimatedDistanceKm: data.estimatedDistanceKm,
+      });
       const passengerPayload = data.passenger
         ? {
             ...data.passenger,
@@ -1321,6 +1336,25 @@ const PasajeroView: React.FC = () => {
             destinationLng: data.passenger.destinationLng ?? null,
           }
         : null;
+
+      const estadoActual = estadoRef.current;
+      const estadosViajeActivos = ["asignado", "encamino", "encurso"];
+
+      if (
+        estadosViajeActivos.includes(estadoActual) &&
+        nextEstado === "activo"
+      ) {
+        console.warn(
+          "??? REHYDRATE: ignorando degradaci�n de viaje activo a ACTIVO",
+          {
+            estadoActual,
+            nextEstado,
+            requestId: data.requestId,
+          },
+        );
+        setIsRehydrating(false);
+        return;
+      }
 
       setEstado(nextEstado as ViajeEstado);
       setTaxistaAsignado(passengerPayload);

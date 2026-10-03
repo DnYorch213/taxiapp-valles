@@ -352,17 +352,10 @@ const TaxistaView: React.FC = () => {
 
     const ensureHistoryEntry = () => {
       try {
-        if (window.location.hash !== "#trip-guard") {
-          window.history.replaceState(
-            { isTripActive: true },
-            "",
-            "#trip-guard",
-          );
-        }
         window.history.pushState(
           { isTripActive: true },
           "",
-          window.location.href,
+          window.location.pathname + window.location.search,
         );
       } catch (e) {
         console.warn(
