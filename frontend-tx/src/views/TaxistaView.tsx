@@ -691,7 +691,7 @@ const TaxistaView: React.FC = () => {
   }, [canRespondToOffer, excludedEmails, resetSolicitudActiva]);
 
   useEffect(() => {
-    audioRef.current = new Audio("/sounds/alerta_taxi.mp3");
+    audioRef.current = new Audio("/sounds/sonido-app.mp3");
     if (audioRef.current) {
       audioRef.current.loop = true;
       audioRef.current.load();
