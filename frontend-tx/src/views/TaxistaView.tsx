@@ -251,6 +251,7 @@ const TaxistaView: React.FC = () => {
   const acceptanceTimerRef = useRef<number | null>(null);
   const answeredOfferRequestIdsRef = useRef(new Set<string>());
   const activeOfferRequestIdRef = useRef<string | null>(null);
+  const recentlyFinishedRequestIdRef = useRef<string | null>(null);
   const lastClosedOfferRequestIdRef = useRef<string | null>(null);
   const ignoreOffersUntilRef = useRef(0);
   const pushRehydrateRef = useRef<{
@@ -852,6 +853,19 @@ const TaxistaView: React.FC = () => {
 
     const applyRehydratePayload = (raw: any) => {
       if (!raw?.requestId || !raw?.status) return;
+      if (
+        recentlyFinishedRequestIdRef.current &&
+        raw.requestId === recentlyFinishedRequestIdRef.current
+      ) {
+        console.warn(
+          "🛡️ REHYDRATE IGNORADO: corresponde al viaje recién finalizado",
+          {
+            requestId: raw.requestId,
+            status: raw.status,
+          },
+        );
+        return;
+      }
       setIsRehydrating(true);
       const nextState = String(raw.status).toLowerCase().trim();
       const passengerPayload = raw.passenger
@@ -1442,8 +1456,7 @@ const TaxistaView: React.FC = () => {
         const teniaViajeActivoLocalmente =
           tripSessionActiveRef.current ||
           ["asignado", "encamino", "encurso"].includes(estadoRef.current) ||
-          !!pasajeroAsignadoRef.current?.requestId ||
-          !!activeOfferRequestIdRef.current;
+          !!pasajeroAsignadoRef.current?.requestId;
 
         if (teniaViajeActivoLocalmente) {
           console.warn(
@@ -1747,6 +1760,9 @@ const TaxistaView: React.FC = () => {
         null;
 
       const requestIdRecibido = payload?.requestId || null;
+      if (requestIdRecibido) {
+        recentlyFinishedRequestIdRef.current = requestIdRecibido;
+      }
 
       console.warn("🚨🚨 TRIP_FINISHED RECIBIDO", {
         requestIdPayload: requestIdRecibido,
@@ -1791,9 +1807,18 @@ const TaxistaView: React.FC = () => {
 
       // 1. Actualizamos los datos del pasajero con la dirección que viene del server
       if (payload?.destinationAddress) {
+        const incomingDestinationAddress = payload.destinationAddress;
+
+        const esDireccionValida =
+          incomingDestinationAddress !== "Calculando..." &&
+          incomingDestinationAddress !== "Calculando ubicación..." &&
+          incomingDestinationAddress !== "Rumbo al destino...";
+
         setPasajeroAsignado((prev: any) => ({
           ...prev,
-          destinationAddress: payload.destinationAddress,
+          destinationAddress: esDireccionValida
+            ? incomingDestinationAddress
+            : prev?.destinationAddress || "Rumbo al destino...",
           distancia: payload.distancia || prev?.distancia || null,
         }));
       }
@@ -1820,6 +1845,9 @@ const TaxistaView: React.FC = () => {
         setRutaDestinoFinal([]);
         setGeometriaRuta([]);
         setHistorialRuta([]);
+
+        recentlyFinishedRequestIdRef.current = null;
+        activeOfferRequestIdRef.current = null;
       }, 5000);
     });
 
