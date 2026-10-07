@@ -1100,28 +1100,21 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
             let estimatedFare: number | null = null;
             let estimatedDistanceKm: number | null = null;
 
-            // 🚀 Si hay un viaje activo, recuperamos los datos completos de AMBAS partes
-            if (requestId && [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(estadoActual as any)) {
-
-                // Determinar quién es quién en este viaje, sin importar si quien reconecta es el taxista o el pasajero
+            if (requestId) {
                 const isPassenger = posDoc.role === "pasajero";
                 const passengerEmail = isPassenger ? targetEmail : pasajeroAsignado;
                 const taxiEmail = isPassenger ? taxistaAsignado : targetEmail;
 
                 if (passengerEmail && taxiEmail) {
-                    // Obtenemos ambos documentos en paralelo para máxima eficiencia
                     const [pDoc, tDoc] = await Promise.all([
                         Position.findOne({ email: passengerEmail }).lean(),
                         Position.findOne({ email: taxiEmail }).lean()
                     ]);
 
                     if (pDoc && tDoc) {
-                        // 🗺️ Recuperamos la distancia vial y tarifa calculadas por Mapbox
-                        // y guardadas en el documento del pasajero al solicitar el viaje.
                         estimatedFare = pDoc.estimatedFare ?? null;
                         estimatedDistanceKm = pDoc.estimatedDistanceKm ?? null;
 
-                        // Preparamos el payload de la "otra parte" para enviarlo al que reconecta
                         const counterpartDoc = isPassenger ? tDoc : pDoc;
                         counterpartPayload = buildPayload(
                             counterpartDoc,

@@ -828,7 +828,9 @@ const TaxistaView: React.FC = () => {
         email: miEmail.toLowerCase().trim(),
         role: miRole,
       });
-      socket.emit("request_rehydrate", {});
+
+      const { requestId } = pushRehydrateRef.current;
+      socket.emit("request_rehydrate", requestId ? { requestId } : {});
     } else {
       socket.connect();
     }
@@ -837,11 +839,6 @@ const TaxistaView: React.FC = () => {
   // 🚩 REHIDRATACIÓN AUTOMÁTICA AL CARGAR Y AL VOLVER AL PRIMER PLANO
   useEffect(() => {
     const onConnectRehydrate = () => {
-      const { pasajero, taxista, requestId } = pushRehydrateRef.current;
-      if (pasajero && taxista) {
-        console.log("🔄 Rehidratación de respaldo tras reconexión de socket");
-        socket.emit("request_rehydrate", { requestId });
-      }
       requestTripRehydrate();
     };
 
@@ -853,6 +850,7 @@ const TaxistaView: React.FC = () => {
 
     const applyRehydratePayload = (raw: any) => {
       if (!raw?.requestId || !raw?.status) return;
+
       if (
         recentlyFinishedRequestIdRef.current &&
         raw.requestId === recentlyFinishedRequestIdRef.current
@@ -866,8 +864,11 @@ const TaxistaView: React.FC = () => {
         );
         return;
       }
+
       setIsRehydrating(true);
+
       const nextState = String(raw.status).toLowerCase().trim();
+
       const passengerPayload = raw.passenger
         ? {
             ...raw.passenger,
@@ -883,13 +884,16 @@ const TaxistaView: React.FC = () => {
             destinationLng: raw.passenger.destinationLng ?? null,
           }
         : null;
+
       setEstado(nextState as PositionState);
+
       console.log("🟣 REHYDRATE passengerPayload:", {
         destinationAddress: passengerPayload?.destinationAddress,
         destinationLat: passengerPayload?.destinationLat,
         destinationLng: passengerPayload?.destinationLng,
         requestId: passengerPayload?.requestId,
       });
+
       setPasajeroAsignado((prev: Payload | null) => ({
         ...prev,
         ...passengerPayload,
@@ -908,8 +912,14 @@ const TaxistaView: React.FC = () => {
         destinationLng:
           passengerPayload?.destinationLng ?? prev?.destinationLng ?? null,
       }));
-      tripSessionActiveRef.current = true;
+
+      console.log("🛡️ REHYDRATE PAYLOAD APLICADO SIN ACTIVAR SESIÓN LOCAL", {
+        nextState,
+        requestId: passengerPayload?.requestId,
+      });
+
       setIsRehydrating(false);
+
       showToastOnce(
         "taxista:trip-rehydrated",
         () => {
@@ -1394,12 +1404,28 @@ const TaxistaView: React.FC = () => {
       const nextState = String(data.estado || "")
         .toLowerCase()
         .trim();
-      const activeStates = ["asignado", "encamino", "encurso", "preasignado"];
+      const activeStates = ["asignado", "encamino", "encurso"];
       const counterpart = data.counterpart || data.pasajero || data;
       const hasActiveTrip = activeStates.includes(nextState) && counterpart;
+      const isPreasignado = nextState === "preasignado";
 
-      if (hasActiveTrip) {
+      if (hasActiveTrip || isPreasignado) {
         setEstado(nextState as PositionState);
+
+        if (isPreasignado) {
+          const resolvedRequestId =
+            data?.requestId ||
+            pasajeroAsignadoRef.current?.requestId ||
+            activeOfferRequestIdRef.current;
+
+          if (resolvedRequestId) {
+            activeOfferRequestIdRef.current = resolvedRequestId;
+          }
+
+          tripSessionActiveRef.current = true;
+          setIsRehydrating(false);
+          return;
+        }
 
         // 🛡️ Extraer el requestId garantizando fallback al estado/ref previo o data directo
         const resolvedRequestId =
@@ -2087,6 +2113,45 @@ const TaxistaView: React.FC = () => {
     });
   };
 
+  const navegarConGoogleMaps = useCallback(() => {
+    const destino =
+      estado === POSITION_STATES.ENCURSO &&
+      hasRealFinalDestination(pasajeroAsignado)
+        ? getDestinoFinalLatLng(pasajeroAsignado)
+        : pasajeroAsignado?.lat != null && pasajeroAsignado?.lng != null
+          ? L.latLng(
+              Number(pasajeroAsignado.lat),
+              Number(pasajeroAsignado.lng),
+            )
+          : null;
+
+    if (!destino) {
+      toast.error("No hay destino disponible para navegar.");
+      return;
+    }
+
+    const params = new URLSearchParams({
+      api: "1",
+      destination: `${destino.lat},${destino.lng}`,
+      travelmode: "driving",
+    });
+
+    if (taxiPos?.lat != null && taxiPos?.lng != null) {
+      params.set("origin", `${taxiPos.lat},${taxiPos.lng}`);
+    }
+
+    window.open(
+      `https://www.google.com/maps/dir/?${params.toString()}`,
+      "_blank",
+    );
+  }, [
+    estado,
+    pasajeroAsignado,
+    getDestinoFinalLatLng,
+    taxiPos?.lat,
+    taxiPos?.lng,
+  ]);
+
   // --- OBJETO DE USUARIO PARA EL MENÚ LATERAL ---
   const user = {
     name: localStorage.getItem("userName") || userPosition?.name || "Taxista",
@@ -2146,6 +2211,24 @@ const TaxistaView: React.FC = () => {
 
     return null;
   }, [pasajeroAsignado, rutaDestinoFinal]);
+
+  const destinoNavegacionGoogleMaps = useMemo<L.LatLngExpression | null>(() => {
+    if (estado === POSITION_STATES.ENCURSO && hasRealFinalDestination(pasajeroAsignado)) {
+      const destino = getDestinoFinalLatLng(pasajeroAsignado);
+      if (destino) {
+        return [destino.lat, destino.lng] as L.LatLngExpression;
+      }
+    }
+
+    if (pasajeroAsignado?.lat != null && pasajeroAsignado?.lng != null) {
+      return [
+        Number(pasajeroAsignado.lat),
+        Number(pasajeroAsignado.lng),
+      ] as L.LatLngExpression;
+    }
+
+    return null;
+  }, [estado, pasajeroAsignado, getDestinoFinalLatLng]);
 
   const routeOriginForDestination = useMemo<L.LatLng | null>(() => {
     if (estado === POSITION_STATES.ENCURSO && taxiPos?.lat && taxiPos?.lng) {
@@ -3032,6 +3115,18 @@ const TaxistaView: React.FC = () => {
                       {pasajeroAsignado.name}
                     </h3>
                   </div>
+
+                  {destinoNavegacionGoogleMaps && (
+                    <button
+                      type="button"
+                      onClick={navegarConGoogleMaps}
+                      className="shrink-0 h-10 w-10 rounded-xl bg-[#22c55e] flex items-center justify-center text-base border-b-2 border-[#15803d] active:translate-y-0.5 transition-all shadow-md"
+                      title="Navegar con Google Maps"
+                      aria-label="Navegar con Google Maps"
+                    >
+                      🗺️
+                    </button>
+                  )}
                 </div>
 
                 <div

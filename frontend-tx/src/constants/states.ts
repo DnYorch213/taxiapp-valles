@@ -18,6 +18,7 @@ export const POSITION_STATES = {
 export const TRIP_STATES = {
     PENDIENTE: "pendiente",
     BUSCANDO: "buscando",
+    PREASIGNADO: "preasignado",
     ASIGNADO: "asignado",
     ENCAMINO: "encamino",
     ENCURSO: "encurso",

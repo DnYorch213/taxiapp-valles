@@ -2,6 +2,7 @@ const STATE_PRIORITY: Record<string, number> = {
     activo: 0,
     pendiente: 0,
     buscando: 1,
+    preasignado: 1,
     asignado: 2,
     encamino: 3,
     encurso: 4,
@@ -15,18 +16,27 @@ const STATE_PRIORITY: Record<string, number> = {
 const RESET_STATES = new Set(["activo", "pendiente", "buscando"]);
 const FINAL_STATES = new Set(["finalizado", "cancelado"]);
 
-export const shouldAcceptStateTransition = (currentState?: string | null, nextState?: string | null) => {
+export const shouldAcceptStateTransition = (
+    currentState?: string | null,
+    nextState?: string | null,
+) => {
     const current = String(currentState || "").trim().toLowerCase();
     const next = String(nextState || "").trim().toLowerCase();
 
     if (!next) return false;
     if (current === next) return true;
 
+    if (current === "desconectado") return true;
+
     if (RESET_STATES.has(next) && FINAL_STATES.has(current)) {
         return true;
     }
 
-    if (FINAL_STATES.has(current) && !FINAL_STATES.has(next) && next !== "activo") {
+    if (
+        FINAL_STATES.has(current) &&
+        !FINAL_STATES.has(next) &&
+        next !== "activo"
+    ) {
         return false;
     }
 
