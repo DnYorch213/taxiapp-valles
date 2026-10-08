@@ -29,6 +29,7 @@ import { ChatBox } from "../components/ChatBox";
 import { HistorialViajes } from "../components/HistorialViajes";
 import { taxistaIcon, pasajeroIcon, banderaIcon } from "../utils/icons";
 import { calcularHeading } from "../utils/heading"; // Función para calcular el heading entre dos puntos
+import { Send } from "lucide-react";
 import {
   POSITION_STATES,
   STATE_GROUPS,
@@ -2119,10 +2120,7 @@ const TaxistaView: React.FC = () => {
       hasRealFinalDestination(pasajeroAsignado)
         ? getDestinoFinalLatLng(pasajeroAsignado)
         : pasajeroAsignado?.lat != null && pasajeroAsignado?.lng != null
-          ? L.latLng(
-              Number(pasajeroAsignado.lat),
-              Number(pasajeroAsignado.lng),
-            )
+          ? L.latLng(Number(pasajeroAsignado.lat), Number(pasajeroAsignado.lng))
           : null;
 
     if (!destino) {
@@ -2213,7 +2211,10 @@ const TaxistaView: React.FC = () => {
   }, [pasajeroAsignado, rutaDestinoFinal]);
 
   const destinoNavegacionGoogleMaps = useMemo<L.LatLngExpression | null>(() => {
-    if (estado === POSITION_STATES.ENCURSO && hasRealFinalDestination(pasajeroAsignado)) {
+    if (
+      estado === POSITION_STATES.ENCURSO &&
+      hasRealFinalDestination(pasajeroAsignado)
+    ) {
       const destino = getDestinoFinalLatLng(pasajeroAsignado);
       if (destino) {
         return [destino.lat, destino.lng] as L.LatLngExpression;
@@ -3120,11 +3121,14 @@ const TaxistaView: React.FC = () => {
                     <button
                       type="button"
                       onClick={navegarConGoogleMaps}
-                      className="shrink-0 h-10 w-10 rounded-xl bg-[#22c55e] flex items-center justify-center text-base border-b-2 border-[#15803d] active:translate-y-0.5 transition-all shadow-md"
+                      className="shrink-0 h-10 w-10 rounded-xl bg-[#22c55e] flex items-center justify-center border-b-2 border-[#15803d] active:translate-y-0.5 transition-all shadow-md"
                       title="Navegar con Google Maps"
                       aria-label="Navegar con Google Maps"
                     >
-                      🗺️
+                      <Send
+                        className="h-5 w-5 text-[#0f172a]"
+                        strokeWidth={2.5}
+                      />
                     </button>
                   )}
                 </div>
