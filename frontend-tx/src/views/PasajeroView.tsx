@@ -1,4 +1,4 @@
-import React, {
+﻿import React, {
   Suspense,
   lazy,
   useState,
@@ -2207,7 +2207,7 @@ const PasajeroView: React.FC = () => {
                           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                             Tarifa estimada
                           </p>
-                          <p className="text-lg font-black text-[#22c55e]">
+                          <p className="text-lg font-black text-slate-700">
                             {tarifaEstimada !== null
                               ? `$${Math.round(tarifaEstimada)}`
                               : "Calculando..."}
@@ -2360,7 +2360,7 @@ const PasajeroView: React.FC = () => {
                         Tarifa estimada
                       </p>
 
-                      <p className="text-lg font-black text-[#22c55e] mt-0.5">
+                      <p className="text-lg font-black text-slate-800 mt-0.5">
                         ${Math.round(tarifaEstimada)}
                         <span className="text-[9px] font-bold text-slate-400 ml-1">
                           MXN
