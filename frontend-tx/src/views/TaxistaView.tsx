@@ -869,7 +869,6 @@ const TaxistaView: React.FC = () => {
       setIsRehydrating(true);
 
       const nextState = String(raw.status).toLowerCase().trim();
-
       const passengerPayload = raw.passenger
         ? {
             ...raw.passenger,
@@ -892,12 +891,18 @@ const TaxistaView: React.FC = () => {
         destinationAddress: passengerPayload?.destinationAddress,
         destinationLat: passengerPayload?.destinationLat,
         destinationLng: passengerPayload?.destinationLng,
-        requestId: passengerPayload?.requestId,
+        requestId: passengerPayload?.requestId || raw.requestId,
       });
 
       setPasajeroAsignado((prev: Payload | null) => ({
         ...prev,
         ...passengerPayload,
+
+        requestId:
+          passengerPayload?.requestId ||
+          raw.requestId ||
+          prev?.requestId ||
+          activeOfferRequestIdRef.current,
 
         destinationAddress:
           passengerPayload?.destinationAddress &&
@@ -905,7 +910,7 @@ const TaxistaView: React.FC = () => {
           passengerPayload.destinationAddress !== "Calculando ubicación..." &&
           passengerPayload.destinationAddress !== "Rumbo al destino..."
             ? passengerPayload.destinationAddress
-            : (prev?.destinationAddress ?? "Rumbo al destino..."),
+            : prev?.destinationAddress ?? "Rumbo al destino...",
 
         destinationLat:
           passengerPayload?.destinationLat ?? prev?.destinationLat ?? null,
@@ -914,9 +919,28 @@ const TaxistaView: React.FC = () => {
           passengerPayload?.destinationLng ?? prev?.destinationLng ?? null,
       }));
 
+      const resolvedRequestId =
+        passengerPayload?.requestId ||
+        raw.requestId ||
+        pasajeroAsignadoRef.current?.requestId ||
+        activeOfferRequestIdRef.current;
+
+      if (resolvedRequestId) {
+        activeOfferRequestIdRef.current = resolvedRequestId;
+      }
+
+      const activeTripStates = [
+        POSITION_STATES.ENCAMINO,
+        POSITION_STATES.ENCURSO,
+        POSITION_STATES.ASIGNADO,
+      ] as PositionState[];
+      if (activeTripStates.includes(nextState as PositionState)) {
+        tripSessionActiveRef.current = true;
+      }
+
       console.log("🛡️ REHYDRATE PAYLOAD APLICADO SIN ACTIVAR SESIÓN LOCAL", {
         nextState,
-        requestId: passengerPayload?.requestId,
+        requestId: resolvedRequestId,
       });
 
       setIsRehydrating(false);
@@ -2653,7 +2677,6 @@ const TaxistaView: React.FC = () => {
                       </h3>
                     </div>
                   </div>
-
                   <div className="bg-white/5 p-3 rounded-2xl flex items-start gap-3 mb-4">
                     <span className="text-xl">📍</span>
                     <div className="flex flex-col w-full">
@@ -2692,44 +2715,37 @@ const TaxistaView: React.FC = () => {
                       </div>
                     </div>
                   </div>
+
                   {/* DISTANCIA + TARIFA */}
                   <div className="grid grid-cols-2 gap-3 mb-4">
                     {/* DISTANCIA */}
                     <div className="bg-white/5 border border-white/5 rounded-2xl p-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">📏</span>
+                      <div>
+                        <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
+                          Distancia
+                        </p>
 
-                        <div>
-                          <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
-                            Distancia
-                          </p>
-
-                          <p className="text-base font-black text-white">
-                            {typeof pasajeroAsignado.estimatedDistanceKm ===
-                            "number"
-                              ? `${pasajeroAsignado.estimatedDistanceKm.toFixed(1)} km`
-                              : "Calculando..."}
-                          </p>
-                        </div>
+                        <p className="text-base font-black text-white">
+                          {typeof pasajeroAsignado.estimatedDistanceKm ===
+                          "number"
+                            ? `${pasajeroAsignado.estimatedDistanceKm.toFixed(1)} km`
+                            : "Calculando..."}
+                        </p>
                       </div>
                     </div>
 
                     {/* TARIFA */}
                     <div className="bg-white/5 border border-white/5 rounded-2xl p-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">💰</span>
+                      <div>
+                        <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
+                          Tarifa
+                        </p>
 
-                        <div>
-                          <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
-                            Tarifa
-                          </p>
-
-                          <p className="text-base font-black text-[#22c55e]">
-                            {typeof pasajeroAsignado.estimatedFare === "number"
-                              ? `$${Math.round(pasajeroAsignado.estimatedFare)} MXN`
-                              : "Calculando..."}
-                          </p>
-                        </div>
+                        <p className="text-base font-black text-white">
+                          {typeof pasajeroAsignado.estimatedFare === "number"
+                            ? `$${Math.round(pasajeroAsignado.estimatedFare)} MXN`
+                            : "Calculando..."}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -2740,7 +2756,6 @@ const TaxistaView: React.FC = () => {
                       onFinish={expireOfferResponse}
                     />
                   </div>
-
                   <div className="grid grid-cols-5 gap-3">
                     <button
                       type="button"
@@ -3200,7 +3215,7 @@ const TaxistaView: React.FC = () => {
                           Tarifa estimada
                         </p>
 
-                        <p className="text-base font-black text-[#22c55e]">
+                        <p className="text-base font-black text-white">
                           ${Math.round(tarifaEstimada)} MXN
                         </p>
                       </div>
