@@ -93,80 +93,34 @@ const hasRealFinalDestination = (payload?: Partial<Payload> | null) => {
 };
 
 const formatShortAddress = (value?: string | null) => {
-  if (!value) return "Rumbo al destino...";
+  if (!value?.trim()) return "Rumbo al destino...";
 
-  const raw = String(value).trim();
-  if (!raw) return "Rumbo al destino...";
-
-  const parts = raw
+  const parts = value
+    .trim()
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean);
 
-  if (parts.length === 0) return "Rumbo al destino...";
-
-  const stateNames = new Set([
-    "aguascalientes",
-    "baja california",
-    "baja california sur",
-    "campeche",
-    "chiapas",
-    "chihuahua",
-    "ciudad de méxico",
-    "cdmx",
-    "coahuila",
-    "colima",
-    "durango",
-    "guanajuato",
-    "guerrero",
-    "hidalgo",
-    "jalisco",
-    "méxico",
-    "mexico",
-    "mex",
-    "michoacán",
-    "michoacan",
-    "morelos",
-    "nayarit",
-    "nuevo león",
-    "nuevo leon",
-    "oaxaca",
-    "puebla",
-    "querétaro",
-    "queretaro",
-    "quintana roo",
-    "san luis potosí",
-    "san luis potosi",
-    "slp",
-    "sinaloa",
-    "sonora",
-    "tabasco",
-    "tamaulipas",
-    "tlaxcala",
-    "veracruz",
-    "yucatán",
-    "yucatan",
-    "zacatecas",
-  ]);
-
   const filtered = parts.filter((part) => {
-    const normalized = part.toLowerCase();
+    const normalized = part
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+
     if (/^\d{5}(-\d{4})?$/.test(part)) return false;
-    if (stateNames.has(normalized)) return false;
-    if (
-      ["mexico", "méxico", "usa", "united states", "estados unidos"].includes(
-        normalized,
-      )
-    )
-      return false;
-    return true;
+
+    return ![
+      "san luis potosi",
+      "slp",
+      "mexico",
+      "mex",
+      "usa",
+      "united states",
+      "estados unidos",
+    ].includes(normalized);
   });
 
-  if (filtered.length <= 3) {
-    return filtered.join(", ") || raw;
-  }
-
-  return filtered.slice(0, 3).join(", ");
+  return (filtered.length ? filtered : parts).slice(0, 3).join(", ");
 };
 
 const TimerBar: React.FC<{ duration: number; onFinish: () => void }> = ({
@@ -910,7 +864,7 @@ const TaxistaView: React.FC = () => {
           passengerPayload.destinationAddress !== "Calculando ubicación..." &&
           passengerPayload.destinationAddress !== "Rumbo al destino..."
             ? passengerPayload.destinationAddress
-            : prev?.destinationAddress ?? "Rumbo al destino...",
+            : (prev?.destinationAddress ?? "Rumbo al destino..."),
 
         destinationLat:
           passengerPayload?.destinationLat ?? prev?.destinationLat ?? null,

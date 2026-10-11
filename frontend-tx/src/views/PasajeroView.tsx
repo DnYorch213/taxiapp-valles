@@ -139,6 +139,12 @@ const PasajeroView: React.FC = () => {
   const destinationAddressRef = useRef("");
   const [destinationLat, setDestinationLat] = useState<number | null>(null);
   const [destinationLng, setDestinationLng] = useState<number | null>(null);
+  const destinationLatRef = useRef<number | null>(destinationLat);
+  const destinationLngRef = useRef<number | null>(destinationLng);
+
+  // Mantener las referencias sincronizadas con el estado actual.
+  destinationLatRef.current = destinationLat;
+  destinationLngRef.current = destinationLng;
   const [destinoColapsado, setDestinoColapsado] = useState(false);
   const [selectorDestinoAbierto, setSelectorDestinoAbierto] = useState(false);
   const [isSearchingDestination, setIsSearchingDestination] = useState(false);
@@ -627,6 +633,28 @@ const PasajeroView: React.FC = () => {
       tarifaEstimada,
     ],
   );
+
+  const normalizarUbicacion = (value?: string | null) =>
+    (value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+
+  const esDestinoDeCiudadValles = (address: any) => {
+    if (!address) return false;
+
+    const estado = normalizarUbicacion(address.state);
+
+    const localidades = [address.city, address.town, address.municipality].map(
+      normalizarUbicacion,
+    );
+
+    return (
+      estado === "san luis potosi" && localidades.includes("ciudad valles")
+    );
+  };
+
   const geocodificarDestino = useCallback(
     async (query: string) => {
       const cleanQuery = query.trim();
@@ -658,6 +686,13 @@ const PasajeroView: React.FC = () => {
         const match = results[0];
         const latNum = Number(match.lat);
         const lngNum = Number(match.lon);
+
+        if (!esDestinoDeCiudadValles(match.address)) {
+          toast.error(
+            "Por el momento solo damos servicio en Ciudad Valles, S.L.P.",
+          );
+          return;
+        }
 
         if (Number.isNaN(latNum) || Number.isNaN(lngNum)) {
           toast.error("La ubicación encontrada no es válida.");
@@ -700,11 +735,6 @@ const PasajeroView: React.FC = () => {
         return;
       }
 
-      setDestinationLat(lat);
-      setDestinationLng(lng);
-      setRutaDestinoPreview([]);
-      setRutaDestinoEnCurso([]);
-
       try {
         const url = new URL("https://nominatim.openstreetmap.org/reverse");
         url.searchParams.set("format", "jsonv2");
@@ -720,6 +750,17 @@ const PasajeroView: React.FC = () => {
         if (!response.ok) throw new Error("No se pudo resolver la dirección");
 
         const data = await response.json();
+        if (!esDestinoDeCiudadValles(data.address)) {
+          toast.error(
+            "Por el momento solo damos servicio en Ciudad Valles, S.L.P.",
+          );
+          return;
+        }
+
+        setDestinationLat(lat);
+        setDestinationLng(lng);
+        setRutaDestinoPreview([]);
+        setRutaDestinoEnCurso([]);
 
         const label = limpiarDireccionDestino(
           data.display_name || `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
@@ -738,18 +779,9 @@ const PasajeroView: React.FC = () => {
       } catch (error) {
         console.warn("Error resolviendo destino:", error);
 
-        const label = `Ubicación ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-        destinationAddressRef.current = label;
-        setDestinationAddress(label);
-        setDestinationQuery(label);
-
-        if (
-          estado === "encurso" ||
-          estado === "encamino" ||
-          estado === "asignado"
-        ) {
-          // La actualización al servidor se hace después de calcular la nueva ruta Mapbox.
-        }
+        toast.error(
+          "No pude verificar que el destino esté dentro de Ciudad Valles.",
+        );
       }
     },
     [estado, actualizarDestinoEnServidor],
@@ -882,11 +914,53 @@ const PasajeroView: React.FC = () => {
       if (incomingEmail && passengerEmail && incomingEmail !== passengerEmail)
         return;
 
-      if (data?.destinationLat !== undefined && data?.destinationLat !== null) {
-        setDestinationLat(Number(data.destinationLat));
+      // 🗺️ Comparar el destino recibido con el último destino conocido.
+      const previousLat = destinationLatRef.current;
+      const previousLng = destinationLngRef.current;
+
+      const nextLat =
+        data?.destinationLat !== undefined && data?.destinationLat !== null
+          ? Number(data.destinationLat)
+          : previousLat;
+
+      const nextLng =
+        data?.destinationLng !== undefined && data?.destinationLng !== null
+          ? Number(data.destinationLng)
+          : previousLng;
+
+      const validCoordinates =
+        nextLat !== null &&
+        nextLng !== null &&
+        Number.isFinite(nextLat) &&
+        Number.isFinite(nextLng);
+
+      const destinationChanged =
+        validCoordinates &&
+        (previousLat === null ||
+          previousLng === null ||
+          Math.abs(previousLat - nextLat) > 0.000001 ||
+          Math.abs(previousLng - nextLng) > 0.000001);
+
+      if (validCoordinates) {
+        // Actualizar referencias antes de solicitar el nuevo render.
+        destinationLatRef.current = nextLat;
+        destinationLngRef.current = nextLng;
+
+        setDestinationLat(nextLat);
+        setDestinationLng(nextLng);
       }
-      if (data?.destinationLng !== undefined && data?.destinationLng !== null) {
-        setDestinationLng(Number(data.destinationLng));
+
+      // 🔄 Igual que el taxista: recalcular solo ante un cambio real.
+      if (destinationChanged && estadoRef.current === "encurso") {
+        console.log("🗺️ PASAJERO: destino cambiado; recalculando ruta", {
+          anteriorLat: previousLat,
+          anteriorLng: previousLng,
+          nuevoLat: nextLat,
+          nuevoLng: nextLng,
+        });
+
+        setRutaDestinoEnCurso([]);
+        setRouteRefreshToken((prev) => prev + 1);
       }
       if (data?.destinationAddress) {
         const direccionLimpia = limpiarDireccionDestino(
