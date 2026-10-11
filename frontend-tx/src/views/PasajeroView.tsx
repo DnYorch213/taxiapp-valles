@@ -1996,7 +1996,7 @@ const PasajeroView: React.FC = () => {
           {selectorDestinoAbierto &&
             !destinoColapsado &&
             estado === "pendiente" && (
-              <div className="absolute left-0 right-0 bottom-0 z-[1300] bg-white/97 backdrop-blur-md border-t border-slate-200 rounded-t-[2rem] shadow-2xl p-4 pb-5 space-y-3">
+              <div className="absolute left-0 right-0 bottom-0 z-[1300] bg-white/97 backdrop-blur-md border border-green-200 rounded-t-[2rem] shadow-[0_0_10px_rgba(34,197,94,0.28),inset_0_-1px_0_rgba(34,197,94,0.45)] p-4 pb-5 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-[8px] font-black uppercase tracking-[0.2em] text-[#22c55e]">
@@ -2095,7 +2095,7 @@ const PasajeroView: React.FC = () => {
 ========================================================= */}
         {taxistaAsignado && ["asignado", "encamino"].includes(estado) && (
           <div className="relative z-[1100] mx-4 -mt-5">
-            <div className="bg-white border border-slate-200 rounded-3xl shadow-lg px-4 py-3">
+            <div className="bg-slate-50 border border-green-200 rounded-2xl p-3 shadow-[0_0_10px_rgba(34,197,94,0.28),inset_0_-1px_0_rgba(34,197,94,0.45)]">
               {/* CABECERA DE LA UNIDAD */}
               <div className="flex items-center gap-3">
                 <div className="h-11 w-11 shrink-0 bg-green-50 rounded-2xl flex items-center justify-center text-xl">
@@ -2244,7 +2244,7 @@ const PasajeroView: React.FC = () => {
                   <button
                     type="button"
                     onClick={abrirSelectorDestino}
-                    className="w-full text-left bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-3 active:scale-[0.99] transition-all"
+                    className="w-full text-left bg-slate-50 border border-green-200 rounded-2xl p-3 flex items-center gap-3 shadow-[0_0_10px_rgba(34,197,94,0.28),inset_0_-1px_0_rgba(34,197,94,0.45)] active:scale-[0.99] transition-all"
                   >
                     <div className="h-9 w-9 bg-white rounded-xl flex items-center justify-center shadow-sm">
                       📍
@@ -2307,7 +2307,7 @@ const PasajeroView: React.FC = () => {
                 {/* DESTINO */}
                 {(destinationAddress ||
                   taxistaAsignado?.destinationAddress) && (
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                  <div className="bg-slate-50 border border-green-200 rounded-2xl p-3 shadow-[0_0_10px_rgba(34,197,94,0.28),inset_0_-1px_0_rgba(34,197,94,0.45)]">
                     <div className="flex items-center gap-3">
                       <div className="h-9 w-9 shrink-0 rounded-xl bg-green-50 flex items-center justify-center">
                         📍
@@ -2342,7 +2342,7 @@ const PasajeroView: React.FC = () => {
                 {/* DISTANCIA + TARIFA */}
                 {tarifaEstimada !== null && distanciaEstimadaKm !== null && (
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                    <div className="bg-slate-50 border border-green-200 rounded-2xl p-3 shadow-[0_0_10px_rgba(34,197,94,0.28),inset_0_-1px_0_rgba(34,197,94,0.45)]">
                       <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
                         Distancia
                       </p>
@@ -2355,7 +2355,7 @@ const PasajeroView: React.FC = () => {
                       </p>
                     </div>
 
-                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                    <div className="bg-slate-50 border border-green-200 rounded-2xl p-3 shadow-[0_0_10px_rgba(34,197,94,0.28),inset_0_-1px_0_rgba(34,197,94,0.45)]">
                       <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
                         Tarifa estimada
                       </p>
@@ -2400,8 +2400,8 @@ const PasajeroView: React.FC = () => {
 
                 {(destinationAddress ||
                   taxistaAsignado?.destinationAddress) && (
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-xl bg-green-50 flex items-center justify-center">
+                  <div className="bg-slate-50 border border-green-200 rounded-2xl p-3 shadow-[0_0_10px_rgba(34,197,94,0.28),inset_0_-1px_0_rgba(34,197,94,0.45)] flex items-center gap-3">
+                    <div className="h-9 w-9 shrink-0 rounded-xl bg-green-50 flex items-center justify-center">
                       📍
                     </div>
 
@@ -2430,7 +2430,7 @@ const PasajeroView: React.FC = () => {
 
                 {tarifaEstimada !== null && distanciaEstimadaKm !== null && (
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                    <div className="bg-slate-50 border border-green-200 rounded-2xl p-3 shadow-[0_0_10px_rgba(34,197,94,0.28),inset_0_-1px_0_rgba(34,197,94,0.45)]">
                       <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
                         Distancia
                       </p>
@@ -2440,7 +2440,7 @@ const PasajeroView: React.FC = () => {
                       </p>
                     </div>
 
-                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                    <div className="bg-slate-50 border border-green-200 rounded-2xl p-3 shadow-[0_0_10px_rgba(34,197,94,0.28),inset_0_-1px_0_rgba(34,197,94,0.45)]">
                       <p className="text-[7px] font-black uppercase tracking-widest text-slate-400">
                         Tarifa estimada
                       </p>
