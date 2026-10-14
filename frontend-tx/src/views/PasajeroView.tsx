@@ -1445,6 +1445,12 @@ const PasajeroView: React.FC = () => {
       }
 
       if (["asignado", "encamino", "encurso"].includes(nextEstado)) {
+        if (nextEstado === "encurso") {
+          // Eliminar la ruta vial anterior para permitir reconstruirla.
+          setRutaDestinoEnCurso([]);
+        }
+
+        // Forzar el montaje de RoutingMachine con las coordenadas actuales.
         setRouteRefreshToken((prev) => prev + 1);
       }
 
