@@ -1617,7 +1617,11 @@ const PasajeroView: React.FC = () => {
     });
 
     if (distanciaMinima < 45 && indiceMasCercano > 0) {
-      setGeometriaRuta((prev) => prev.slice(indiceMasCercano));
+      if (geometriaRuta.length - indiceMasCercano >= 2) {
+        setGeometriaRuta((prev) => prev.slice(indiceMasCercano));
+      } else {
+        setGeometriaRuta([]);
+      }
     }
   }, [taxiPos, estado, geometriaRuta.length]); //  Solo reaccionar al length, no al array completo
 
