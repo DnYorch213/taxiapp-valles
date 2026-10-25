@@ -1800,11 +1800,7 @@ const PasajeroView: React.FC = () => {
               className="h-full w-full"
               zoomControl={false}
             >
-              <TileLayer
-                url={`https://api.thunderforest.com/transport/{z}/{x}/{y}.png?apikey=${import.meta.env.VITE_THUNDERFOREST_API_KEY}`}
-                attribution='Maps &copy; <a href="https://www.thunderforest.com/">Thunderforest</a>, Data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
-                maxZoom={20}
-              />
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
               {/* -----------------------------------------------------
                 PASAJERO
