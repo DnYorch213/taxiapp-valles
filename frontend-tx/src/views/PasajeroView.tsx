@@ -1052,13 +1052,6 @@ const PasajeroView: React.FC = () => {
         );
 
         setTaxiPos({ lat: latNum, lng: lngNum, heading: nuevoHeading || 0 });
-
-        if (pasajeroPos?.lat && pasajeroPos?.lng) {
-          setGeometriaRuta([
-            L.latLng(latNum, lngNum),
-            L.latLng(Number(pasajeroPos.lat), Number(pasajeroPos.lng)),
-          ]);
-        }
       }
     });
 
@@ -1090,14 +1083,6 @@ const PasajeroView: React.FC = () => {
 
       if (estadoRef.current === "encurso") {
         setGeometriaRuta([L.latLng(latNum, lngNum)]);
-      } else if (["asignado", "encamino"].includes(estadoRef.current)) {
-        const pasajeroPos = userPositionRef.current;
-        if (pasajeroPos?.lat && pasajeroPos?.lng) {
-          setGeometriaRuta([
-            L.latLng(latNum, lngNum),
-            L.latLng(Number(pasajeroPos.lat), Number(pasajeroPos.lng)),
-          ]);
-        }
       }
     });
 
@@ -1815,7 +1800,11 @@ const PasajeroView: React.FC = () => {
               className="h-full w-full"
               zoomControl={false}
             >
-              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+              <TileLayer
+                url={`https://api.thunderforest.com/transport/{z}/{x}/{y}.png?apikey=${import.meta.env.VITE_THUNDERFOREST_API_KEY}`}
+                attribution='Maps &copy; <a href="https://www.thunderforest.com/">Thunderforest</a>, Data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
+                maxZoom={20}
+              />
 
               {/* -----------------------------------------------------
                 PASAJERO
