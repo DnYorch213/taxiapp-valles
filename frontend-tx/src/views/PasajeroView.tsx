@@ -1057,36 +1057,6 @@ const PasajeroView: React.FC = () => {
         );
 
         setTaxiPos({ lat: latNum, lng: lngNum, heading: nuevoHeading || 0 });
-
-        // 🚀 NUEVA LÓGICA: Recalcular ruta si el taxi se movió > 50 metros y estamos EN CAMINO
-        if (
-          estadoRef.current === "encamino" ||
-          estadoRef.current === "asignado"
-        ) {
-          const currentPos = { lat: latNum, lng: lngNum };
-
-          // Verificar si pasó el umbral de distancia desde la última vez que calculamos la ruta
-          if (lastRouteCalculationPositionRef.current) {
-            const prevPoint = L.latLng(
-              lastRouteCalculationPositionRef.current.lat,
-              lastRouteCalculationPositionRef.current.lng,
-            );
-            const currPoint = L.latLng(latNum, lngNum);
-            const distanceMoved = prevPoint.distanceTo(currPoint);
-
-            // Si se movió más de 50-80 metros, pedimos una nueva ruta parcial
-            if (distanceMoved > 60) {
-              console.log(
-                "🔄 Taxi avanzó lo suficiente, solicitando recalculo de ruta...",
-              );
-              // Forzar remounting del RoutingMachine cambiando la key o token
-              setRouteRefreshToken((prev) => prev + 1);
-              lastRouteCalculationPositionRef.current = currentPos;
-            }
-          } else {
-            lastRouteCalculationPositionRef.current = currentPos;
-          }
-        }
       }
     });
 
@@ -1617,9 +1587,10 @@ const PasajeroView: React.FC = () => {
   }, [limpiarMapaDestino]);
 
   // ============================================================
-  // RECORTE DE RUTA DINÁMICA (optimizado)
+  // RECORTE DE RUTA DINÁMICA (Lógica probada de TaxistaView)
   // ============================================================
-  /*  useEffect(() => {
+  useEffect(() => {
+    // Solo actuar si tenemos posición del taxi y una ruta dibujada
     if (!taxiPos?.lat || !taxiPos?.lng || geometriaRuta.length === 0) return;
     if (!["asignado", "encamino"].includes(estado)) return;
 
@@ -1627,6 +1598,7 @@ const PasajeroView: React.FC = () => {
     let indiceMasCercano = -1;
     let distanciaMinima = Infinity;
 
+    // Buscar el punto de la ruta más cercano a la posición actual del taxi
     geometriaRuta.forEach((punto: any, index: number) => {
       const pLeaflet = L.latLng(punto.lat ?? punto[0], punto.lng ?? punto[1]);
       const d = posTaxi.distanceTo(pLeaflet);
@@ -1636,6 +1608,7 @@ const PasajeroView: React.FC = () => {
       }
     });
 
+    // CASO A: El taxi está siguiendo la ruta. Recortamos el pasado (rendimiento alto).
     if (distanciaMinima < 45 && indiceMasCercano > 0) {
       if (geometriaRuta.length - indiceMasCercano >= 2) {
         setGeometriaRuta((prev) => prev.slice(indiceMasCercano));
@@ -1643,8 +1616,15 @@ const PasajeroView: React.FC = () => {
         setGeometriaRuta([]);
       }
     }
-  }, [taxiPos, estado, geometriaRuta.length]); //  Solo reaccionar al length, no al array completo */
-
+    // CASO B: El taxi se desvió (ej. cambio de calle, giro). Forzamos recálculo total.
+    else if (distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS) {
+      console.log(
+        "🔄 Taxi se desvió de la ruta calculada, solicitando nueva ruta...",
+      );
+      setGeometriaRuta([]); // Al vaciarse, el RoutingMachine de abajo se vuelve a montar
+      setRouteRefreshToken((prev) => prev + 1);
+    }
+  }, [taxiPos, estado, geometriaRuta.length]); // 👈 OJO: Dependemos del .length, no del array completo
   const obtenerTextoEstado = () => {
     if (estado === "pendiente") return "ACTIVO";
     if (estado === "encurso") return "VIAJE EN CURSO";
@@ -1972,7 +1952,7 @@ const PasajeroView: React.FC = () => {
 
               {/* -----------------------------------------------------
                 ROUTING TAXI → PASAJERO (EN CAMINO)
-            ----------------------------------------------------- */}
+              ----------------------------------------------------- */}
               {taxiPos?.lat &&
                 taxiPos?.lng &&
                 userPosition?.lat &&
@@ -1980,8 +1960,8 @@ const PasajeroView: React.FC = () => {
                 ["asignado", "encamino"].includes(estado) && (
                   <Suspense fallback={null}>
                     <RoutingMachine
-                      /* Usamos routeRefreshToken para forzar recalculo cuando el taxi avanza mucho */
-                      key={`approach-${routeRefreshToken}-${Math.round(taxiPos.lat * 1000)}-${Math.round(taxiPos.lng * 1000)}`}
+                      /* La clave es estable. Solo cambia si routeRefreshToken cambia */
+                      key={`approach-${routeRefreshToken}-${estado}`}
                       waypoints={[
                         L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
                         L.latLng(
@@ -1990,11 +1970,11 @@ const PasajeroView: React.FC = () => {
                         ),
                       ]}
                       onRouteFound={({ coords }) => {
-                        // Guardamos la ruta completa calculada ahora
+                        console.log(
+                          "🗺️ Nueva trayectoria de aproximación trazada. Puntos:",
+                          coords.length,
+                        );
                         setGeometriaRuta(sanitizeRouteTail(coords));
-
-                        // Opcional: Limpiar el historial viejo si quieres que solo se vea la nueva trayectoria
-                        // setHistorialRuta([]);
                       }}
                     />
                   </Suspense>
