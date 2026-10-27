@@ -204,6 +204,11 @@ const PasajeroView: React.FC = () => {
     moved: false,
   });
 
+  const lastRouteCalculationPositionRef = useRef<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+
   // Sincronización de refs (un solo efecto para todas)
   useEffect(() => {
     taxistaAsignadoRef.current = taxistaAsignado;
@@ -1052,6 +1057,36 @@ const PasajeroView: React.FC = () => {
         );
 
         setTaxiPos({ lat: latNum, lng: lngNum, heading: nuevoHeading || 0 });
+
+        // 🚀 NUEVA LÓGICA: Recalcular ruta si el taxi se movió > 50 metros y estamos EN CAMINO
+        if (
+          estadoRef.current === "encamino" ||
+          estadoRef.current === "asignado"
+        ) {
+          const currentPos = { lat: latNum, lng: lngNum };
+
+          // Verificar si pasó el umbral de distancia desde la última vez que calculamos la ruta
+          if (lastRouteCalculationPositionRef.current) {
+            const prevPoint = L.latLng(
+              lastRouteCalculationPositionRef.current.lat,
+              lastRouteCalculationPositionRef.current.lng,
+            );
+            const currPoint = L.latLng(latNum, lngNum);
+            const distanceMoved = prevPoint.distanceTo(currPoint);
+
+            // Si se movió más de 50-80 metros, pedimos una nueva ruta parcial
+            if (distanceMoved > 60) {
+              console.log(
+                "🔄 Taxi avanzó lo suficiente, solicitando recalculo de ruta...",
+              );
+              // Forzar remounting del RoutingMachine cambiando la key o token
+              setRouteRefreshToken((prev) => prev + 1);
+              lastRouteCalculationPositionRef.current = currentPos;
+            }
+          } else {
+            lastRouteCalculationPositionRef.current = currentPos;
+          }
+        }
       }
     });
 
@@ -1584,7 +1619,7 @@ const PasajeroView: React.FC = () => {
   // ============================================================
   // RECORTE DE RUTA DINÁMICA (optimizado)
   // ============================================================
-  useEffect(() => {
+  /*  useEffect(() => {
     if (!taxiPos?.lat || !taxiPos?.lng || geometriaRuta.length === 0) return;
     if (!["asignado", "encamino"].includes(estado)) return;
 
@@ -1608,7 +1643,7 @@ const PasajeroView: React.FC = () => {
         setGeometriaRuta([]);
       }
     }
-  }, [taxiPos, estado, geometriaRuta.length]); //  Solo reaccionar al length, no al array completo
+  }, [taxiPos, estado, geometriaRuta.length]); //  Solo reaccionar al length, no al array completo */
 
   const obtenerTextoEstado = () => {
     if (estado === "pendiente") return "ACTIVO";
@@ -1936,17 +1971,17 @@ const PasajeroView: React.FC = () => {
                 )}
 
               {/* -----------------------------------------------------
-                ROUTING TAXI → PASAJERO
+                ROUTING TAXI → PASAJERO (EN CAMINO)
             ----------------------------------------------------- */}
               {taxiPos?.lat &&
                 taxiPos?.lng &&
                 userPosition?.lat &&
                 userPosition?.lng &&
-                ["asignado", "encamino"].includes(estado) &&
-                geometriaRuta.length === 0 && (
+                ["asignado", "encamino"].includes(estado) && (
                   <Suspense fallback={null}>
                     <RoutingMachine
-                      key={`approach-${routeRefreshToken}-${taxiPos.lat}-${taxiPos.lng}-${userPosition.lat}-${userPosition.lng}`}
+                      /* Usamos routeRefreshToken para forzar recalculo cuando el taxi avanza mucho */
+                      key={`approach-${routeRefreshToken}-${Math.round(taxiPos.lat * 1000)}-${Math.round(taxiPos.lng * 1000)}`}
                       waypoints={[
                         L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
                         L.latLng(
@@ -1955,12 +1990,11 @@ const PasajeroView: React.FC = () => {
                         ),
                       ]}
                       onRouteFound={({ coords }) => {
-                        console.log(
-                          "Nueva trayectoria trazada. Puntos:",
-                          coords.length,
-                        );
-
+                        // Guardamos la ruta completa calculada ahora
                         setGeometriaRuta(sanitizeRouteTail(coords));
+
+                        // Opcional: Limpiar el historial viejo si quieres que solo se vea la nueva trayectoria
+                        // setHistorialRuta([]);
                       }}
                     />
                   </Suspense>
