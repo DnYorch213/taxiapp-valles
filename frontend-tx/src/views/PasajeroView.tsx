@@ -1957,10 +1957,10 @@ const PasajeroView: React.FC = () => {
                 taxiPos?.lng &&
                 userPosition?.lat &&
                 userPosition?.lng &&
-                ["asignado", "encamino"].includes(estado) && (
+                ["asignado", "encamino"].includes(estado) &&
+                geometriaRuta.length === 0 && ( // 🚨 ESTA LÍNEA ES LA CLAVE PARA EVITAR EL BUCLE
                   <Suspense fallback={null}>
                     <RoutingMachine
-                      /* La clave es estable. Solo cambia si routeRefreshToken cambia */
                       key={`approach-${routeRefreshToken}-${estado}`}
                       waypoints={[
                         L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
