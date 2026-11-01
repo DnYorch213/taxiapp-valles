@@ -202,11 +202,21 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       socket.emit("reproducir_estado_viaje", { email: email.toLowerCase().trim(), role });
     }
 
-    if (taxiPos?.lat && taxiPos?.lng && socket.connected) {
+    // 📍 Reanunciar la posición propia tras reconectar.
+    // `taxiPos` es la posición del TAXISTA que el cliente está siguiendo: sólo
+    // tiene sentido para un taxista. Un pasajero debe publicar su propio GPS
+    // (`activeSession`); antes publicaba las coordenadas del taxi como si
+    // fueran suyas y corrompía su punto de recogida en la BD.
+    const esTaxista = role === "taxista";
+
+    const latPublicar = esTaxista ? taxiPos?.lat : activeSession.lat;
+    const lngPublicar = esTaxista ? taxiPos?.lng : activeSession.lng;
+
+    if (latPublicar && lngPublicar && socket.connected) {
       socket.emit("position", {
         ...activeSession,
-        lat: taxiPos.lat,
-        lng: taxiPos.lng,
+        lat: Number(latPublicar),
+        lng: Number(lngPublicar),
       });
     }
   }, [taxiPos?.lat, taxiPos?.lng, userPosition]);

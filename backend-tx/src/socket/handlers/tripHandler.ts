@@ -1143,4 +1143,66 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
         }
     });
 
+    // ============================================================
+    // 🎯 REPRODUCCIÓN DEL ESTADO DE VIAJE (latido de la app cliente)
+    // ============================================================
+    // El cliente emite este evento cada minuto (TravelContext) y al volver al
+    // primer plano. Antes no tenía handler: era un emit muerto. Ahora funciona
+    // como red de seguridad: si el pasajero perdió un `trip_status_update`
+    // (socket caído, app en segundo plano, cambio de red), aquí recibe de nuevo
+    // el estado real y la posición del taxi asignado.
+    //
+    // ⚠️ Sólo se responde a PASAJEROS: reenviarle `trip_status_update` a un
+    // taxista volvería a disparar sus avisos de "viaje iniciado" cada minuto.
+    socket.on("reproducir_estado_viaje", async () => {
+        try {
+            // Se usa el email autenticado del socket, nunca datos del payload.
+            const targetEmail = email.toLowerCase().trim();
+            const posDoc = await Position.findOne({ email: targetEmail }).lean();
+
+            if (!posDoc || !posDoc.taxistaAsignado) return;
+
+            const estadoActual = String(posDoc.estado || "").toLowerCase().trim();
+
+            if (
+                ![
+                    POSITION_STATES.ASIGNADO,
+                    POSITION_STATES.ENCAMINO,
+                    POSITION_STATES.ENCURSO
+                ].includes(estadoActual as any)
+            ) {
+                return;
+            }
+
+            const taxiEmail = String(posDoc.taxistaAsignado || "").toLowerCase().trim();
+            const taxiDoc = taxiEmail ? await Position.findOne({ email: taxiEmail }).lean() : null;
+
+            socket.emit("trip_status_update", {
+                estado: estadoActual,
+                pasajeroEmail: targetEmail,
+                taxiData: taxiDoc ? buildPayload(taxiDoc, taxiDoc, estadoActual) : null
+            });
+
+            // Respaldo de posición: el pasajero sólo lo usa si su canal en vivo
+            // dejó de entregar datos (ver PasajeroView → `lastLiveTaxiFixAtRef`).
+            if (taxiDoc && typeof taxiDoc.lat === "number" && typeof taxiDoc.lng === "number") {
+                socket.emit("taxi_moved", {
+                    lat: taxiDoc.lat,
+                    lng: taxiDoc.lng,
+                    tEmail: taxiEmail,
+                    taxiNumber: taxiDoc.taxiNumber || "S/N",
+                    estado: estadoActual
+                });
+            }
+
+            logMotor(
+                "state_replay",
+                `Estado reproducido para ${targetEmail} (${estadoActual}) con taxi ${taxiEmail || "sin asignar"}`,
+                "INFO"
+            );
+        } catch (error) {
+            logMotor("state_replay", `Error al reproducir estado de ${email}: ${error}`, "ERROR");
+        }
+    });
+
 };

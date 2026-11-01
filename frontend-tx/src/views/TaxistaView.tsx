@@ -727,17 +727,32 @@ const TaxistaView: React.FC = () => {
 
         // 3. Envío al canal virtual del Socket si hay señal de datos activa
         if (socket && socket.connected) {
+          const pasajeroEmailEnvio =
+            pasajeroAsignado?.email || pasajeroAsignado?.pasajeroEmail;
+
           if (estadoActual === "encurso") {
             const nuevaCoord: L.LatLngExpression = [latNum, lngNum];
             setHistorialRuta((prev) => [...prev, nuevaCoord]);
+          }
 
+          /**
+           * 🛰️ CANAL EN VIVO: el backend relaya estas coordenadas tal cual
+           * (locationHandler.ts → update_trip_path), sin consultar la BD.
+           * Se emite también en asignado/encamino para que el pasajero vea
+           * avanzar el marcador mientras el taxi se aproxima. Antes, en esa
+           * fase, el único canal era `taxi_moved`, que reenvía la coordenada
+           * guardada en la BD y puede ir con retraso o congelada.
+           */
+          if (pasajeroEmailEnvio) {
             socket.emit("update_trip_path", {
-              pasajeroEmail:
-                pasajeroAsignado?.email || pasajeroAsignado?.pasajeroEmail,
+              pasajeroEmail: pasajeroEmailEnvio,
               lat: latNum,
               lng: lngNum,
             });
-          } else {
+          }
+
+          // Respaldo heredado: se mantiene por compatibilidad.
+          if (estadoActual !== "encurso") {
             socket.emit("taxi_moved", {
               lat: latNum,
               lng: lngNum,

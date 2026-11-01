@@ -1,4 +1,4 @@
-﻿import React, {
+import React, {
   Suspense,
   lazy,
   useState,
@@ -208,6 +208,20 @@ const PasajeroView: React.FC = () => {
     lat: number;
     lng: number;
   } | null>(null);
+
+  /**
+   * Marca de tiempo de la última coordenada recibida por el canal en vivo
+   * (`update_trip_path`, que el backend relaya tal cual). Impide que
+   * `taxi_moved` —que relee la posición guardada en la BD— sobrescriba una
+   * coordenada más fresca y clave el marcador en una posición vieja.
+   */
+  const lastLiveTaxiFixAtRef = useRef(0);
+
+  /**
+   * Anti-tormenta: limita la frecuencia con la que se fuerza el recálculo de la
+   * ruta al destino cuando el taxi aparece lejos de la ruta calculada.
+   */
+  const lastDestinoRecalcAtRef = useRef(0);
 
   // Sincronización de refs (un solo efecto para todas)
   useEffect(() => {
@@ -1007,8 +1021,21 @@ const PasajeroView: React.FC = () => {
         setTaxistaAsignado(infoTaxista);
         setEstado(TRIP_STATES.ASIGNADO);
 
-        if (data.lat && data.lng) {
-          setTaxiPos({ lat: data.lat, lng: data.lng, heading: 0 });
+        // 🚕 Posición inicial del taxi: `taxiData` es el mismo documento del
+        // taxista, así que sirve de respaldo cuando `lat/lng` no vienen sueltos.
+        const initialLat = Number(data.lat ?? data.taxiData?.lat);
+        const initialLng = Number(data.lng ?? data.taxiData?.lng);
+
+        if (
+          Number.isFinite(initialLat) &&
+          Number.isFinite(initialLng) &&
+          initialLat !== 0 &&
+          initialLng !== 0
+        ) {
+          // Desde aquí manda el canal en vivo; reiniciamos el sello para que
+          // `taxi_moved` no gane esta primera posición.
+          lastLiveTaxiFixAtRef.current = Date.now();
+          setTaxiPos({ lat: initialLat, lng: initialLng, heading: 0 });
         } else {
           setTaxiPos(null);
         }
@@ -1041,8 +1068,20 @@ const PasajeroView: React.FC = () => {
         .trim();
 
       if (emailAsignado && emailEntrante === emailAsignado) {
+        /**
+         * ⚠️ `taxi_moved` no trae la posición del taxista: el backend relee la
+         * coordenada guardada en la BD (locationHandler.ts). Si el respaldo HTTP
+         * de GPS se retrasa o falla, aquí llega una y otra vez la misma
+         * coordenada vieja. Mientras el canal en vivo (`update_trip_path`) esté
+         * entregando datos recientes, este evento se ignora.
+         */
+        if (Date.now() - lastLiveTaxiFixAtRef.current < 15000) return;
+
         const latNum = Number(data.lat);
         const lngNum = Number(data.lng);
+
+        if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return;
+
         const posAnterior = taxiPosRef.current;
         const pasajeroPos = userPositionRef.current;
 
@@ -1060,34 +1099,46 @@ const PasajeroView: React.FC = () => {
       }
     });
 
-    // ACTUALIZACIÓN DE RUTA EN CURSO
+    // CANAL EN VIVO DE POSICIÓN (aproximación y viaje en curso)
     socket.on("update_trip_path", (data: { lat: number; lng: number }) => {
       const latNum = Number(data.lat);
       const lngNum = Number(data.lng);
 
-      // CORRECCIÓN: Usar L.latLng() para garantizar el tipo correcto
-      setHistorialRuta((prev) => {
-        const newHistory = [...prev, L.latLng(latNum, lngNum)];
-        return newHistory.length > 500 ? newHistory.slice(-500) : newHistory;
-      });
+      if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return;
+
+      // El backend relaya estas coordenadas tal cual las emite el taxista.
+      lastLiveTaxiFixAtRef.current = Date.now();
 
       const posAnterior = taxiPosRef.current;
-      const taxistaPos = taxistaAsignadoRef.current;
+      const pasajeroPos = userPositionRef.current;
+      const destinoLat = destinationLatRef.current;
+      const destinoLng = destinationLngRef.current;
+      const destino =
+        destinoLat !== null && destinoLng !== null
+          ? { lat: Number(destinoLat), lng: Number(destinoLng) }
+          : null;
 
       const nuevoHeading = calcularHeading(
         posAnterior ? { lat: posAnterior.lat, lng: posAnterior.lng } : null,
         { lat: latNum, lng: lngNum },
-        taxistaPos
-          ? { lat: Number(taxistaPos.lat), lng: Number(taxistaPos.lng) }
-          : null,
+        // En viaje en curso el rumbo se mide hacia el destino, no hacia el
+        // propio taxi (antes se pasaba su posición anterior como objetivo).
+        destino ?? (pasajeroPos
+          ? { lat: Number(pasajeroPos.lat), lng: Number(pasajeroPos.lng) }
+          : null),
         estadoRef.current,
         posAnterior?.heading || 0,
       );
 
       setTaxiPos({ lat: latNum, lng: lngNum, heading: nuevoHeading || 0 });
 
+      // La trayectoria GPS sólo se acumula durante el viaje en curso; en la
+      // aproximación el tramo lo dibuja `geometriaRuta`.
       if (estadoRef.current === "encurso") {
-        setGeometriaRuta([L.latLng(latNum, lngNum)]);
+        setHistorialRuta((prev) => {
+          const newHistory = [...prev, L.latLng(latNum, lngNum)];
+          return newHistory.length > 500 ? newHistory.slice(-500) : newHistory;
+        });
       }
     });
 
@@ -1096,7 +1147,7 @@ const PasajeroView: React.FC = () => {
 
     socket.on(
       "trip_status_update",
-      (data: { estado: string; pasajeroEmail?: string }) => {
+      (data: { estado: string; pasajeroEmail?: string; taxiData?: any }) => {
         const miEmail = userPositionRef.current?.email?.toLowerCase().trim();
         const emailRecibido = data.pasajeroEmail?.toLowerCase().trim();
         const nextEstado = String(data.estado || "")
@@ -1115,19 +1166,61 @@ const PasajeroView: React.FC = () => {
           data.estado === "encurso" &&
           (!emailRecibido || emailRecibido === miEmail)
         ) {
+          /**
+           * Idempotencia: el backend puede reenviar el mismo estado (latido de
+           * `reproducir_estado_viaje`, `passenger_on_board` repetido). Si ya
+           * estamos en curso NO se reinicia la trayectoria GPS ni se descarta la
+           * ruta ya calculada.
+           */
+          if (estadoRef.current === TRIP_STATES.ENCURSO) return;
+
           setSearchFlowActivo(false);
+
+          /**
+           * 🎯 Ancla del viaje en curso.
+           * Se prefiere la última coordenada del canal en vivo (`taxiPosRef`)
+           * y sólo si no existe se usa la del payload (`taxiData`, leída de la
+           * BD y por tanto susceptible de venir atrasada). Antes se usaba
+           * siempre la última posición conocida, aunque fuera la del momento
+           * en que el taxista aceptó el viaje.
+           */
+          const taxiActual = taxiPosRef.current;
+          const dataTaxi = data.taxiData;
+          const anchorLat = Number(taxiActual?.lat ?? dataTaxi?.lat);
+          const anchorLng = Number(taxiActual?.lng ?? dataTaxi?.lng);
+          const hasAnchor =
+            Number.isFinite(anchorLat) &&
+            Number.isFinite(anchorLng) &&
+            anchorLat !== 0 &&
+            anchorLng !== 0;
+
+          // La ruta al destino debe construirse desde la posición ACTUAL: se
+          // descarta cualquiera calculada con una coordenada vieja y se fuerza
+          // una nueva consulta al enrutador.
+          setRutaDestinoEnCurso([]);
+          setRutaDestinoPreview([]);
+          previewRouteSeedRef.current = { origin: null, destination: null };
+          lastDestinoRecalcAtRef.current = 0;
+
+          if (hasAnchor) {
+            setTaxiPos({
+              lat: anchorLat,
+              lng: anchorLng,
+              heading: Number(taxiActual?.heading) || 0,
+            });
+            setHistorialRuta([[anchorLat, anchorLng]]);
+          } else {
+            setHistorialRuta([]);
+          }
+
+          // La ruta de aproximación ya no aplica: se vacía (no un punto suelto)
+          // para que el gate `geometriaRuta.length === 0` siga siendo válido.
+          setGeometriaRuta([]);
+
+          setRouteRefreshToken((prev) => prev + 1);
           setEstado(TRIP_STATES.ENCURSO);
           setChatAbierto(false);
 
-          const taxiActual = taxiPosRef.current;
-          if (taxiActual?.lat && taxiActual?.lng) {
-            setHistorialRuta([
-              [Number(taxiActual.lat), Number(taxiActual.lng)],
-            ]);
-            setGeometriaRuta([
-              L.latLng(Number(taxiActual.lat), Number(taxiActual.lng)),
-            ]);
-          }
           showToastOnce(
             "pasajero:trip-started",
             () => {
@@ -1426,7 +1519,21 @@ const PasajeroView: React.FC = () => {
       setTarifaEstimada(data.estimatedFare ?? null);
       setDistanciaEstimadaKm(data.estimatedDistanceKm ?? null);
 
-      if (taxistaRehidratado?.lat && taxistaRehidratado?.lng) {
+      /**
+       * Al volver del segundo plano / reconectar, la rehidratación trae la
+       * posición del taxista leída de la BD. Si el canal en vivo sigue
+       * entregando datos recientes, esa coordenada no debe pisar la actual
+       * (provocaría un salto atrás y, en `encurso`, una ruta reconstruida
+       * desde un punto viejo).
+       */
+      const canalVivoReciente =
+        Date.now() - lastLiveTaxiFixAtRef.current < 15000;
+
+      if (
+        taxistaRehidratado?.lat &&
+        taxistaRehidratado?.lng &&
+        !canalVivoReciente
+      ) {
         setTaxiPos({
           lat: Number(taxistaRehidratado.lat),
           lng: Number(taxistaRehidratado.lng),
@@ -1438,6 +1545,7 @@ const PasajeroView: React.FC = () => {
         if (nextEstado === "encurso") {
           // Eliminar la ruta vial anterior para permitir reconstruirla.
           setRutaDestinoEnCurso([]);
+          lastDestinoRecalcAtRef.current = 0;
         }
 
         // Forzar el montaje de RoutingMachine con las coordenadas actuales.
@@ -1625,6 +1733,64 @@ const PasajeroView: React.FC = () => {
       setRouteRefreshToken((prev) => prev + 1);
     }
   }, [taxiPos, estado, geometriaRuta.length]); // 👈 OJO: Dependemos del .length, no del array completo
+
+  // ============================================================
+  // RECORTE / RECÁLCULO DE LA RUTA AL DESTINO (viaje en curso)
+  // ============================================================
+  // `rutaDestinoEnCurso` se calculaba UNA sola vez y quedaba congelada: al
+  // avanzar el taxi nadie la recortaba ni la volvía a pedir. Aquí se aplica la
+  // misma lógica ya probada en TaxistaView (CASO 2: viaje en curso):
+  //   · recortar el tramo ya recorrido,
+  //   · reconstruir la ruta desde la posición actual cuando el taxi se aleja
+  //     demasiado de la ruta dibujada.
+  useEffect(() => {
+    if (estado !== "encurso") return;
+    if (!taxiPos?.lat || !taxiPos?.lng) return;
+    if (rutaDestinoEnCurso.length <= 2) return;
+
+    const posTaxi = L.latLng(Number(taxiPos.lat), Number(taxiPos.lng));
+    let indiceMasCercano = -1;
+    let distanciaMinima = Infinity;
+
+    rutaDestinoEnCurso.forEach((punto: any, index: number) => {
+      const pLeaflet = L.latLng(punto.lat ?? punto[0], punto.lng ?? punto[1]);
+      const d = posTaxi.distanceTo(pLeaflet);
+      if (d < distanciaMinima) {
+        distanciaMinima = d;
+        indiceMasCercano = index;
+      }
+    });
+
+    // CASO A: el taxi va sobre la ruta → se descarta el tramo ya recorrido.
+    if (distanciaMinima < 45 && indiceMasCercano > 0) {
+      if (rutaDestinoEnCurso.length - indiceMasCercano >= 2) {
+        setRutaDestinoEnCurso((prev) => prev.slice(indiceMasCercano));
+      } else {
+        // Queda demasiado poco recorrido: se vacía para que el RoutingMachine
+        // vuelva a montarse y pida la ruta desde la posición actual.
+        setRutaDestinoEnCurso([]);
+      }
+      return;
+    }
+
+    // CASO B: el taxi se salió de la ruta → reconstruir desde cero.
+    // El sello temporal evita una tormenta de peticiones a Mapbox si el
+    // enrutador "ajusta" el origen lejos de la posición real del vehículo.
+    const ahora = Date.now();
+
+    if (
+      distanciaMinima >= ROUTE_RECALC_THRESHOLD_METERS &&
+      ahora - lastDestinoRecalcAtRef.current >= 8000
+    ) {
+      lastDestinoRecalcAtRef.current = ahora;
+      console.log(
+        "🔄 Taxi fuera de la ruta al destino, recalculando desde su posición actual...",
+      );
+      setRutaDestinoEnCurso([]);
+      setRouteRefreshToken((prev) => prev + 1);
+    }
+  }, [estado, taxiPos?.lat, taxiPos?.lng, rutaDestinoEnCurso]);
+
   const obtenerTextoEstado = () => {
     if (estado === "pendiente") return "ACTIVO";
     if (estado === "encurso") return "VIAJE EN CURSO";
@@ -1701,6 +1867,90 @@ const PasajeroView: React.FC = () => {
 
     return [] as L.LatLngExpression[];
   }, [rutaDestinoEnCurso]);
+
+  /**
+   * Waypoints estables para la ruta al destino. Sin esta memoización el
+   * `RoutingMachine` recibía un array nuevo en cada render y su efecto volvía
+   * a montar el control de Mapbox (una petición extra por render).
+   */
+  const waypointsRutaDestino = useMemo<L.LatLng[] | null>(() => {
+    if (!taxiPos?.lat || !taxiPos?.lng || !destinationPosition) return null;
+
+    return [
+      L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
+      L.latLng(destinationPosition[0], destinationPosition[1]),
+    ];
+  }, [
+    taxiPos?.lat,
+    taxiPos?.lng,
+    destinationPosition?.[0],
+    destinationPosition?.[1],
+  ]);
+
+  /**
+   * Waypoints estables para la ruta de aproximación (taxi → pasajero).
+   */
+  const waypointsRutaAproximacion = useMemo<L.LatLng[] | null>(() => {
+    if (!taxiPos?.lat || !taxiPos?.lng) return null;
+    if (!userPosition?.lat || !userPosition?.lng) return null;
+
+    return [
+      L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
+      L.latLng(Number(userPosition.lat), Number(userPosition.lng)),
+    ];
+  }, [taxiPos?.lat, taxiPos?.lng, userPosition?.lat, userPosition?.lng]);
+
+  const handleRutaAproximacionEncontrada = useCallback(
+    ({ coords }: { coords: L.LatLng[] }) => {
+      console.log(
+        "🗺️ Nueva trayectoria de aproximación trazada. Puntos:",
+        coords.length,
+      );
+      setGeometriaRuta(sanitizeRouteTail(coords));
+    },
+    [],
+  );
+
+  const handleRutaDestinoEncontrada = useCallback(
+    ({ coords, distanceKm, durationMin }: {
+      coords: L.LatLng[];
+      distanceKm: number | null;
+      durationMin: number | null;
+    }) => {
+      setRutaDestinoEnCurso(sanitizeRouteTail(coords));
+
+      if (distanceKm !== null && Number.isFinite(distanceKm)) {
+        const nuevaDistanciaKm = Number(distanceKm);
+        const nuevaTarifa = calcularTarifaPorDistancia(nuevaDistanciaKm);
+
+        setDistanciaRutaMapboxKm(nuevaDistanciaKm);
+        setDistanciaEstimadaKm(nuevaDistanciaKm);
+        setTarifaEstimada(nuevaTarifa);
+
+        console.log("Nueva distancia vial al destino:", {
+          distanceKm: nuevaDistanciaKm,
+          fare: nuevaTarifa,
+          durationMin,
+        });
+
+        actualizarDestinoEnServidor(
+          destinationPosition?.[0] ?? null,
+          destinationPosition?.[1] ?? null,
+          destinationAddressRef.current ||
+            destinationQuery ||
+            "Destino no especificado",
+          nuevaDistanciaKm,
+          nuevaTarifa,
+        );
+      }
+    },
+    [
+      actualizarDestinoEnServidor,
+      destinationPosition?.[0],
+      destinationPosition?.[1],
+      destinationQuery,
+    ],
+  );
 
   useEffect(() => {
     if (
@@ -1953,29 +2203,14 @@ const PasajeroView: React.FC = () => {
               {/* -----------------------------------------------------
                 ROUTING TAXI → PASAJERO (EN CAMINO)
               ----------------------------------------------------- */}
-              {taxiPos?.lat &&
-                taxiPos?.lng &&
-                userPosition?.lat &&
-                userPosition?.lng &&
-                ["asignado", "encamino"].includes(estado) &&
-                geometriaRuta.length === 0 && ( // 🚨 ESTA LÍNEA ES LA CLAVE PARA EVITAR EL BUCLE
+              {["asignado", "encamino"].includes(estado) &&
+                geometriaRuta.length === 0 &&
+                waypointsRutaAproximacion && ( // 🚨 evitar el bucle: sólo se pide ruta si no hay ninguna
                   <Suspense fallback={null}>
                     <RoutingMachine
                       key={`approach-${routeRefreshToken}-${estado}`}
-                      waypoints={[
-                        L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
-                        L.latLng(
-                          Number(userPosition.lat),
-                          Number(userPosition.lng),
-                        ),
-                      ]}
-                      onRouteFound={({ coords }) => {
-                        console.log(
-                          "🗺️ Nueva trayectoria de aproximación trazada. Puntos:",
-                          coords.length,
-                        );
-                        setGeometriaRuta(sanitizeRouteTail(coords));
-                      }}
+                      waypoints={waypointsRutaAproximacion}
+                      onRouteFound={handleRutaAproximacionEncontrada}
                     />
                   </Suspense>
                 )}
@@ -1998,52 +2233,13 @@ const PasajeroView: React.FC = () => {
                 ROUTING AL DESTINO
             ----------------------------------------------------- */}
               {estado === "encurso" &&
-                taxiPos?.lat &&
-                taxiPos?.lng &&
-                destinationPosition &&
-                rutaDestinoEnCurso.length === 0 && (
+                rutaDestinoEnCurso.length === 0 &&
+                waypointsRutaDestino && (
                   <Suspense fallback={null}>
                     <RoutingMachine
-                      key={`destination-${routeRefreshToken}-${taxiPos.lat}-${taxiPos.lng}-${destinationPosition[0]}-${destinationPosition[1]}-${estado}`}
-                      waypoints={[
-                        L.latLng(Number(taxiPos.lat), Number(taxiPos.lng)),
-                        L.latLng(
-                          destinationPosition[0],
-                          destinationPosition[1],
-                        ),
-                      ]}
-                      onRouteFound={({ coords, distanceKm, durationMin }) => {
-                        setRutaDestinoEnCurso(sanitizeRouteTail(coords));
-
-                        if (
-                          distanceKm !== null &&
-                          Number.isFinite(distanceKm)
-                        ) {
-                          const nuevaDistanciaKm = Number(distanceKm);
-                          const nuevaTarifa =
-                            calcularTarifaPorDistancia(nuevaDistanciaKm);
-
-                          setDistanciaRutaMapboxKm(nuevaDistanciaKm);
-                          setDistanciaEstimadaKm(nuevaDistanciaKm);
-                          setTarifaEstimada(nuevaTarifa);
-
-                          console.log("Nueva distancia vial al destino:", {
-                            distanceKm: nuevaDistanciaKm,
-                            fare: nuevaTarifa,
-                            durationMin,
-                          });
-
-                          actualizarDestinoEnServidor(
-                            destinationPosition?.[0] ?? null,
-                            destinationPosition?.[1] ?? null,
-                            destinationAddressRef.current ||
-                              destinationQuery ||
-                              "Destino no especificado",
-                            nuevaDistanciaKm,
-                            nuevaTarifa,
-                          );
-                        }
-                      }}
+                      key={`destination-${routeRefreshToken}-${destinationPosition?.[0]}-${destinationPosition?.[1]}-${estado}`}
+                      waypoints={waypointsRutaDestino}
+                      onRouteFound={handleRutaDestinoEncontrada}
                     />
                   </Suspense>
                 )}

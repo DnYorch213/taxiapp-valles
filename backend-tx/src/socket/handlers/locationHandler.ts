@@ -48,8 +48,53 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
     });
 
     socket.on("update_trip_path", async (data) => {
-        if (data.pasajeroEmail) {
-            io.to(data.pasajeroEmail.toLowerCase().trim()).emit("update_trip_path", { lat: data.lat, lng: data.lng });
+        try {
+            const pasajeroEmail = String(data?.pasajeroEmail || "").toLowerCase().trim();
+            const lat = Number(data?.lat);
+            const lng = Number(data?.lng);
+
+            if (!pasajeroEmail) return;
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+            // 🛡️ Coordenadas válidas (evita envenenar el mapa del pasajero).
+            if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
+
+            // 🛡️ AUTORIZACIÓN: el emisor debe ser el taxista asignado a ese
+            // pasajero (`email` es el del socket autenticado, no el del payload).
+            const pasajero = await Position.findOne({ email: pasajeroEmail }).lean();
+
+            const taxistaAsignado = String(pasajero?.taxistaAsignado || "")
+                .toLowerCase()
+                .trim();
+
+            if (!pasajero || !taxistaAsignado || taxistaAsignado !== email) {
+                logMotor(
+                    "socket_security",
+                    `Intento no autorizado de update_trip_path: ${email} → ${pasajeroEmail}`,
+                    "WARN"
+                );
+                return;
+            }
+
+            // 🛡️ Sólo se transmite durante un viaje activo.
+            if (
+                ![
+                    POSITION_STATES.ASIGNADO,
+                    POSITION_STATES.ENCAMINO,
+                    POSITION_STATES.ENCURSO
+                ].includes(pasajero.estado as any)
+            ) {
+                return;
+            }
+
+            // 📡 Relay directo (sin pasar por la BD) de la coordenada real.
+            io.to(pasajeroEmail).emit("update_trip_path", { lat, lng });
+        } catch (error) {
+            logMotor(
+                "location_update",
+                `Error en update_trip_path de ${email} para ${data?.pasajeroEmail || "?"}: ${error}`,
+                "ERROR"
+            );
         }
     });
 
