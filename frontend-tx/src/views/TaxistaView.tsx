@@ -202,6 +202,8 @@ const TaxistaView: React.FC = () => {
   const estadoRef = useRef(estado);
   const pasajeroAsignadoRef = useRef<Payload | null>(null);
   const taxiPosRef = useRef(taxiPos);
+  /** Antispam del log de diagnóstico de emisión GPS. */
+  const lastGpsEmitLogAtRef = useRef(0);
   const tripSessionActiveRef = useRef(false);
   const acceptanceTimerRef = useRef<number | null>(null);
   const answeredOfferRequestIdsRef = useRef(new Set<string>());
@@ -759,6 +761,21 @@ const TaxistaView: React.FC = () => {
               email: miEmailLimpio.toLowerCase().trim(),
               taxiNumber: miTaxiEco,
               role: "taxista",
+            });
+          }
+
+          // 🔎 Diagnóstico acotado: confirma desde el móvil del taxista que este
+          // build emite el canal en vivo y a qué pasajero va dirigido.
+          const ahoraLog = Date.now();
+
+          if (ahoraLog - lastGpsEmitLogAtRef.current > 5000) {
+            lastGpsEmitLogAtRef.current = ahoraLog;
+
+            console.log("🛰️ TAXISTA GPS emit", {
+              estado: estadoActual,
+              pasajeroEmail: pasajeroEmailEnvio || "(sin pasajero asignado)",
+              lat: latNum,
+              lng: lngNum,
             });
           }
         }

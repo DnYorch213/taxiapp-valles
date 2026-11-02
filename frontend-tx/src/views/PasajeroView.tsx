@@ -223,6 +223,9 @@ const PasajeroView: React.FC = () => {
    */
   const lastDestinoRecalcAtRef = useRef(0);
 
+  /** Antispam del log de diagnóstico de posiciones recibidas. */
+  const lastPosLogAtRef = useRef(0);
+
   // Sincronización de refs (un solo efecto para todas)
   useEffect(() => {
     taxistaAsignadoRef.current = taxistaAsignado;
@@ -1039,7 +1042,21 @@ const PasajeroView: React.FC = () => {
         } else {
           setTaxiPos(null);
         }
+
+        /**
+         * 🧹 Limpieza de residuos del viaje anterior. `geometriaRuta` NO se
+         * borraba aquí: si quedaba una ruta vieja, el gate
+         * `geometriaRuta.length === 0` impedía calcular la nueva ruta de
+         * aproximación y se seguía dibujando la polilínea antigua (una línea que
+         * no corresponde al taxi actual).
+         */
         setHistorialRuta([]);
+        setGeometriaRuta([]);
+        setRutaDestinoEnCurso([]);
+        setRutaDestinoPreview([]);
+        previewRouteSeedRef.current = { origin: null, destination: null };
+        lastDestinoRecalcAtRef.current = 0;
+        setRouteRefreshToken((prev) => prev + 1);
 
         if (typeof data.estimatedFare === "number") {
           setTarifaEstimada(data.estimatedFare);
@@ -1075,12 +1092,29 @@ const PasajeroView: React.FC = () => {
          * coordenada vieja. Mientras el canal en vivo (`update_trip_path`) esté
          * entregando datos recientes, este evento se ignora.
          */
-        if (Date.now() - lastLiveTaxiFixAtRef.current < 15000) return;
+        if (Date.now() - lastLiveTaxiFixAtRef.current < 15000) {
+          if (Date.now() - lastPosLogAtRef.current > 5000) {
+            lastPosLogAtRef.current = Date.now();
+            console.log("🛰️ PASAJERO pos taxi: taxi_moved IGNORADO (canal en vivo reciente)", {
+              lat: data.lat,
+              lng: data.lng,
+            });
+          }
+          return;
+        }
 
         const latNum = Number(data.lat);
         const lngNum = Number(data.lng);
 
         if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return;
+
+        if (Date.now() - lastPosLogAtRef.current > 5000) {
+          lastPosLogAtRef.current = Date.now();
+          console.log("🛰️ PASAJERO pos taxi ← taxi_moved (BD)", {
+            lat: latNum,
+            lng: lngNum,
+          });
+        }
 
         const posAnterior = taxiPosRef.current;
         const pasajeroPos = userPositionRef.current;
@@ -1108,6 +1142,15 @@ const PasajeroView: React.FC = () => {
 
       // El backend relaya estas coordenadas tal cual las emite el taxista.
       lastLiveTaxiFixAtRef.current = Date.now();
+
+      if (Date.now() - lastPosLogAtRef.current > 5000) {
+        lastPosLogAtRef.current = Date.now();
+        console.log("🛰️ PASAJERO pos taxi ← update_trip_path (directo)", {
+          lat: latNum,
+          lng: lngNum,
+          estado: estadoRef.current,
+        });
+      }
 
       const posAnterior = taxiPosRef.current;
       const pasajeroPos = userPositionRef.current;

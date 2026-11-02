@@ -7,6 +7,12 @@ import { emitToTripRoom } from "../../services/tripRoomService";
 
 export const registerLocationHandlers = (io: Server, socket: Socket, email: string) => {
 
+    // 🔎 Antispam de diagnóstico: como mucho un log cada 5 s por socket.
+    // El canal de coordenadas del viaje era invisible en los logs y por eso no
+    // se podía saber si el marcador congelado era por datos o por render.
+    let lastTripPathLogAt = 0;
+    let lastTaxiMovedLogAt = 0;
+
     socket.on("update_driver_status", async (data: { estado?: string }, callback?: (response: { success: boolean; estado?: string; message?: string }) => void) => {
         try {
             const nextState = String(data?.estado || "").toLowerCase().trim();
@@ -84,11 +90,35 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                     POSITION_STATES.ENCURSO
                 ].includes(pasajero.estado as any)
             ) {
+                const ahoraIgnorado = Date.now();
+
+                if (ahoraIgnorado - lastTripPathLogAt > 5000) {
+                    lastTripPathLogAt = ahoraIgnorado;
+
+                    logMotor(
+                        "trip_path",
+                        `Ignorado ${email} → ${pasajeroEmail}: el pasajero está en estado '${pasajero.estado}' (se esperaba asignado/encamino/encurso)`,
+                        "WARN"
+                    );
+                }
+
                 return;
             }
 
             // 📡 Relay directo (sin pasar por la BD) de la coordenada real.
             io.to(pasajeroEmail).emit("update_trip_path", { lat, lng });
+
+            const ahoraPath = Date.now();
+
+            if (ahoraPath - lastTripPathLogAt > 5000) {
+                lastTripPathLogAt = ahoraPath;
+
+                logMotor(
+                    "trip_path",
+                    `Relay ${email} → ${pasajeroEmail} (directo) lat=${lat} lng=${lng} estadoPasajero=${pasajero.estado}`,
+                    "INFO"
+                );
+            }
         } catch (error) {
             logMotor(
                 "location_update",
@@ -333,6 +363,12 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                 estado: { $in: [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCURSO, POSITION_STATES.ENCAMINO] }
             });
 
+            // 🔎 Diagnóstico: este canal reenvía la posición GUARDADA en la BD,
+            // no la del payload. `edadBD` delata si esa posición está congelada
+            // (respaldo HTTP de GPS caído o con retraso).
+            const ahoraMoved = Date.now();
+            const puedeLoguearMoved = ahoraMoved - lastTaxiMovedLogAt > 5000;
+
             if (pasajeroRelacionado) {
                 io.to(pasajeroRelacionado.email).emit("taxi_moved", {
                     lat: tPos.lat,
@@ -341,6 +377,28 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                     taxiNumber: tPos.taxiNumber || "S/N",
                     estado: pasajeroRelacionado.estado
                 });
+
+                if (puedeLoguearMoved) {
+                    lastTaxiMovedLogAt = ahoraMoved;
+
+                    const edadSegundos = tPos.updatedAt
+                        ? Math.max(0, Math.round((ahoraMoved - new Date(tPos.updatedAt).getTime()) / 1000))
+                        : -1;
+
+                    logMotor(
+                        "taxi_moved",
+                        `Relay ${email} → ${pasajeroRelacionado.email} (BD) lat=${tPos.lat} lng=${tPos.lng} edadBD=${edadSegundos}s estadoPasajero=${pasajeroRelacionado.estado}`,
+                        "INFO"
+                    );
+                }
+            } else if (puedeLoguearMoved) {
+                lastTaxiMovedLogAt = ahoraMoved;
+
+                logMotor(
+                    "taxi_moved",
+                    `Sin pasajero con viaje activo para ${email}: no se retransmite`,
+                    "WARN"
+                );
             }
         } catch (error) {
             logMotor("taxi_moved", `Error en taxi_moved para ${email}: ${error}`, "ERROR");
