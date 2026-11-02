@@ -5,7 +5,11 @@ import { Position, Destination, Rol } from "../types/Positions";
 import { socket, connectSocket } from "../lib/socket";
 import axiosInstance from "../lib/axiosConfig";
 
-interface ScreenWakeLock { release: () => Promise<void>; }
+interface ScreenWakeLock {
+  release: () => Promise<void>;
+  released?: boolean;
+  addEventListener?: (type: "release", listener: () => void) => void;
+}
 
 interface TravelContextType {
   userPosition: Position | null;
@@ -150,9 +154,26 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     try {
-      if (!document.hidden && !wakeLockRef.current) {
-        wakeLockRef.current = await wakeLockNavigator.wakeLock.request("screen");
+      if (document.hidden) return;
+
+      /**
+       * El navegador libera el wake lock por su cuenta al ocultar la pestaña,
+       * pero la referencia seguía "viva" y por eso no se volvía a pedir nunca:
+       * el móvil dormía la app y el socket moría por `ping timeout`.
+       */
+      const sentinelActual = wakeLockRef.current;
+
+      if (sentinelActual && !sentinelActual.released) {
+        return;
       }
+
+      const sentinel = await wakeLockNavigator.wakeLock.request("screen");
+
+      wakeLockRef.current = sentinel;
+
+      sentinel.addEventListener?.("release", () => {
+        wakeLockRef.current = null;
+      });
     } catch (error) {
       console.debug("⚠️ Wake Lock no disponible en esta vista:", error);
     }
@@ -170,21 +191,41 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, []);
 
+  // 🧠 Reflejo del estado más reciente para callbacks estables.
+  // Sin esto, `userPosition`/`taxiPos` cambiaban en cada tick de GPS y
+  // re-creaban los efectos de abajo (ver comentarios en cada uno).
+  const userPositionRef = useRef(userPosition);
+  const taxiPosRef = useRef(taxiPos);
+
+  useEffect(() => {
+    userPositionRef.current = userPosition;
+  }, [userPosition]);
+
+  useEffect(() => {
+    taxiPosRef.current = taxiPos;
+  }, [taxiPos]);
+
+  // 🔒 Pedir el bloqueo de pantalla en cuanto hay sesión (antes sólo se pedía al
+  // volver a primer plano, así que una app abierta y nunca enfocada de nuevo se
+  // quedaba con la pantalla libre para dormirse).
+  useEffect(() => {
+    if (!userPosition?.email) return;
+
+    void tryRequestWakeLock();
+  }, [userPosition?.email, tryRequestWakeLock]);
+
   const reconnectIfNeeded = useCallback(() => {
 
-     console.log("🟡 reconnectIfNeeded() llamado", {
-    connected: socket.connected,
-    active: socket.active,
-    socketId: socket.id,
-  });
+    const posicionActual = userPositionRef.current;
+    const taxiActual = taxiPosRef.current;
 
-    const email = userPosition?.email || localStorage.getItem("email");
-    const role = userPosition?.role || (localStorage.getItem("role") as Rol | null);
+    const email = posicionActual?.email || localStorage.getItem("email");
+    const role = posicionActual?.role || (localStorage.getItem("role") as Rol | null);
     const token = localStorage.getItem("token");
 
     if (!email || !role) return;
 
-    const activeSession = userPosition || restoreSessionFromStorage();
+    const activeSession = posicionActual || restoreSessionFromStorage();
     if (!activeSession) return;
 
     if (token) {
@@ -209,8 +250,8 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // fueran suyas y corrompía su punto de recogida en la BD.
     const esTaxista = role === "taxista";
 
-    const latPublicar = esTaxista ? taxiPos?.lat : activeSession.lat;
-    const lngPublicar = esTaxista ? taxiPos?.lng : activeSession.lng;
+    const latPublicar = esTaxista ? taxiActual?.lat : activeSession.lat;
+    const lngPublicar = esTaxista ? taxiActual?.lng : activeSession.lng;
 
     if (latPublicar && lngPublicar && socket.connected) {
       socket.emit("position", {
@@ -219,7 +260,7 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         lng: Number(lngPublicar),
       });
     }
-  }, [taxiPos?.lat, taxiPos?.lng, userPosition]);
+  }, []); // 🎯 Identidad estable: se lee el estado desde refs
 
  useEffect(() => {
   const email = userPosition?.email || localStorage.getItem("email");
@@ -236,17 +277,23 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 }, [userPosition?.email, userPosition?.role]);
 
   // 🛰️ EFECTO "DESPERTADOR": Revive la app cuando el usuario regresa tras mucho tiempo
+  //
+  // ⚠️ Este efecto NO debe depender de `userPosition`: antes lo hacía y, como la
+  // posición cambia en cada tick de GPS, se desmontaba cada pocos segundos y su
+  // limpieza llamaba a `releaseWakeLock()`. Resultado: el bloqueo de pantalla se
+  // liberaba continuamente, el móvil dormía la app durante el viaje y el socket
+  // moría por `ping timeout` (el taxista dejaba de enviar coordenadas).
   useEffect(() => {
     const handleResume = async () => {
       if (document.visibilityState !== "visible" && navigator.onLine === false) return;
 
       const restoredSession = restoreSessionFromStorage();
-      if (!userPosition && restoredSession) {
+      if (!userPositionRef.current && restoredSession) {
         console.log("🔄 Restaurando sesión local tras volver del segundo plano...");
         setUserPosition(restoredSession);
       }
 
-      if (userPosition || restoredSession) {
+      if (userPositionRef.current || restoredSession) {
         console.log("☀️ Valles Conecta: Validando conexión en primer plano...");
         await keepSessionAlive();
         await tryRequestWakeLock();
@@ -288,10 +335,19 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       window.removeEventListener("pagehide", handlePageHide);
       void releaseWakeLock();
     };
-  }, [keepSessionAlive, reconnectIfNeeded, releaseWakeLock, tryRequestWakeLock, userPosition]);
+  }, [keepSessionAlive, reconnectIfNeeded, releaseWakeLock, tryRequestWakeLock]);
+
+  // 💓 LATIDO DE SESIÓN (cada 60 s)
+  //
+  // ⚠️ Antes dependía de `userPosition`/`reconnectIfNeeded`, que cambian en cada
+  // tick de GPS, así que el intervalo se reiniciaba antes de cumplirse y NUNCA
+  // llegaba a ejecutarse: `reproducir_estado_viaje` (la resincronización del
+  // viaje) y `keepSessionAlive()` quedaban muertos. Ahora sólo depende de la
+  // existencia de sesión.
+  const hasSession = Boolean(userPosition?.email || localStorage.getItem("email"));
 
   useEffect(() => {
-    if (!userPosition) return;
+    if (!hasSession) return;
 
     const intervalId = window.setInterval(() => {
       const token = localStorage.getItem("token");
@@ -309,6 +365,7 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       if (socket.connected) {
+        // Resincroniza el estado del viaje activo (el backend lo reproduce).
         socket.emit("reproducir_estado_viaje", {
           email: email.toLowerCase().trim(),
           role,
@@ -317,7 +374,7 @@ export const TravelProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }, 60000);
 
     return () => window.clearInterval(intervalId);
-  }, [keepSessionAlive, reconnectIfNeeded, userPosition]);
+  }, [keepSessionAlive, reconnectIfNeeded, hasSession]);
 
 
   // 🚪 CIERRE DE SESIÓN LIMPIO
