@@ -5,6 +5,9 @@ import { logMotor } from "../../utils/logger";
 import { POSITION_STATES } from "../../constants/states";
 import { emitToTripRoom } from "../../services/tripRoomService";
 
+/** Antispam del aviso de "viaje activo protegido" (por email). */
+const lastEstadoGuardLogAt = new Map<string, number>();
+
 export const registerLocationHandlers = (io: Server, socket: Socket, email: string) => {
 
     // 🔎 Antispam de diagnóstico: como mucho un log cada 5 s por socket.
@@ -114,13 +117,22 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                 return;
             }
 
-            // 🛡️ Sólo se transmite durante un viaje activo.
+            /**
+             * 🛡️ Sólo se bloquea el relay si el viaje ya terminó. Antes se
+             * exigía un estado activo concreto; si el documento quedaba en un
+             * estado inesperado (p. ej. "activo" por el latido del cliente), el
+             * pasajero dejaba de recibir la posición del taxi y su marcador se
+             * congelaba. La autorización real ya está en la relación
+             * taxista→pasajero verificada arriba.
+             */
+            const estadoPasajero = String(pasajero.estado || "").toLowerCase().trim();
+
             if (
-                ![
-                    POSITION_STATES.ASIGNADO,
-                    POSITION_STATES.ENCAMINO,
-                    POSITION_STATES.ENCURSO
-                ].includes(pasajero.estado as any)
+                [
+                    POSITION_STATES.FINALIZADO,
+                    POSITION_STATES.CANCELADO,
+                    POSITION_STATES.DESCONECTADO
+                ].includes(estadoPasajero as any)
             ) {
                 const ahoraIgnorado = Date.now();
 
@@ -129,7 +141,7 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
 
                     logMotor(
                         "trip_path",
-                        `Ignorado ${email} → ${pasajeroEmail}: el pasajero está en estado '${pasajero.estado}' (se esperaba asignado/encamino/encurso)`,
+                        `Ignorado ${email} → ${pasajeroEmail}: el viaje ya está en '${estadoPasajero}'`,
                         "WARN"
                     );
                 }
@@ -324,13 +336,54 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                 ].includes(currentDoc.estado as any)
             );
 
+            /**
+             * 🛡️ Un latido de GPS NUNCA puede degradar un viaje en curso.
+             * El cliente del pasajero enviaba `estado: "activo"` en cada tick y
+             * este handler lo aceptaba como estado explícito, dejando al
+             * pasajero como "activo" mientras el taxi iba hacia él. Con ese
+             * estado, el servidor dejaba de retransmitirle la posición del taxi
+             * (taxi_moved / update_trip_path) y su marcador se congelaba.
+             */
+            const estadoEnBD = currentDoc?.estado
+                ? String(currentDoc.estado).toLowerCase().trim()
+                : null;
+
+            const viajeActivoEnBD = Boolean(
+                estadoEnBD &&
+                [
+                    POSITION_STATES.PREASIGNADO,
+                    POSITION_STATES.ASIGNADO,
+                    POSITION_STATES.ENCAMINO,
+                    POSITION_STATES.ENCURSO
+                ].includes(estadoEnBD as any)
+            );
+
+            const intentaDegradarViaje = Boolean(
+                explicitState && explicitState !== estadoEnBD
+            );
+
+            if (viajeActivoEnBD && intentaDegradarViaje) {
+                const ahoraGuard = Date.now();
+
+                if (ahoraGuard - (lastEstadoGuardLogAt.get(email) || 0) > 10000) {
+                    lastEstadoGuardLogAt.set(email, ahoraGuard);
+
+                    logMotor(
+                        "estado_guard",
+                        `Se conserva '${estadoEnBD}' para ${email}: el latido intentó escribir '${explicitState}'`,
+                        "WARN"
+                    );
+                }
+            }
+
             const defaultStateByRole =
                 realRole === "taxista"
                     ? POSITION_STATES.ACTIVO
                     : POSITION_STATES.BUSCANDO;
 
-            const resolvedEstado =
-                explicitState &&
+            const resolvedEstado = viajeActivoEnBD
+                ? estadoEnBD
+                : explicitState &&
                     [
                         POSITION_STATES.ACTIVO,
                         POSITION_STATES.OCUPADO,
@@ -427,7 +480,17 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
 
             const pasajeroRelacionado = await Position.findOne({
                 taxistaAsignado: email, // <--- Usar email confiable
-                estado: { $in: [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCURSO, POSITION_STATES.ENCAMINO] }
+                // 🛡️ Sólo se excluye el viaje terminado. Antes se exigía un estado
+                // activo exacto y un estado inesperado en el documento (p. ej.
+                // "activo" escrito por el latido del cliente) hacía que el
+                // pasajero no recibiera ninguna coordenada.
+                estado: {
+                    $nin: [
+                        POSITION_STATES.FINALIZADO,
+                        POSITION_STATES.CANCELADO,
+                        POSITION_STATES.DESCONECTADO
+                    ]
+                }
             });
 
             // 🔎 Diagnóstico: `edadBD` delata si la posición guardada está

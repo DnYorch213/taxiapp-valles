@@ -14,6 +14,7 @@ import { useTravel } from "../context/TravelContext";
 import { useNavigate } from "react-router-dom";
 import { useGeolocation } from "../hooks/useGeolocation";
 import { Payload, ViajeEstado } from "../types/Payload";
+import { EstadoUsuario } from "../types/Positions";
 import { ChatBox } from "../components/ChatBox";
 import {
   MapContainer,
@@ -454,8 +455,12 @@ const PasajeroView: React.FC = () => {
       email: userPosition?.email || "",
       name: userPosition?.name || "Pasajero",
       role: "pasajero" as const,
+      // 🛑 Se envía el estado REAL del pasajero. Si faltara, el latido de GPS
+      // publicaba `estado: "activo"` y el backend lo guardaba en la BD,
+      // pisando `buscando`/`asignado`/`encamino`/`encurso`.
+      estado: estado as EstadoUsuario,
     }),
-    [userPosition?.email, userPosition?.name],
+    [userPosition?.email, userPosition?.name, estado],
   );
 
   // GPS con callback estable usando refs

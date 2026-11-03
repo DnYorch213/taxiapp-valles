@@ -31,22 +31,35 @@ export const useGeolocation = (user: UserData, onRegistered?: (pos: Position) =>
                 let lng = longitude;
 
                 const currentRole = userRef.current.role;
-                const currentEstado = userRef.current.estado || "activo";
+                const currentEstado = userRef.current.estado;
 
-                // 🎯 TIPADO CORREGIDO: Usamos EstadoUsuario en lugar de string genérico
-                const newPos: Position & { estado: EstadoUsuario } = {
+                /**
+                 * 🛑 No inventar un estado. Antes se usaba `estado || "activo"`
+                 * y en el pasajero (que no pasa `estado` en su configuración)
+                 * cada tick publicaba `estado: "activo"`: el backend lo aceptaba
+                 * como estado explícito y SOBRESCRIBÍA el estado real del viaje
+                 * (buscando/asignado/encamino/encurso) con "activo". Con el
+                 * pasajero en "activo", el servidor dejaba de retransmitirle la
+                 * posición del taxi y su marcador quedaba congelado.
+                 * Si no hay estado conocido, se omite el campo y el backend
+                 * preserva el que ya tiene guardado.
+                 */
+                const newPos: Position = {
                     email: userRef.current.email,
                     name: userRef.current.name,
                     role: currentRole,
                     taxiNumber: currentRole === "taxista" ? userRef.current.taxiNumber : undefined,
                     lat,
                     lng,
-                    estado: currentEstado,
+                    ...(currentEstado ? { estado: currentEstado } : {}),
                 };
 
                 // 🎯 EL CANDADO: Si es taxista y está en viaje/aproximación, NO emitimos en este canal genérico.
                 // Dejamos que los sockets de TaxistaView.tsx (taxi_moved / update_trip_path) controlen el flujo.
-                const esTaxistaOcupado = currentRole === "taxista" && ["asignado", "encamino", "encurso"].includes(currentEstado);
+                const esTaxistaOcupado =
+                    currentRole === "taxista" &&
+                    !!currentEstado &&
+                    ["asignado", "encamino", "encurso"].includes(currentEstado);
 
                 if (socket.connected && !esTaxistaOcupado) {
                     socket.emit("position", newPos);
