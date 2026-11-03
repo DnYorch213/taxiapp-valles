@@ -40,9 +40,30 @@ const RoutingMachine = lazy(() =>
 
 const OFFROAD_TAIL_THRESHOLD_METERS = 22;
 const ROUTE_RECALC_THRESHOLD_METERS = 120;
-const PREVIEW_ORIGIN_RECALC_METERS = 25;
+const PREVIEW_ORIGIN_RECALC_METERS = 40;
 const PREVIEW_DEST_RECALC_METERS = 6;
 const DESTINATION_STORAGE_TTL_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Ventana en la que se prefiere el canal en vivo (`update_trip_path`) sobre el
+ * respaldo `taxi_moved`. Ambos llevan ya la coordenada real, así que basta con
+ * unos segundos para evitar parpadeos sin dejar el marcador ciego.
+ */
+const LIVE_FIX_PREFERENCE_MS = 6000;
+
+/**
+ * Estados en los que el pasajero mantiene visible su ruta al destino
+ * (pasajero → destino). Antes sólo se calculaba en `pendiente` con el selector
+ * abierto: al solicitar el taxi la polilínea desaparecía y no había forma de
+ * reconstruirla hasta que el viaje entraba en curso.
+ */
+const ESTADOS_CON_RUTA_DESTINO: ViajeEstado[] = [
+  "pendiente",
+  "buscando",
+  "preasignado",
+  "asignado",
+  "encamino",
+];
 
 const calcularTarifaPorDistancia = (distanciaKm: number): number => {
   if (!distanciaKm || distanciaKm <= 0) return 50;
@@ -1092,7 +1113,7 @@ const PasajeroView: React.FC = () => {
          * coordenada vieja. Mientras el canal en vivo (`update_trip_path`) esté
          * entregando datos recientes, este evento se ignora.
          */
-        if (Date.now() - lastLiveTaxiFixAtRef.current < 15000) {
+        if (Date.now() - lastLiveTaxiFixAtRef.current < LIVE_FIX_PREFERENCE_MS) {
           if (Date.now() - lastPosLogAtRef.current > 5000) {
             lastPosLogAtRef.current = Date.now();
             console.log("🛰️ PASAJERO pos taxi: taxi_moved IGNORADO (canal en vivo reciente)", {
@@ -1570,7 +1591,7 @@ const PasajeroView: React.FC = () => {
        * desde un punto viejo).
        */
       const canalVivoReciente =
-        Date.now() - lastLiveTaxiFixAtRef.current < 15000;
+        Date.now() - lastLiveTaxiFixAtRef.current < LIVE_FIX_PREFERENCE_MS;
 
       if (
         taxistaRehidratado?.lat &&
@@ -1943,6 +1964,44 @@ const PasajeroView: React.FC = () => {
     ];
   }, [taxiPos?.lat, taxiPos?.lng, userPosition?.lat, userPosition?.lng]);
 
+  /**
+   * Waypoints estables para la ruta del pasajero a su destino
+   * (la que debe seguir viéndose durante `buscando`/`asignado`/`encamino`).
+   */
+  const waypointsRutaDestinoPreview = useMemo<L.LatLng[] | null>(() => {
+    if (!userPosition?.lat || !userPosition?.lng) return null;
+    if (!destinationPosition) return null;
+
+    return [
+      L.latLng(Number(userPosition.lat), Number(userPosition.lng)),
+      L.latLng(destinationPosition[0], destinationPosition[1]),
+    ];
+  }, [
+    userPosition?.lat,
+    userPosition?.lng,
+    destinationPosition?.[0],
+    destinationPosition?.[1],
+  ]);
+
+  const handleRutaPreviewEncontrada = useCallback(
+    ({ coords, distanceKm }: {
+      coords: L.LatLng[];
+      distanceKm: number | null;
+      durationMin: number | null;
+    }) => {
+      setRutaDestinoPreview(sanitizeRouteTail(coords));
+
+      // La tarifa sólo se recalcula mientras el pasajero aún elige destino; en
+      // plena solicitud/viaje se respeta la que ya viaja en el viaje.
+      if (estadoRef.current === "pendiente" && distanceKm !== null) {
+        setDistanciaRutaMapboxKm(distanceKm);
+        setDistanciaEstimadaKm(distanceKm);
+        setTarifaEstimada(calcularTarifaPorDistancia(distanceKm));
+      }
+    },
+    [],
+  );
+
   const handleRutaAproximacionEncontrada = useCallback(
     ({ coords }: { coords: L.LatLng[] }) => {
       console.log(
@@ -2173,42 +2232,15 @@ const PasajeroView: React.FC = () => {
               {/* -----------------------------------------------------
                 ROUTING DESTINO PREVIEW
             ----------------------------------------------------- */}
-              {selectorDestinoAbierto &&
-                destinationPosition &&
+              {ESTADOS_CON_RUTA_DESTINO.includes(estado) &&
                 destinationAddress &&
-                estado === "pendiente" &&
-                userPosition?.lat &&
-                userPosition?.lng &&
-                rutaDestinoPreview.length === 0 && (
+                rutaDestinoPreview.length === 0 &&
+                waypointsRutaDestinoPreview && (
                   <Suspense fallback={null}>
                     <RoutingMachine
-                      key={`${userPosition.lat}-${userPosition.lng}-${destinationPosition[0]}-${destinationPosition[1]}-${estado}-${selectorDestinoAbierto}`}
-                      waypoints={[
-                        L.latLng(
-                          Number(userPosition.lat),
-                          Number(userPosition.lng),
-                        ),
-                        L.latLng(
-                          destinationPosition[0],
-                          destinationPosition[1],
-                        ),
-                      ]}
-                      onRouteFound={({ coords, distanceKm, durationMin }) => {
-                        setRutaDestinoPreview(sanitizeRouteTail(coords));
-
-                        if (distanceKm !== null) {
-                          setDistanciaRutaMapboxKm(distanceKm);
-                          setDistanciaEstimadaKm(distanceKm);
-                          setTarifaEstimada(
-                            calcularTarifaPorDistancia(distanceKm),
-                          );
-                        }
-
-                        console.log("Distancia vial destino:", {
-                          distanceKm,
-                          durationMin,
-                        });
-                      }}
+                      key={`preview-${destinationPosition?.[0]}-${destinationPosition?.[1]}-${estado}`}
+                      waypoints={waypointsRutaDestinoPreview}
+                      onRouteFound={handleRutaPreviewEncontrada}
                     />
                   </Suspense>
                 )}

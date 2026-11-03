@@ -1,13 +1,16 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import './lib/socket'; 
+import './lib/socket';
+import { BUILD_TAG } from './lib/buildInfo';
 import App from './App';
 import 'leaflet/dist/leaflet.css';
 import './index.css';
 
 // 🏷️ Marca de compilación: permite saber desde la consola del móvil qué
 // bundle está cargado (útil cuando un dispositivo conserva una versión vieja).
-console.log("🚀 VallesViaje client build:", "posicion-taxi-2026-11-02");
+// También viaja en el handshake del socket para que quede en los logs del
+// backend con cada conexión.
+console.log("🚀 VallesViaje client build:", BUILD_TAG);
 
 // 🚀 Registro directo y temprano del Service Worker (Optimizado para Producción)
 if ('serviceWorker' in navigator) {

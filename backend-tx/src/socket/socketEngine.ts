@@ -193,7 +193,7 @@ export const initSocketEngine = (io: Server) => {
 
         logMotor(
             "socket_connect",
-            `Cliente conectado | Email: ${email} | Socket: ${socket.id}`,
+            `Cliente conectado | Email: ${email} | Socket: ${socket.id} | Build: ${(socket.handshake.auth as any)?.build || "desconocido"}`,
             "INFO"
         );
 

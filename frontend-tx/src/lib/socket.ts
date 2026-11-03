@@ -1,5 +1,6 @@
 // src/lib/socket.ts
 import { io } from "socket.io-client";
+import { BUILD_TAG } from "./buildInfo";
 
 // 1. Limpieza de URL: remueve slashes finales y el sufijo /api si está presente
 const RAW_URL = (import.meta.env.VITE_API_URL || "http://localhost:3001").replace(/\/+$/, '');
@@ -33,6 +34,8 @@ export const socket = io(SOCKET_BASE_URL, {
       role: localStorage.getItem("role"),
       token: localStorage.getItem("token"),
       deviceId: getDeviceId(),
+      // 🏷️ Permite al backend registrar qué versión del cliente se conectó.
+      build: BUILD_TAG,
     });
   },
   // 🚀 PERMITIR POLLING PRIMERO Y LUEGO UPGRADE A WEBSOCKET (Indispensable para Render)

@@ -13,6 +13,38 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
     let lastTripPathLogAt = 0;
     let lastTaxiMovedLogAt = 0;
 
+    /**
+     * 💾 Persistencia acotada de la telemetría del viaje.
+     * El único camino que escribía la posición del taxista en BD durante un
+     * viaje era el respaldo HTTP del cliente (`/positions/update-gps`), que
+     * puede fallar en silencio y deja el documento congelado (afectando a
+     * despacho, rehidratación y al respaldo `taxi_moved`). Ahora el propio
+     * relay guarda la coordenada real como mucho cada 5 s.
+     */
+    let lastPositionPersistAt = 0;
+
+    const persistirPosicionTaxista = (lat: number, lng: number) => {
+        const ahora = Date.now();
+
+        if (ahora - lastPositionPersistAt < 5000) return;
+
+        lastPositionPersistAt = ahora;
+
+        void Position.updateOne(
+            { email },
+            {
+                $set: {
+                    lat,
+                    lng,
+                    location: { type: "Point", coordinates: [lng, lat] },
+                    updatedAt: new Date()
+                }
+            }
+        ).catch((error) => {
+            logMotor("position_persist", `No se pudo guardar la posición de ${email}: ${error}`, "WARN");
+        });
+    };
+
     socket.on("update_driver_status", async (data: { estado?: string }, callback?: (response: { success: boolean; estado?: string; message?: string }) => void) => {
         try {
             const nextState = String(data?.estado || "").toLowerCase().trim();
@@ -107,6 +139,9 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
 
             // 📡 Relay directo (sin pasar por la BD) de la coordenada real.
             io.to(pasajeroEmail).emit("update_trip_path", { lat, lng });
+
+            // 💾 Mantener la BD al día con la misma coordenada real.
+            persistirPosicionTaxista(lat, lng);
 
             const ahoraPath = Date.now();
 
@@ -358,21 +393,52 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
             const tPos = await Position.findOne({ email });
             if (!tPos) return;
 
+            /**
+             * 🎯 COORDENADA A RETRANSMITIR.
+             * Se prefiere la que envía el propio taxista en el payload (tiempo
+             * real). Antes se usaba SIEMPRE la guardada en la BD, que sólo se
+             * actualiza por el respaldo HTTP (`/positions/update-gps`) y por
+             * tanto puede ir con retraso o quedarse congelada; eso era lo que
+             * dejaba el marcador del taxi inmóvil en el mapa del pasajero.
+             * La identidad ya está validada por el socket autenticado y por la
+             * relación taxista→pasajero, no por el payload.
+             */
+            const latPayload = Number(data?.lat);
+            const lngPayload = Number(data?.lng);
+
+            const payloadValido =
+                Number.isFinite(latPayload) &&
+                Number.isFinite(lngPayload) &&
+                latPayload >= -90 &&
+                latPayload <= 90 &&
+                lngPayload >= -180 &&
+                lngPayload <= 180;
+
+            const lat = payloadValido ? latPayload : Number(tPos.lat);
+            const lng = payloadValido ? lngPayload : Number(tPos.lng);
+            const origen = payloadValido ? "payload" : "BD";
+
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+            // 💾 La BD se queda con la coordenada real, no con la vieja.
+            if (payloadValido) {
+                persistirPosicionTaxista(lat, lng);
+            }
+
             const pasajeroRelacionado = await Position.findOne({
                 taxistaAsignado: email, // <--- Usar email confiable
                 estado: { $in: [POSITION_STATES.ASIGNADO, POSITION_STATES.ENCURSO, POSITION_STATES.ENCAMINO] }
             });
 
-            // 🔎 Diagnóstico: este canal reenvía la posición GUARDADA en la BD,
-            // no la del payload. `edadBD` delata si esa posición está congelada
-            // (respaldo HTTP de GPS caído o con retraso).
+            // 🔎 Diagnóstico: `edadBD` delata si la posición guardada está
+            // congelada (respaldo HTTP de GPS caído o con retraso).
             const ahoraMoved = Date.now();
             const puedeLoguearMoved = ahoraMoved - lastTaxiMovedLogAt > 5000;
 
             if (pasajeroRelacionado) {
                 io.to(pasajeroRelacionado.email).emit("taxi_moved", {
-                    lat: tPos.lat,
-                    lng: tPos.lng,
+                    lat,
+                    lng,
                     tEmail: email, // <--- Usar email confiable
                     taxiNumber: tPos.taxiNumber || "S/N",
                     estado: pasajeroRelacionado.estado
@@ -387,7 +453,7 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
 
                     logMotor(
                         "taxi_moved",
-                        `Relay ${email} → ${pasajeroRelacionado.email} (BD) lat=${tPos.lat} lng=${tPos.lng} edadBD=${edadSegundos}s estadoPasajero=${pasajeroRelacionado.estado}`,
+                        `Relay ${email} → ${pasajeroRelacionado.email} (${origen}) lat=${lat} lng=${lng} edadBD=${edadSegundos}s estadoPasajero=${pasajeroRelacionado.estado}`,
                         "INFO"
                     );
                 }
