@@ -66,6 +66,12 @@ const ESTADOS_CON_RUTA_DESTINO: ViajeEstado[] = [
   "encamino",
 ];
 
+/** Desplazamiento mínimo del pin de destino para aceptar un arrastre. */
+const DESTINATION_MIN_MOVE_METERS = 80;
+
+/** Frecuencia máxima de cambios de destino por arrastre del pin. */
+const DESTINATION_CHANGE_MIN_INTERVAL_MS = 8000;
+
 const calcularTarifaPorDistancia = (distanciaKm: number): number => {
   if (!distanciaKm || distanciaKm <= 0) return 50;
 
@@ -248,6 +254,14 @@ const PasajeroView: React.FC = () => {
   /** Antispam del log de diagnóstico de posiciones recibidas. */
   const lastPosLogAtRef = useRef(0);
 
+  /** Último cambio de destino aceptado (limita el arrastre accidental). */
+  const lastDestinationChangeAtRef = useRef(0);
+
+  /** Estado de conexión del socket, para avisar en pantalla si se cae. */
+  const [socketConectado, setSocketConectado] = useState<boolean>(
+    () => socket?.connected ?? false,
+  );
+
   // Sincronización de refs (un solo efecto para todas)
   useEffect(() => {
     taxistaAsignadoRef.current = taxistaAsignado;
@@ -276,6 +290,29 @@ const PasajeroView: React.FC = () => {
   useEffect(() => {
     userPositionRef.current = userPosition;
   }, [userPosition]);
+
+  /**
+   * 🔌 Aviso de conexión: si el socket se cae, el mapa se queda congelado sin
+   * ninguna pista para el usuario (en la prueba del 4-nov el socket del
+   * pasajero murió por `ping timeout` y el taxi siguió enviando coordenadas
+   * que nadie recibía). Con esto la app lo dice en pantalla.
+   */
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleConnect = () => setSocketConectado(true);
+    const handleDisconnect = () => setSocketConectado(false);
+
+    setSocketConectado(socket.connected);
+
+    socket.on("connect", handleConnect);
+    socket.on("disconnect", handleDisconnect);
+
+    return () => {
+      socket.off("connect", handleConnect);
+      socket.off("disconnect", handleDisconnect);
+    };
+  }, []);
 
   useEffect(() => {
     const standalone =
@@ -782,6 +819,36 @@ const PasajeroView: React.FC = () => {
         toast.error("La posición seleccionada no es válida.");
         return;
       }
+
+      /**
+       * 🛡️ El pin del destino es arrastrable DURANTE el viaje, y un roce
+       * accidental en el mapa genera `dragend` igual que un arrastre
+       * deliberado. En la prueba del 4-nov se cambiaron el destino y la tarifa
+       * 9 veces en 80 s (de 4.8 a 14.8 km) sin que el usuario lo pretendiera:
+       * cada cambio descarta la ruta y reescribe el viaje en el servidor.
+       * Se exige un desplazamiento mínimo real y se limita la frecuencia.
+       */
+      const destinoLatActual = destinationLatRef.current;
+      const destinoLngActual = destinationLngRef.current;
+
+      if (destinoLatActual !== null && destinoLngActual !== null) {
+        const desplazamiento = L.latLng(
+          Number(destinoLatActual),
+          Number(destinoLngActual),
+        ).distanceTo(L.latLng(lat, lng));
+
+        if (desplazamiento < DESTINATION_MIN_MOVE_METERS) {
+          return;
+        }
+      }
+
+      const ahora = Date.now();
+
+      if (ahora - lastDestinationChangeAtRef.current < DESTINATION_CHANGE_MIN_INTERVAL_MS) {
+        return;
+      }
+
+      lastDestinationChangeAtRef.current = ahora;
 
       try {
         const url = new URL("https://nominatim.openstreetmap.org/reverse");
@@ -2129,6 +2196,18 @@ const PasajeroView: React.FC = () => {
             Salir
           </button>
         </div>
+
+        {/* =========================================================
+          AVISO DE CONEXIÓN
+      ========================================================= */}
+        {!socketConectado && (
+          <div className="absolute top-[7.25rem] left-4 z-[1002] flex items-center gap-1.5 bg-red-500 text-white px-2.5 py-1 rounded-full shadow-lg animate-pulse">
+            <span className="h-1.5 w-1.5 rounded-full bg-white" />
+            <span className="text-[8px] font-black uppercase tracking-widest">
+              Sin conexión · reconectando
+            </span>
+          </div>
+        )}
 
         {/* =========================================================
           BADGE DE ESTADO
