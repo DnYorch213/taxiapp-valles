@@ -22,6 +22,7 @@ import {
   Marker,
   Popup,
   Polyline,
+  useMap,
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -38,6 +39,51 @@ const RoutingMachine = lazy(() =>
     default: module.RoutingMachine,
   })),
 );
+
+/**
+ * 🎯 Mantiene el mapa siguiendo al objetivo (el taxi durante el viaje).
+ *
+ * `MapContainer` sólo usa `center` al montarse: durante un viaje el taxi se
+ * aleja del encuadre inicial y el usuario se queda con la sensación de que "no
+ * avanza" porque el marcador se sale de la pantalla. Este componente reencuadra
+ * cuando el objetivo se aleja más del umbral.
+ */
+const MapAutoFollow: React.FC<{
+  lat: number | null;
+  lng: number | null;
+  activo: boolean;
+}> = ({ lat, lng, activo }) => {
+  const map = useMap();
+  // Al mover el mapa a mano se pausa el seguimiento para no pelear con el dedo.
+  const pausaHastaRef = useRef(0);
+
+  useEffect(() => {
+    const handleDragStart = () => {
+      pausaHastaRef.current = Date.now() + 15000;
+    };
+
+    map.on("dragstart", handleDragStart);
+
+    return () => {
+      map.off("dragstart", handleDragStart);
+    };
+  }, [map]);
+
+  useEffect(() => {
+    if (!activo) return;
+    if (lat === null || lng === null) return;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (Date.now() < pausaHastaRef.current) return;
+
+    const objetivo = L.latLng(Number(lat), Number(lng));
+
+    if (map.getCenter().distanceTo(objetivo) < 60) return;
+
+    map.setView(objetivo, map.getZoom(), { animate: true });
+  }, [activo, lat, lng, map]);
+
+  return null;
+};
 
 const OFFROAD_TAIL_THRESHOLD_METERS = 22;
 const ROUTE_RECALC_THRESHOLD_METERS = 120;
@@ -2252,6 +2298,25 @@ const PasajeroView: React.FC = () => {
               zoomControl={false}
             >
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+
+              {/* Mantener el taxi en el encuadre durante el viaje */}
+              <MapAutoFollow
+                lat={
+                  ["asignado", "encamino", "encurso"].includes(estado)
+                    ? (taxiPos?.lat ?? null)
+                    : (userPosition?.lat ?? null)
+                }
+                lng={
+                  ["asignado", "encamino", "encurso"].includes(estado)
+                    ? (taxiPos?.lng ?? null)
+                    : (userPosition?.lng ?? null)
+                }
+                activo={Boolean(
+                  ["asignado", "encamino", "encurso"].includes(estado)
+                    ? taxiPos?.lat && taxiPos?.lng
+                    : userPosition?.lat && userPosition?.lng,
+                )}
+              />
 
               {/* -----------------------------------------------------
                 PASAJERO
