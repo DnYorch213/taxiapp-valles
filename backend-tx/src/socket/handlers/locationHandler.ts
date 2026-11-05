@@ -65,8 +65,44 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
             }
 
             if ([POSITION_STATES.PREASIGNADO, POSITION_STATES.ASIGNADO, POSITION_STATES.ENCAMINO, POSITION_STATES.ENCURSO].includes(currentDoc.estado as any)) {
-                callback?.({ success: false, message: "No puedes cambiar tu estado durante un viaje activo" });
-                return;
+                /**
+                 * 🛡️ El bloqueo sólo aplica a un viaje REAL. Si la asignación
+                 * quedó obsoleta (el pasajero canceló y el taxista se quedó en
+                 * `asignado`), antes se le impedía cambiar de estado y quedaba
+                 * atrapado: ni despachable ni capaz de ponerse disponible.
+                 */
+                const pEmail = currentDoc.pasajeroAsignado
+                    ? String(currentDoc.pasajeroAsignado).toLowerCase().trim()
+                    : null;
+
+                const pasajero = pEmail ? await Position.findOne({ email: pEmail }).lean() : null;
+
+                const viajeReal = Boolean(
+                    pasajero &&
+                    String(pasajero.taxistaAsignado || "").toLowerCase().trim() === email &&
+                    [
+                        POSITION_STATES.PREASIGNADO,
+                        POSITION_STATES.ASIGNADO,
+                        POSITION_STATES.ENCAMINO,
+                        POSITION_STATES.ENCURSO
+                    ].includes(String(pasajero.estado || "").toLowerCase().trim() as any)
+                );
+
+                if (viajeReal) {
+                    callback?.({ success: false, message: "No puedes cambiar tu estado durante un viaje activo" });
+                    return;
+                }
+
+                await Position.updateOne(
+                    { email },
+                    { $set: { pasajeroAsignado: null, requestId: null, updatedAt: new Date() } }
+                );
+
+                logMotor(
+                    "driver_status",
+                    `Asignación obsoleta limpiada para ${email} (estado '${currentDoc.estado}', pasajero=${pEmail || "ninguno"})`,
+                    "WARN"
+                );
             }
 
             const updatedDoc = await Position.findOneAndUpdate(

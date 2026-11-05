@@ -59,7 +59,80 @@ const clearLocalSocketTimeouts = (email: string) => {
 /**
  * Helper para gestionar la reconexión y notificación dentro de la sala de viaje.
  */
+/**
+ * 🧹 Reconcilia el estado del taxista con la realidad de la BD.
+ * Si quedó en un estado de viaje (`preasignado`/`asignado`/`encamino`/`encurso`)
+ * pero no existe una relación válida con un pasajero activo, se libera a
+ * `activo`. Sin esto el despacho lo excluye (sólo busca `activo`) y él mismo no
+ * puede cambiarlo a mano, porque el handler le responde "No puedes cambiar tu
+ * estado durante un viaje activo".
+ */
+const reconciliarEstadoTaxista = async (socket: Socket, email: string) => {
+    try {
+        const tDoc = await Position.findOne({ email }).lean();
+
+        if (!tDoc || tDoc.role !== "taxista") return;
+
+        const estadoTaxista = String(tDoc.estado || "").toLowerCase().trim();
+
+        if (
+            ![
+                "preasignado",
+                "asignado",
+                "encamino",
+                "encurso"
+            ].includes(estadoTaxista)
+        ) {
+            return;
+        }
+
+        const pEmail = tDoc.pasajeroAsignado
+            ? String(tDoc.pasajeroAsignado).toLowerCase().trim()
+            : null;
+
+        const pasajero = pEmail ? await Position.findOne({ email: pEmail }).lean() : null;
+
+        const estadosActivosPasajero = ["preasignado", "asignado", "encamino", "encurso"];
+
+        const relacionValida = Boolean(
+            pasajero &&
+            String(pasajero.taxistaAsignado || "").toLowerCase().trim() === email &&
+            estadosActivosPasajero.includes(String(pasajero.estado || "").toLowerCase().trim())
+        );
+
+        if (relacionValida) return;
+
+        await Position.updateOne(
+            { email },
+            {
+                $set: {
+                    estado: "activo",
+                    pasajeroAsignado: null,
+                    requestId: null,
+                    updatedAt: new Date()
+                }
+            }
+        );
+
+        socket.emit("trip_cancelled_by_passenger", {
+            message: "Tu viaje anterior ya no está activo.",
+            newStatus: "activo"
+        });
+        socket.emit("reset_estado_taxista", { estado: "activo" });
+        socket.emit("trip_status_update", { estado: "activo" });
+
+        logMotor(
+            "socket_reconcile",
+            `Taxista ${email} liberado de '${estadoTaxista}' a 'activo': sin viaje activo asociado`,
+            "WARN"
+        );
+    } catch (err) {
+        logMotor("socket_reconcile", `No se pudo reconciliar el estado de ${email}: ${err}`, "WARN");
+    }
+};
+
 const handleTripReconnection = async (socket: Socket, io: Server, currentPos: any, email: string) => {
+
     let requestId = currentPos.requestId || currentPos.activeRequestId;
 
     if (requestId && requestId.startsWith("legacy_")) {
@@ -126,6 +199,39 @@ const handleTripReconnection = async (socket: Socket, io: Server, currentPos: an
 
         if (!isTripStillValid) {
             logMotor("socket_reconnect", `Ignorando reconexión de viaje para ${email}: relación cancelada o inválida`, "INFO");
+
+            /**
+             * 🧹 AUTO-RECUPERACIÓN DEL TAXISTA.
+             * Si la relación del viaje ya no es válida, el taxista no debe
+             * quedarse en `asignado`/`preasignado`: ese estado lo excluye del
+             * despacho (que sólo busca taxistas `activo`) y además su menú de
+             * estado le impide cambiarlo a mano ("No puedes cambiar tu estado
+             * durante un viaje activo"). Antes quedaba atrapado hasta reiniciar
+             * el servicio.
+             */
+            if (currentPos.role === "taxista") {
+                await Position.updateOne(
+                    { email },
+                    {
+                        $set: {
+                            estado: "activo",
+                            pasajeroAsignado: null,
+                            requestId: null,
+                            updatedAt: new Date()
+                        }
+                    }
+                );
+
+                logMotor("socket_reconnect", `Taxista ${email} liberado a 'activo': su viaje ya no era válido`, "WARN");
+
+                socket.emit("trip_cancelled_by_passenger", {
+                    message: "Tu viaje anterior ya no está activo.",
+                    newStatus: "activo"
+                });
+                socket.emit("reset_estado_taxista", { estado: "activo" });
+                socket.emit("trip_status_update", { estado: "activo" });
+            }
+
             return;
         }
 
@@ -275,6 +381,14 @@ export const initSocketEngine = (io: Server) => {
                         email
                     );
                 }
+
+                // ====================================================
+                // 🧹 RECONCILIAR ESTADO DEL TAXISTA
+                // ====================================================
+                // Red de seguridad por si quedó en un estado de viaje sin una
+                // relación válida (viaje cancelado mientras estaba desconectado,
+                // cancelación antes de aceptar, etc.).
+                await reconciliarEstadoTaxista(socket, email);
 
                 // ====================================================
                 // 🔌 ACTUALIZAR SOCKET ACTIVO
