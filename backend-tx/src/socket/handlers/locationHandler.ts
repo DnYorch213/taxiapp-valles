@@ -15,6 +15,7 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
     // se podía saber si el marcador congelado era por datos o por render.
     let lastTripPathLogAt = 0;
     let lastTaxiMovedLogAt = 0;
+    let lastRechazoLogAt = 0;
 
     /**
      * 💾 Persistencia acotada de la telemetría del viaje.
@@ -109,11 +110,20 @@ export const registerLocationHandlers = (io: Server, socket: Socket, email: stri
                 .trim();
 
             if (!pasajero || !taxistaAsignado || taxistaAsignado !== email) {
-                logMotor(
-                    "socket_security",
-                    `Intento no autorizado de update_trip_path: ${email} → ${pasajeroEmail}`,
-                    "WARN"
-                );
+                // Antispam: un taxista con una asignación obsoleta puede emitir
+                // cada segundo durante minutos; con esto basta un aviso cada 15 s.
+                const ahoraRechazo = Date.now();
+
+                if (ahoraRechazo - lastRechazoLogAt > 15000) {
+                    lastRechazoLogAt = ahoraRechazo;
+
+                    logMotor(
+                        "socket_security",
+                        `Intento no autorizado de update_trip_path: ${email} → ${pasajeroEmail}`,
+                        "WARN"
+                    );
+                }
+
                 return;
             }
 

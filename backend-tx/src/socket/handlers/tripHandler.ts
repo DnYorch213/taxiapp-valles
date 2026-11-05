@@ -640,7 +640,7 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
     // ============================================================
     socket.on("passenger_cancel", async ({ pasajeroEmail, taxistaEmail }) => {
         const pEmail = pasajeroEmail.toLowerCase().trim();
-        const tEmail = taxistaEmail ? taxistaEmail.toLowerCase().trim() : null;
+        const tEmailSolicitado = taxistaEmail ? taxistaEmail.toLowerCase().trim() : null;
 
         // 🛡️ VALIDACIÓN: El socket debe ser del pasajero
         if (email !== pEmail) {
@@ -657,6 +657,28 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                 logMotor("passenger_cancel", `Pasajero=${pEmail} -> Cancelación bloqueada. Estado=${estadoActualDoc?.estado}`, "WARN");
                 return;
             }
+
+            /**
+             * 🚕 EL TAXISTA SE RESUELVE EN EL SERVIDOR.
+             * Si el pasajero cancela antes de que el taxista acepte, su cliente
+             * todavía no conoce `taxistaAsignado` y enviaba `taxistaEmail: null`.
+             * El taxista quedaba en `asignado` con `pasajeroAsignado` apuntando a
+             * un viaje cancelado, y el despacho lo excluía: "No hay taxistas
+             * activos disponibles" durante minutos.
+             */
+            const taxistaPorRelacion = await Position.findOne({
+                role: "taxista",
+                pasajeroAsignado: pEmail
+            }).lean();
+
+            const tEmail =
+                tEmailSolicitado ||
+                (estadoActualDoc.taxistaAsignado
+                    ? String(estadoActualDoc.taxistaAsignado).toLowerCase().trim()
+                    : null) ||
+                (taxistaPorRelacion?.email
+                    ? String(taxistaPorRelacion.email).toLowerCase().trim()
+                    : null);
 
             logMotor("passenger_cancel", `Pasajero=${pEmail} -> Cancelación definitiva`, "WARN");
 
@@ -698,6 +720,21 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                         { session }
                     );
                 }
+
+                // 🧹 Red de seguridad: ningún taxista puede quedar apuntando a un
+                // viaje cancelado (si quedara, el despacho jamás lo elegiría).
+                await Position.updateMany(
+                    { role: "taxista", pasajeroAsignado: pEmail },
+                    {
+                        $set: {
+                            estado: POSITION_STATES.ACTIVO,
+                            pasajeroAsignado: null,
+                            requestId: null,
+                            updatedAt: new Date()
+                        }
+                    },
+                    { session }
+                );
 
                 await session.commitTransaction();
                 session.endSession();
