@@ -485,8 +485,16 @@ export const registerTripHandlers = (io: Server, socket: Socket, email: string) 
                     estimatedDistanceKm
                 });
 
+                /**
+                 * 🚕 El pasajero también pasa a `encamino`, igual que la BD y que
+                 * el taxista. Antes se le dejaba en `asignado` mientras la BD
+                 * decía `encamino`: la app mostraba "Asignado" en vez de
+                 * "En camino" y su latido intentaba escribir `asignado`, lo que
+                 * el guard del servidor tenía que corregir cada pocos segundos
+                 * (`[WARN][estado_guard]`).
+                 */
                 io.to(pEmail).emit("trip_status_update", {
-                    estado: POSITION_STATES.ASIGNADO,
+                    estado: POSITION_STATES.ENCAMINO,
                     pasajeroEmail: pEmail
                 });
 
