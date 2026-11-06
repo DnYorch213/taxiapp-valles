@@ -33,6 +33,7 @@ import { TRIP_STATES } from "../constants/states";
 import { shouldAcceptStateTransition } from "../utils/socketStateGuard";
 import { showToastOnce } from "../utils/toastGuard";
 import { getDistanceKm } from "../helpers/getDistanceKm";
+import { calcularTarifaPorDistancia } from "../utils/fare";
 
 const RoutingMachine = lazy(() =>
   import("../components/RoutingMachine").then((module) => ({
@@ -118,48 +119,8 @@ const DESTINATION_MIN_MOVE_METERS = 80;
 /** Frecuencia máxima de cambios de destino por arrastre del pin. */
 const DESTINATION_CHANGE_MIN_INTERVAL_MS = 8000;
 
-const calcularTarifaPorDistancia = (distanciaKm: number): number => {
-  if (!distanciaKm || distanciaKm <= 0) return 50;
-
-  const FARE_TIERS = [
-    { maxKm: 0.5, price: 50 },
-    { maxKm: 1.0, price: 60 },
-    { maxKm: 1.5, price: 65 },
-    { maxKm: 2.0, price: 70 },
-    { maxKm: 2.5, price: 75 },
-    { maxKm: 3.0, price: 80 },
-    { maxKm: 3.5, price: 85 },
-    { maxKm: 4.0, price: 90 },
-    { maxKm: 4.5, price: 95 },
-    { maxKm: 5.0, price: 100 },
-    { maxKm: 5.5, price: 105 },
-    { maxKm: 6.0, price: 110 },
-    { maxKm: 6.5, price: 115 },
-    { maxKm: 7.0, price: 120 },
-    { maxKm: 7.5, price: 125 },
-    { maxKm: 8.0, price: 130 },
-    { maxKm: 8.5, price: 135 },
-    { maxKm: 9.0, price: 140 },
-    { maxKm: 9.5, price: 145 },
-    { maxKm: 10.0, price: 150 },
-    { maxKm: 10.5, price: 155 },
-    { maxKm: 11.0, price: 160 },
-    { maxKm: 11.5, price: 165 },
-    { maxKm: 12.0, price: 170 },
-    { maxKm: 12.5, price: 175 },
-    { maxKm: 13.0, price: 180 },
-    { maxKm: 13.5, price: 185 },
-    { maxKm: 14.0, price: 190 },
-    { maxKm: 14.5, price: 195 },
-    { maxKm: 15.0, price: 200 },
-    { maxKm: 15.5, price: 205 },
-    { maxKm: 16.0, price: 210 },
-  ];
-
-  const tramo = FARE_TIERS.find((tier) => distanciaKm <= tier.maxKm);
-
-  return tramo?.price ?? 210;
-};
+// 💵 La tabla de tarifas vive en `src/utils/fare.ts` (regla suave: 1 peso
+// cada 100 metros). Aquí sólo se consume.
 
 const isValidCoordinatePair = (lat: number, lng: number) => {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
